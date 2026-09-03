@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';" />
+<title>Launchpad</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="toolbar">
+    <div id="breadcrumb" class="breadcrumb"></div>
+    <div class="toolbar-spacer"></div>
+    <button id="newFolderBtn">+ New Folder</button>
+    <button id="addBtn" class="primary">+ Add App</button>
+  </div>
+
+  <div id="grid" class="grid"></div>
+  <div id="empty" class="empty hidden">
+    <p id="emptyTitle">No apps yet.</p>
+    <p id="emptySubtitle">Click <strong>+ Add App</strong> to add your first one.</p>
+  </div>
+
+  <div id="taskbar" class="taskbar">
+    <div id="pinnedRow" class="pinned-row"></div>
+    <div id="pinnedEmpty" class="pinned-empty">Right-click an app → Pin to Taskbar</div>
+    <div class="taskbar-search-wrap">
+      <input id="taskbarSearch" type="text" placeholder="Search everything…" autocomplete="off" />
+      <div id="searchResults" class="search-results hidden"></div>
+    </div>
+  </div>
+
+  <div id="contextMenu" class="context-menu hidden"></div>
+
+  <div id="modalOverlay" class="modal-overlay hidden">
+    <div class="modal">
+      <h2 id="modalTitle">Add App</h2>
+      <form id="appForm">
+        <div class="icon-row">
+          <img id="iconPreview" class="icon-preview" alt="icon preview" />
+          <div class="icon-buttons">
+            <button type="button" id="chooseIconBtn">Choose Icon…</button>
+            <button type="button" id="autoIconBtn">Auto-detect Icon</button>
+          </div>
+        </div>
+
+        <label>Name
+          <input id="fName" type="text" required />
+        </label>
+
+        <label>Type
+          <select id="fType">
+            <option value="path">App / Shortcut / Windows Folder</option>
+            <option value="url">Website</option>
+            <option value="script">Script (Python, Node, …)</option>
+            <option value="command">Custom Command</option>
+          </select>
+        </label>
+
+        <div id="targetRow" class="field-group">
+          <label id="targetLabel">Target
+            <input id="fTarget" type="text" placeholder="C:\path\to\app.exe" />
+          </label>
+          <button type="button" id="browseBtn">Browse File…</button>
+          <button type="button" id="browseFolderBtn">Windows Folder…</button>
+        </div>
+
+        <div id="urlRow" class="field-group hidden">
+          <label>URL
+            <input id="fUrl" type="text" placeholder="https://example.com" />
+          </label>
+        </div>
+
+        <div id="scriptRow" class="hidden">
+          <label>Interpreter
+            <input id="fInterpreter" type="text" placeholder="python" />
+          </label>
+          <label>Arguments
+            <input id="fArgs" type="text" placeholder="(optional)" />
+          </label>
+          <label>Working Directory
+            <input id="fCwdScript" type="text" placeholder="(optional)" />
+          </label>
+        </div>
+
+        <div id="commandRow" class="hidden">
+          <label>Command
+            <textarea id="fCommand" rows="2" placeholder="e.g. npm start"></textarea>
+          </label>
+          <label>Working Directory
+            <input id="fCwdCommand" type="text" placeholder="C:\path\to\project" />
+          </label>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" id="deleteBtn" class="danger hidden">Remove</button>
+          <div class="spacer"></div>
+          <button type="button" id="cancelBtn">Cancel</button>
+          <button type="submit" class="primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="nameModalOverlay" class="modal-overlay hidden">
+    <div class="modal small">
+      <h2 id="nameModalTitle">New Folder</h2>
+      <form id="nameForm">
+        <label>Name
+          <input id="nameInput" type="text" required />
+        </label>
+        <div class="modal-actions">
+          <div class="spacer"></div>
+          <button type="button" id="nameCancelBtn">Cancel</button>
+          <button type="submit" class="primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="moveModalOverlay" class="modal-overlay hidden">
+    <div class="modal small">
+      <h2>Move to Folder</h2>
+      <div id="moveList" class="move-list"></div>
+      <div class="modal-actions">
+        <div class="spacer"></div>
+        <button type="button" id="moveCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
