@@ -224,6 +224,30 @@
           <button type="button" id="accentResetBtn">Reset</button>
         </div>
       </div>
+      <div class="settings-row settings-accent-row">
+        <span>Taskbar look</span>
+        <select id="taskbarStyleSelect">
+          <option value="solid">Solid</option>
+          <option value="translucent">Translucent</option>
+          <option value="transparent">Transparent</option>
+        </select>
+      </div>
+      <div class="settings-row settings-accent-row">
+        <span>Top bar look</span>
+        <select id="topbarStyleSelect">
+          <option value="solid">Solid</option>
+          <option value="translucent">Translucent</option>
+          <option value="transparent">Transparent</option>
+        </select>
+      </div>
+      <div class="settings-row settings-accent-row">
+        <span>Wallpaper</span>
+        <div class="accent-color-controls">
+          <button type="button" id="wallpaperPickBtn">Choose Image…</button>
+          <button type="button" id="wallpaperResetBtn">Clear</button>
+          <input type="file" id="wallpaperFileInput" accept="image/*" class="hidden" />
+        </div>
+      </div>
       <div class="settings-row settings-hotkey-row">
         <span>Toggle hotkey</span>
         <button type="button" id="hotkeyBtn">Ctrl+Space</button>

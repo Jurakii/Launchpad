@@ -37,7 +37,12 @@
 body {
   margin: 0;
   height: 100vh;
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image: var(--wallpaper, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
   color: var(--text);
   font-family: "Segoe UI", system-ui, sans-serif;
   display: flex;
@@ -49,8 +54,23 @@ body {
   display: flex;
   gap: 12px;
   padding: 14px 18px;
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
+}
+
+/* Taskbar/top-bar "look" options, set via data-style on the elements
+   themselves so a wallpaper can show through when either bar isn't solid. */
+.toolbar[data-style="transparent"],
+.taskbar[data-style="transparent"] {
+  background: transparent;
+  border-color: transparent;
+}
+.toolbar[data-style="translucent"],
+.taskbar[data-style="translucent"] {
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .toolbar input, .toolbar button, .modal button, .modal input, .modal select, .modal textarea {

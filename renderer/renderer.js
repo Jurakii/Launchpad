@@ -7,6 +7,16 @@ try {
   }
   const savedAccent = localStorage.getItem('launchpad-accent');
   if (savedAccent) document.documentElement.style.setProperty('--accent', savedAccent);
+  const savedWallpaper = localStorage.getItem('launchpad-wallpaper');
+  if (savedWallpaper) document.documentElement.style.setProperty('--wallpaper', `url("${savedWallpaper}")`);
+  const savedTaskbarStyle = localStorage.getItem('launchpad-taskbar-style');
+  if (savedTaskbarStyle && savedTaskbarStyle !== 'solid') {
+    document.getElementById('taskbar').setAttribute('data-style', savedTaskbarStyle);
+  }
+  const savedTopbarStyle = localStorage.getItem('launchpad-topbar-style');
+  if (savedTopbarStyle && savedTopbarStyle !== 'solid') {
+    document.querySelector('.toolbar').setAttribute('data-style', savedTopbarStyle);
+  }
 } catch {}
 
 const grid = document.getElementById('grid');
@@ -74,6 +84,13 @@ const fullscreenToggle = document.getElementById('fullscreenToggle');
 const minimizeToTrayToggle = document.getElementById('minimizeToTrayToggle');
 const accentColorInput = document.getElementById('accentColorInput');
 const accentResetBtn = document.getElementById('accentResetBtn');
+const taskbarStyleSelect = document.getElementById('taskbarStyleSelect');
+const topbarStyleSelect = document.getElementById('topbarStyleSelect');
+const wallpaperPickBtn = document.getElementById('wallpaperPickBtn');
+const wallpaperResetBtn = document.getElementById('wallpaperResetBtn');
+const wallpaperFileInput = document.getElementById('wallpaperFileInput');
+const toolbarEl = document.querySelector('.toolbar');
+const taskbarEl = document.getElementById('taskbar');
 const hotkeyBtn = document.getElementById('hotkeyBtn');
 const versionLabel = document.getElementById('versionLabel');
 const detectIconsBtn = document.getElementById('detectIconsBtn');
@@ -1999,6 +2016,8 @@ settingsBtn.addEventListener('click', async () => {
   fullscreenToggle.checked = await window.launcherAPI.getStartFullscreen();
   minimizeToTrayToggle.checked = await window.launcherAPI.getMinimizeToTrayOnClose();
   accentColorInput.value = currentAccentColor();
+  taskbarStyleSelect.value = localStorage.getItem('launchpad-taskbar-style') || 'solid';
+  topbarStyleSelect.value = localStorage.getItem('launchpad-topbar-style') || 'solid';
   hotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getHotkey());
   settingsModalOverlay.classList.remove('hidden');
 });
@@ -2101,6 +2120,50 @@ accentResetBtn.addEventListener('click', () => {
     localStorage.removeItem('launchpad-accent');
   } catch {}
   accentColorInput.value = currentAccentColor();
+});
+
+function applyBarStyle(el, storageKey, style) {
+  if (style === 'solid') el.removeAttribute('data-style');
+  else el.setAttribute('data-style', style);
+  try {
+    if (style === 'solid') localStorage.removeItem(storageKey);
+    else localStorage.setItem(storageKey, style);
+  } catch {}
+}
+
+taskbarStyleSelect.addEventListener('change', () => {
+  applyBarStyle(taskbarEl, 'launchpad-taskbar-style', taskbarStyleSelect.value);
+});
+
+topbarStyleSelect.addEventListener('change', () => {
+  applyBarStyle(toolbarEl, 'launchpad-topbar-style', topbarStyleSelect.value);
+});
+
+wallpaperPickBtn.addEventListener('click', () => wallpaperFileInput.click());
+
+wallpaperFileInput.addEventListener('change', () => {
+  const file = wallpaperFileInput.files && wallpaperFileInput.files[0];
+  wallpaperFileInput.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = reader.result;
+    document.documentElement.style.setProperty('--wallpaper', `url("${dataUrl}")`);
+    try {
+      localStorage.setItem('launchpad-wallpaper', dataUrl);
+    } catch {
+      showAlert("That image is too large to save as a wallpaper - try a smaller file.");
+      document.documentElement.style.removeProperty('--wallpaper');
+    }
+  };
+  reader.readAsDataURL(file);
+});
+
+wallpaperResetBtn.addEventListener('click', () => {
+  document.documentElement.style.removeProperty('--wallpaper');
+  try {
+    localStorage.removeItem('launchpad-wallpaper');
+  } catch {}
 });
 
 detectIconsBtn.addEventListener('click', async () => {
