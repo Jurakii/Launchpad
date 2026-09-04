@@ -30,10 +30,13 @@
       "lib/**/*",
       "renderer/**/*",
       "build/icon.ico"
+    ],
+    "asarUnpack": [
+      "lib/*.ps1"
     ]
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "electron": "^44.2.0",
+    "electron-builder": "^26.15.3"
   }
 }

@@ -442,7 +442,284 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   display: flex;
   align-items: center;
 }
-.taskbar-right { min-width: 0; }
+.taskbar-right {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.taskbar-icon-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+
+/* Taskbar/menu icon buttons all draw inline SVGs tinted with currentColor,
+   so setting color here is what keeps them in sync with the accent color. */
+.taskbar-icon-btn,
+.recent-btn,
+.mute-toggle-btn,
+.session-mute-btn,
+.usb-eject-btn,
+#settingsBtn,
+#fullscreenBtn {
+  color: var(--accent);
+}
+.taskbar-icon-btn svg, .recent-btn svg, #settingsBtn svg, #fullscreenBtn svg { width: 19px; height: 19px; }
+.mute-toggle-btn svg, .usb-eject-btn svg { width: 15px; height: 15px; }
+.session-mute-btn svg { width: 13px; height: 13px; }
+
+#settingsBtn,
+#fullscreenBtn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.menu-item-icon {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  margin-right: 8px;
+  vertical-align: -3px;
+  color: currentColor;
+}
+.menu-item-icon svg { width: 100%; height: 100%; }
+
+.volume-control, .usb-control { position: relative; }
+
+.volume-popout {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 20;
+}
+
+.volume-master-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mute-toggle-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+#volumeSlider, .session-slider { flex: 1; min-width: 0; }
+
+.volume-pct, .session-pct {
+  flex-shrink: 0;
+  width: 30px;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.volume-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.volume-section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+
+#outputDeviceSelect {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.session-mixer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.session-mixer-empty {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-name {
+  flex-shrink: 0;
+  width: 70px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-mute-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.usb-popout {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 20;
+}
+
+.usb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.usb-empty {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.usb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.usb-info { min-width: 0; flex: 1; }
+.usb-label {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usb-size { font-size: 11px; color: var(--muted); }
+
+.usb-eject-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+
+.power-popout {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 20;
+}
+
+.power-option-btn {
+  width: 100%;
+  text-align: left;
+}
+
+.wifi-action-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+.network-settings-link {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 4px 0 0;
+  font-size: 12px;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+}
+.network-settings-link:hover { text-decoration: underline; }
+
+.clock-widget {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  line-height: 1.3;
+  padding: 4px 8px;
+  border-radius: 8px;
+  user-select: none;
+}
+.clock-time { font-size: 13px; font-variant-numeric: tabular-nums; }
+.clock-date { font-size: 11px; color: var(--muted); }
 
 .pinned-row {
   position: relative;
@@ -468,6 +745,60 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.taskbar-divider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 32px;
+  background: var(--border);
+  margin: 0 8px;
+}
+
+.open-windows-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.window-tile {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.window-tile:hover { background: var(--bg); }
+.window-tile img { width: 26px; height: 26px; object-fit: contain; }
+.window-tile-fallback {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+.window-tile::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
 }
 
 .pin-tile {
@@ -658,11 +989,31 @@ body.file-drag-over::after {
 .settings-hotkey-row button { min-width: 120px; font-variant-numeric: tabular-nums; }
 .settings-hotkey-row button.capturing { border-color: var(--accent); color: var(--accent); }
 
+.settings-accent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--text);
+}
+.accent-color-controls { display: flex; align-items: center; gap: 8px; }
+#accentColorInput {
+  width: 36px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+#accentColorInput::-webkit-color-swatch-wrapper { padding: 0; }
+#accentColorInput::-webkit-color-swatch { border: none; border-radius: 4px; }
+
 /* ---------- Folder color swatches ---------- */
 
-.color-row { display: flex; align-items: center; gap: 10px; }
-.color-row-label { font-size: 13px; color: var(--muted); }
-.color-swatches { display: flex; gap: 8px; }
+.color-row { display: flex; align-items: flex-start; gap: 10px; }
+.color-row-label { font-size: 13px; color: var(--muted); padding-top: 4px; }
+.color-swatches { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
 .swatch {
   width: 24px;
   height: 24px;
@@ -672,3 +1023,15 @@ body.file-drag-over::after {
   cursor: pointer;
 }
 .swatch.selected { border-color: var(--text); }
+.swatch.custom-swatch {
+  background: conic-gradient(from 90deg, #ff5b5b, #ffd75b, #5bffb0, #5bd6ff, #8a5bff, #ff5bd6, #ff5b5b);
+}
+.custom-color-input-hidden {
+  position: absolute;
+  width: 0;
+  height: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}

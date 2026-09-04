@@ -10,9 +10,10 @@
   <div class="toolbar">
     <div id="breadcrumb" class="breadcrumb"></div>
     <div class="toolbar-spacer"></div>
-    <button id="settingsBtn" title="Settings">⚙</button>
+    <button id="settingsBtn" title="Settings"></button>
     <button id="newFolderBtn">+ New Island</button>
     <button id="addBtn" class="primary">+ Add App</button>
+    <button id="fullscreenBtn" title="Toggle fullscreen"></button>
   </div>
 
   <div id="grid" class="grid"><div id="canvas" class="canvas"></div></div>
@@ -27,6 +28,8 @@
         <div id="pinInsertLine" class="pin-insert-line hidden"></div>
       </div>
       <div id="pinnedEmpty" class="pinned-empty">Right-click an app or island → Pin to Taskbar</div>
+      <div id="taskbarDivider" class="taskbar-divider hidden"></div>
+      <div id="openWindowsRow" class="open-windows-row"></div>
     </div>
 
     <div class="taskbar-center">
@@ -34,11 +37,64 @@
         <input id="taskbarSearch" type="text" placeholder="Search everything…" autocomplete="off" />
         <div id="searchResults" class="search-results hidden"></div>
       </div>
-      <button id="recentBtn" class="recent-btn" title="Recent">🕓</button>
+      <button id="recentBtn" class="recent-btn" title="Recent"></button>
       <div id="recentPopout" class="search-results hidden"></div>
     </div>
 
-    <div class="taskbar-right"></div>
+    <div class="taskbar-right">
+      <div class="volume-control">
+        <button id="volumeBtn" class="taskbar-icon-btn" title="Volume"></button>
+        <div id="volumePopout" class="volume-popout hidden">
+          <div class="volume-master-row">
+            <button id="muteBtn" class="mute-toggle-btn" title="Mute"></button>
+            <input id="volumeSlider" type="range" min="0" max="100" step="1" />
+            <span id="volumePct" class="volume-pct">--</span>
+          </div>
+          <div class="volume-section">
+            <label class="volume-section-label" for="outputDeviceSelect">Output device</label>
+            <select id="outputDeviceSelect"></select>
+          </div>
+          <div class="volume-section">
+            <span class="volume-section-label">App volumes</span>
+            <div id="sessionMixerList" class="session-mixer-list"></div>
+          </div>
+        </div>
+      </div>
+      <div class="usb-control">
+        <button id="usbBtn" class="taskbar-icon-btn" title="USB devices"></button>
+        <div id="usbPopout" class="usb-popout hidden">
+          <div class="volume-section-label">USB devices</div>
+          <div id="usbList" class="usb-list"></div>
+        </div>
+      </div>
+      <div class="usb-control">
+        <button id="bluetoothBtn" class="taskbar-icon-btn" title="Bluetooth devices"></button>
+        <div id="bluetoothPopout" class="usb-popout hidden">
+          <div class="volume-section-label">Bluetooth devices</div>
+          <div id="bluetoothList" class="usb-list"></div>
+        </div>
+      </div>
+      <div class="usb-control">
+        <button id="networkBtn" class="taskbar-icon-btn" title="Wi-Fi networks"></button>
+        <div id="networkPopout" class="usb-popout hidden">
+          <div class="volume-section-label">Wi-Fi networks</div>
+          <div id="networkList" class="usb-list"></div>
+          <button type="button" id="networkSettingsBtn" class="network-settings-link">More network settings…</button>
+        </div>
+      </div>
+      <div id="clockWidget" class="clock-widget" title="">
+        <div id="clockTime" class="clock-time"></div>
+        <div id="clockDate" class="clock-date"></div>
+      </div>
+      <div class="usb-control">
+        <button id="powerBtn" class="taskbar-icon-btn" title="Power"></button>
+        <div id="powerPopout" class="power-popout hidden">
+          <button type="button" id="powerSleepBtn" class="power-option-btn">Sleep</button>
+          <button type="button" id="powerRestartBtn" class="power-option-btn">Restart</button>
+          <button type="button" id="powerShutdownBtn" class="power-option-btn danger">Shut down</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="contextMenu" class="context-menu hidden"></div>
@@ -123,6 +179,7 @@
         <div id="colorRow" class="color-row hidden">
           <span class="color-row-label">Color</span>
           <div id="colorSwatches" class="color-swatches"></div>
+          <input type="color" id="customIslandColorInput" class="custom-color-input-hidden" tabindex="-1" />
         </div>
         <div class="modal-actions">
           <div class="spacer"></div>
@@ -156,6 +213,16 @@
       </div>
       <div class="settings-row">
         <label class="switch-row"><input type="checkbox" id="fullscreenToggle" /> Start fullscreen</label>
+      </div>
+      <div class="settings-row">
+        <label class="switch-row"><input type="checkbox" id="minimizeToTrayToggle" /> Minimize to tray on close</label>
+      </div>
+      <div class="settings-row settings-accent-row">
+        <span>Accent color</span>
+        <div class="accent-color-controls">
+          <input type="color" id="accentColorInput" />
+          <button type="button" id="accentResetBtn">Reset</button>
+        </div>
       </div>
       <div class="settings-row settings-hotkey-row">
         <span>Toggle hotkey</span>

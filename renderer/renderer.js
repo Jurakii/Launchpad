@@ -5,6 +5,8 @@ try {
   if (localStorage.getItem('launchpad-theme') === 'light') {
     document.documentElement.setAttribute('data-theme', 'light');
   }
+  const savedAccent = localStorage.getItem('launchpad-accent');
+  if (savedAccent) document.documentElement.style.setProperty('--accent', savedAccent);
 } catch {}
 
 const grid = document.getElementById('grid');
@@ -53,6 +55,7 @@ const nameInput = document.getElementById('nameInput');
 const nameCancelBtn = document.getElementById('nameCancelBtn');
 const colorRow = document.getElementById('colorRow');
 const colorSwatches = document.getElementById('colorSwatches');
+const customIslandColorInput = document.getElementById('customIslandColorInput');
 
 const moveModalOverlay = document.getElementById('moveModalOverlay');
 const moveList = document.getElementById('moveList');
@@ -68,6 +71,9 @@ const settingsCloseBtn = document.getElementById('settingsCloseBtn');
 const autoLaunchToggle = document.getElementById('autoLaunchToggle');
 const themeToggle = document.getElementById('themeToggle');
 const fullscreenToggle = document.getElementById('fullscreenToggle');
+const minimizeToTrayToggle = document.getElementById('minimizeToTrayToggle');
+const accentColorInput = document.getElementById('accentColorInput');
+const accentResetBtn = document.getElementById('accentResetBtn');
 const hotkeyBtn = document.getElementById('hotkeyBtn');
 const versionLabel = document.getElementById('versionLabel');
 const detectIconsBtn = document.getElementById('detectIconsBtn');
@@ -76,11 +82,39 @@ const importBtn = document.getElementById('importBtn');
 
 const pinnedRow = document.getElementById('pinnedRow');
 const pinnedEmpty = document.getElementById('pinnedEmpty');
+const taskbarDivider = document.getElementById('taskbarDivider');
+const openWindowsRow = document.getElementById('openWindowsRow');
 const pinInsertLine = document.getElementById('pinInsertLine');
 const taskbarSearch = document.getElementById('taskbarSearch');
 const searchResults = document.getElementById('searchResults');
 const recentBtn = document.getElementById('recentBtn');
 const recentPopout = document.getElementById('recentPopout');
+
+const volumeBtn = document.getElementById('volumeBtn');
+const volumePopout = document.getElementById('volumePopout');
+const muteBtn = document.getElementById('muteBtn');
+const volumeSlider = document.getElementById('volumeSlider');
+const volumePct = document.getElementById('volumePct');
+const outputDeviceSelect = document.getElementById('outputDeviceSelect');
+const sessionMixerList = document.getElementById('sessionMixerList');
+const usbBtn = document.getElementById('usbBtn');
+const usbPopout = document.getElementById('usbPopout');
+const usbList = document.getElementById('usbList');
+const bluetoothBtn = document.getElementById('bluetoothBtn');
+const bluetoothPopout = document.getElementById('bluetoothPopout');
+const bluetoothList = document.getElementById('bluetoothList');
+const powerBtn = document.getElementById('powerBtn');
+const powerPopout = document.getElementById('powerPopout');
+const powerSleepBtn = document.getElementById('powerSleepBtn');
+const powerRestartBtn = document.getElementById('powerRestartBtn');
+const powerShutdownBtn = document.getElementById('powerShutdownBtn');
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+const networkBtn = document.getElementById('networkBtn');
+const networkPopout = document.getElementById('networkPopout');
+const networkList = document.getElementById('networkList');
+const networkSettingsBtn = document.getElementById('networkSettingsBtn');
+const clockTime = document.getElementById('clockTime');
+const clockDate = document.getElementById('clockDate');
 
 const PLACEHOLDER_ICON =
   'data:image/svg+xml;utf8,' +
@@ -153,10 +187,63 @@ function folderSVG(color) {
 
 // Windows won't hand over its real recycle-bin icon through any API path
 // available (see the comment on the "special" field where it's set) - this
-// is a drawn-in-house stand-in instead.
+// is a stand-in instead, loaded from icons/recycle-bin.svg like the rest of
+// the icon set (see ICON_FILES below) but colored to match regular text
+// rather than the accent color, since it sits among plain app icons on the
+// grid rather than in the accent-tinted taskbar.
 function recycleBinSVG() {
-  return `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="var(--text)" d="M9 2a1 1 0 0 0-1 1v1H4.5a1 1 0 1 0 0 2H5v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6h.5a1 1 0 1 0 0-2H16V3a1 1 0 0 0-1-1H9Zm0 2h6v1H9V4ZM7 6h10v14H7V6Zm3 2.5a1 1 0 0 0-1 1v8a1 1 0 1 0 2 0v-8a1 1 0 0 0-1-1Zm4 0a1 1 0 0 0-1 1v8a1 1 0 1 0 2 0v-8a1 1 0 0 0-1-1Z"/></svg>`;
+  return ICONS.recycleBin;
 }
+
+// ---------- taskbar icon set ----------
+// Small solid-glyph icons for the taskbar's system-tray-style buttons, kept
+// as actual files under renderer/icons/ so they're easy to find and replace
+// - edit a file's markup (or drop in a whole new one, same viewBox) and
+// reload the app. Loaded via synchronous XHR (not <img>, which would bake
+// in whatever colors the file itself specifies) so each one lands as real
+// inline DOM and its `fill="currentColor"`/`stroke="currentColor"` picks up
+// each button's own `color`, which every taskbar icon button ties to
+// var(--accent) via CSS - that's what keeps them all in sync with the
+// user's chosen accent color.
+const ICON_FILES = {
+  volumeHigh: 'volume-high',
+  volumeMedium: 'volume-medium',
+  volumeLow: 'volume-low',
+  volumeMuted: 'volume-muted',
+  eject: 'eject',
+  recent: 'recent',
+  trash: 'trash',
+  settings: 'settings',
+  usb: 'usb',
+  network: 'network',
+  networkOff: 'network-off',
+  bluetooth: 'bluetooth',
+  power: 'power',
+  fullscreenEnter: 'fullscreen-enter',
+  fullscreenExit: 'fullscreen-exit',
+  recycleBin: 'recycle-bin',
+};
+
+function loadIconFile(fileName) {
+  try {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', `icons/${fileName}.svg`, false); // synchronous - these are tiny local files
+    xhr.send(null);
+    if (xhr.status === 200 || xhr.status === 0) return xhr.responseText;
+  } catch {}
+  return '';
+}
+
+const ICONS = {};
+for (const [key, fileName] of Object.entries(ICON_FILES)) {
+  ICONS[key] = loadIconFile(fileName);
+}
+
+settingsBtn.innerHTML = ICONS.settings;
+recentBtn.innerHTML = ICONS.recent;
+usbBtn.innerHTML = ICONS.usb;
+bluetoothBtn.innerHTML = ICONS.bluetooth;
+powerBtn.innerHTML = ICONS.power;
 
 function iconNode(item, extraClass) {
   let el;
@@ -167,6 +254,7 @@ function iconNode(item, extraClass) {
   } else if (item.special === 'recycleBin' && !item.iconIsCustom) {
     el = document.createElement('div');
     el.className = 'folder-icon';
+    el.style.color = 'var(--text)';
     el.innerHTML = recycleBinSVG();
   } else {
     el = document.createElement('img');
@@ -916,12 +1004,22 @@ async function quickAddFromPath(filePath) {
 // line and the eventual drop).
 let currentPinnedOrder = [];
 let pendingPinInsertIndex = -1;
+let openWindowsCount = 0;
+
+// Shared by renderPinned() and refreshOpenWindows() - the hint text is only
+// useful when the whole left zone would otherwise be empty; with anything
+// pinned OR any window already open, showing it just crowds that limited
+// column for no benefit.
+function updatePinnedEmptyVisibility() {
+  const pinnedCount = apps.filter((a) => a.pinned).length;
+  pinnedEmpty.classList.toggle('hidden', pinnedCount > 0 || openWindowsCount > 0);
+}
 
 function renderPinned() {
   const pinned = apps.filter((a) => a.pinned).sort((a, b) => (a.pinOrder ?? Infinity) - (b.pinOrder ?? Infinity));
   currentPinnedOrder = pinned.map((p) => p.id);
   Array.from(pinnedRow.querySelectorAll('.pin-tile')).forEach((el) => el.remove());
-  pinnedEmpty.classList.toggle('hidden', pinned.length > 0);
+  updatePinnedEmptyVisibility();
 
   for (const item of pinned) {
     const el = document.createElement('div');
@@ -1049,21 +1147,38 @@ taskbarSearch.addEventListener('input', () => {
     searchResults.classList.add('hidden');
     return;
   }
-  recentPopout.classList.add('hidden');
+  closeAllTaskbarPopouts('search');
   const matches = apps.filter((a) => a.name.toLowerCase().includes(q)).slice(0, 20);
   renderResultRows(searchResults, matches, 'No matches.', selectSearchResult);
   searchResults.classList.remove('hidden');
 });
 
 taskbarSearch.addEventListener('focus', () => {
-  if (taskbarSearch.value.trim()) searchResults.classList.remove('hidden');
+  if (taskbarSearch.value.trim()) {
+    closeAllTaskbarPopouts('search');
+    searchResults.classList.remove('hidden');
+  }
 });
+
+// Opening any one taskbar popout closes every other one, so at most a
+// single popout is ever showing at once - each button's click handler calls
+// this (with its own popout named in `except`) before deciding whether to
+// open or toggle-close its own.
+function closeAllTaskbarPopouts(except) {
+  if (except !== 'search') searchResults.classList.add('hidden');
+  if (except !== 'recent') recentPopout.classList.add('hidden');
+  if (except !== 'volume') closeVolumePopout();
+  if (except !== 'usb') closeUsbPopout();
+  if (except !== 'bluetooth') closeBluetoothPopout();
+  if (except !== 'network') closeNetworkPopout();
+  if (except !== 'power') closePowerPopout();
+}
 
 recentBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   const opening = recentPopout.classList.contains('hidden');
-  searchResults.classList.add('hidden');
-  recentPopout.classList.toggle('hidden');
+  closeAllTaskbarPopouts('recent');
+  recentPopout.classList.toggle('hidden', !opening);
   if (!opening) return;
 
   const recent = apps
@@ -1075,6 +1190,484 @@ recentBtn.addEventListener('click', (e) => {
     await launchApp(item);
   });
 });
+
+// ---------- clock ----------
+
+function updateClock() {
+  const now = new Date();
+  clockTime.textContent = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  clockDate.textContent = now.toLocaleDateString();
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ---------- network status ----------
+
+function updateNetworkStatus() {
+  const online = navigator.onLine;
+  networkBtn.innerHTML = online ? ICONS.network : ICONS.networkOff;
+}
+window.addEventListener('online', updateNetworkStatus);
+window.addEventListener('offline', updateNetworkStatus);
+updateNetworkStatus();
+
+function closeNetworkPopout() {
+  networkPopout.classList.add('hidden');
+}
+
+function networkRow(net) {
+  const row = document.createElement('div');
+  row.className = 'usb-row';
+
+  const info = document.createElement('div');
+  info.className = 'usb-info';
+  const label = document.createElement('div');
+  label.className = 'usb-label';
+  label.textContent = net.ssid;
+  const status = document.createElement('div');
+  status.className = 'usb-size';
+  status.textContent = net.connected ? 'Connected' : net.saved ? `${net.auth} · Saved` : net.auth;
+  info.appendChild(label);
+  info.appendChild(status);
+
+  const action = document.createElement('button');
+  action.type = 'button';
+  action.className = 'wifi-action-btn';
+  if (net.connected) {
+    action.textContent = 'Disconnect';
+    action.classList.add('danger');
+    action.addEventListener('click', async () => {
+      action.disabled = true;
+      const res = await window.launcherAPI.disconnectWifi();
+      if (!res.ok) await showAlert(`Couldn't disconnect:\n${res.error || 'Unknown error.'}`);
+      await refreshNetworkList();
+    });
+  } else if (net.saved) {
+    action.textContent = 'Connect';
+    action.addEventListener('click', async () => {
+      action.disabled = true;
+      const res = await window.launcherAPI.connectWifi(net.ssid);
+      if (!res.ok) await showAlert(`Couldn't connect to ${net.ssid}:\n${res.error || 'Unknown error.'}`);
+      await refreshNetworkList();
+    });
+  } else {
+    action.textContent = 'Connect';
+    action.disabled = true;
+    action.title = 'No saved password for this network yet - connect once via Windows Settings first';
+  }
+
+  row.appendChild(info);
+  row.appendChild(action);
+  return row;
+}
+
+async function refreshNetworkList() {
+  const networks = await window.launcherAPI.listWifiNetworks();
+  networkList.innerHTML = '';
+  if (networks.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'usb-empty';
+    empty.textContent = 'No Wi-Fi networks found.';
+    networkList.appendChild(empty);
+    return;
+  }
+  for (const net of networks) {
+    networkList.appendChild(networkRow(net));
+  }
+}
+
+networkBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!networkPopout.classList.contains('hidden')) {
+    closeNetworkPopout();
+    return;
+  }
+  closeAllTaskbarPopouts('network');
+  networkPopout.classList.remove('hidden');
+  networkList.innerHTML = '<div class="usb-empty">Scanning…</div>';
+  refreshNetworkList();
+});
+
+networkSettingsBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  window.launcherAPI.openNetworkSettings();
+});
+
+// ---------- volume ----------
+
+let volumePollTimer = null;
+let volumeSetDebounce = null;
+let lastKnownMuted = false;
+const sessionSetDebounce = new Map();
+
+function volumeIconFor(pct, muted) {
+  if (muted || pct === 0) return ICONS.volumeMuted;
+  if (pct < 33) return ICONS.volumeLow;
+  if (pct < 66) return ICONS.volumeMedium;
+  return ICONS.volumeHigh;
+}
+
+function applyVolumeState({ volume: pct, muted }) {
+  lastKnownMuted = !!muted;
+  volumeSlider.value = pct;
+  volumePct.textContent = `${pct}%`;
+  volumeBtn.innerHTML = volumeIconFor(pct, muted);
+  muteBtn.innerHTML = muted ? ICONS.volumeMuted : ICONS.volumeHigh;
+}
+
+async function refreshVolumeState() {
+  applyVolumeState(await window.launcherAPI.getVolume());
+}
+
+refreshVolumeState();
+
+async function refreshOutputDevices() {
+  const devices = await window.launcherAPI.listAudioDevices();
+  outputDeviceSelect.innerHTML = '';
+  for (const dev of devices) {
+    const opt = document.createElement('option');
+    opt.value = dev.id;
+    opt.textContent = dev.name;
+    if (dev.isDefault) opt.selected = true;
+    outputDeviceSelect.appendChild(opt);
+  }
+}
+
+function sessionRow(session) {
+  const row = document.createElement('div');
+  row.className = 'session-row';
+
+  const name = document.createElement('span');
+  name.className = 'session-name';
+  name.textContent = session.name;
+  name.title = session.name;
+
+  const mute = document.createElement('button');
+  mute.type = 'button';
+  mute.className = 'session-mute-btn';
+  mute.innerHTML = session.muted ? ICONS.volumeMuted : ICONS.volumeHigh;
+  mute.addEventListener('click', async () => {
+    const nowMuted = !session.muted;
+    mute.innerHTML = nowMuted ? ICONS.volumeMuted : ICONS.volumeHigh;
+    await window.launcherAPI.setSessionMuted(session.pid, nowMuted);
+  });
+
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = '0';
+  slider.max = '100';
+  slider.step = '1';
+  slider.className = 'session-slider';
+  slider.value = session.volume;
+
+  const pct = document.createElement('span');
+  pct.className = 'session-pct';
+  pct.textContent = `${session.volume}%`;
+
+  slider.addEventListener('input', () => {
+    const v = Number(slider.value);
+    pct.textContent = `${v}%`;
+    clearTimeout(sessionSetDebounce.get(session.pid));
+    sessionSetDebounce.set(session.pid, setTimeout(() => window.launcherAPI.setSessionVolume(session.pid, v), 120));
+  });
+
+  row.appendChild(name);
+  row.appendChild(mute);
+  row.appendChild(slider);
+  row.appendChild(pct);
+  return row;
+}
+
+async function refreshSessionMixer() {
+  const sessions = await window.launcherAPI.listAudioSessions();
+  sessionMixerList.innerHTML = '';
+  if (sessions.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'session-mixer-empty';
+    empty.textContent = 'Nothing playing audio right now.';
+    sessionMixerList.appendChild(empty);
+    return;
+  }
+  for (const session of sessions) {
+    sessionMixerList.appendChild(sessionRow(session));
+  }
+}
+
+function closeVolumePopout() {
+  volumePopout.classList.add('hidden');
+  if (volumePollTimer) {
+    clearInterval(volumePollTimer);
+    volumePollTimer = null;
+  }
+}
+
+volumeBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!volumePopout.classList.contains('hidden')) {
+    closeVolumePopout();
+    return;
+  }
+  closeAllTaskbarPopouts('volume');
+  volumePopout.classList.remove('hidden');
+  if (!sessionMixerList.children.length) {
+    sessionMixerList.innerHTML = '<div class="session-mixer-empty">Scanning…</div>';
+  }
+  refreshVolumeState();
+  refreshOutputDevices();
+  refreshSessionMixer();
+  volumePollTimer = setInterval(() => {
+    refreshVolumeState();
+    refreshSessionMixer();
+  }, 2000);
+});
+
+volumeSlider.addEventListener('input', () => {
+  const pct = Number(volumeSlider.value);
+  volumePct.textContent = `${pct}%`;
+  volumeBtn.innerHTML = volumeIconFor(pct, lastKnownMuted);
+  clearTimeout(volumeSetDebounce);
+  volumeSetDebounce = setTimeout(() => window.launcherAPI.setVolume(pct), 120);
+});
+
+muteBtn.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  await window.launcherAPI.setMuted(!lastKnownMuted);
+  await refreshVolumeState();
+});
+
+outputDeviceSelect.addEventListener('change', async () => {
+  await window.launcherAPI.setAudioDevice(outputDeviceSelect.value);
+});
+
+// ---------- USB devices ----------
+
+function closeUsbPopout() {
+  usbPopout.classList.add('hidden');
+}
+
+function formatBytes(bytes) {
+  const gb = bytes / 1024 ** 3;
+  if (gb >= 1024) return `${(gb / 1024).toFixed(1)} TB`;
+  return `${gb.toFixed(1)} GB`;
+}
+
+function usbRow(drive) {
+  const row = document.createElement('div');
+  row.className = 'usb-row';
+
+  const info = document.createElement('div');
+  info.className = 'usb-info';
+  const label = document.createElement('div');
+  label.className = 'usb-label';
+  label.textContent = drive.label ? `${drive.label} (${drive.driveLetter})` : drive.driveLetter;
+  const size = document.createElement('div');
+  size.className = 'usb-size';
+  size.textContent = `${formatBytes(drive.freeSpace)} free of ${formatBytes(drive.size)}`;
+  info.appendChild(label);
+  info.appendChild(size);
+
+  const eject = document.createElement('button');
+  eject.type = 'button';
+  eject.className = 'usb-eject-btn';
+  eject.title = 'Eject';
+  eject.innerHTML = ICONS.eject;
+  eject.addEventListener('click', async () => {
+    eject.disabled = true;
+    const res = await window.launcherAPI.ejectDrive(drive.driveLetter);
+    if (!res.ok) {
+      await showAlert(`Couldn't eject ${drive.driveLetter}:\n${res.error || 'Unknown error.'}`);
+      eject.disabled = false;
+      return;
+    }
+    await refreshUsbList();
+  });
+
+  row.appendChild(info);
+  row.appendChild(eject);
+  return row;
+}
+
+async function refreshUsbList() {
+  const usbDrives = await window.launcherAPI.listUsbDrives();
+  usbList.innerHTML = '';
+  if (usbDrives.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'usb-empty';
+    empty.textContent = 'No USB devices connected.';
+    usbList.appendChild(empty);
+    return;
+  }
+  for (const drive of usbDrives) {
+    usbList.appendChild(usbRow(drive));
+  }
+}
+
+usbBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!usbPopout.classList.contains('hidden')) {
+    closeUsbPopout();
+    return;
+  }
+  closeAllTaskbarPopouts('usb');
+  usbPopout.classList.remove('hidden');
+  usbList.innerHTML = '<div class="usb-empty">Scanning…</div>';
+  refreshUsbList();
+});
+
+// ---------- Bluetooth devices ----------
+
+function closeBluetoothPopout() {
+  bluetoothPopout.classList.add('hidden');
+}
+
+function bluetoothRow(device) {
+  const row = document.createElement('div');
+  row.className = 'usb-row';
+
+  const info = document.createElement('div');
+  info.className = 'usb-info';
+  const label = document.createElement('div');
+  label.className = 'usb-label';
+  label.textContent = device.name;
+  const status = document.createElement('div');
+  status.className = 'usb-size';
+  status.textContent = device.connected ? 'Connected' : 'Paired, not connected';
+  info.appendChild(label);
+  info.appendChild(status);
+
+  const disconnect = document.createElement('button');
+  disconnect.type = 'button';
+  disconnect.className = 'usb-eject-btn';
+  disconnect.title = 'Disconnect';
+  disconnect.innerHTML = ICONS.eject;
+  disconnect.disabled = !device.connected;
+  disconnect.addEventListener('click', async () => {
+    disconnect.disabled = true;
+    const res = await window.launcherAPI.disconnectBluetoothDevice(device.instanceId);
+    if (!res.ok) {
+      await showAlert(`Couldn't disconnect ${device.name}:\n${res.error || 'Unknown error.'}`);
+    }
+    await refreshBluetoothList();
+  });
+
+  row.appendChild(info);
+  row.appendChild(disconnect);
+  return row;
+}
+
+async function refreshBluetoothList() {
+  const devices = await window.launcherAPI.listBluetoothDevices();
+  bluetoothList.innerHTML = '';
+  if (devices.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'usb-empty';
+    empty.textContent = 'No Bluetooth devices paired.';
+    bluetoothList.appendChild(empty);
+    return;
+  }
+  for (const device of devices) {
+    bluetoothList.appendChild(bluetoothRow(device));
+  }
+}
+
+bluetoothBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!bluetoothPopout.classList.contains('hidden')) {
+    closeBluetoothPopout();
+    return;
+  }
+  closeAllTaskbarPopouts('bluetooth');
+  bluetoothPopout.classList.remove('hidden');
+  bluetoothList.innerHTML = '<div class="usb-empty">Scanning…</div>';
+  refreshBluetoothList();
+});
+
+// ---------- power ----------
+
+function closePowerPopout() {
+  powerPopout.classList.add('hidden');
+}
+
+powerBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!powerPopout.classList.contains('hidden')) {
+    closePowerPopout();
+    return;
+  }
+  closeAllTaskbarPopouts('power');
+  powerPopout.classList.remove('hidden');
+});
+
+powerSleepBtn.addEventListener('click', async () => {
+  closePowerPopout();
+  await window.launcherAPI.sleep();
+});
+
+powerRestartBtn.addEventListener('click', async () => {
+  closePowerPopout();
+  if (!(await showConfirm('Restart this PC now? Unsaved work in other apps will be lost.'))) return;
+  await window.launcherAPI.restart();
+});
+
+powerShutdownBtn.addEventListener('click', async () => {
+  closePowerPopout();
+  if (!(await showConfirm('Shut down this PC now? Unsaved work in other apps will be lost.'))) return;
+  await window.launcherAPI.shutdown();
+});
+
+// ---------- fullscreen toggle ----------
+
+function applyFullscreenIcon(isFullscreen) {
+  fullscreenBtn.innerHTML = isFullscreen ? ICONS.fullscreenExit : ICONS.fullscreenEnter;
+  fullscreenBtn.title = isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen';
+}
+
+window.launcherAPI.isFullscreen().then(applyFullscreenIcon);
+window.launcherAPI.onFullscreenChanged(applyFullscreenIcon);
+
+fullscreenBtn.addEventListener('click', async () => {
+  const res = await window.launcherAPI.toggleFullscreen();
+  if (res && res.ok) applyFullscreenIcon(res.isFullscreen);
+});
+
+// ---------- open windows (Windows-taskbar-style running apps) ----------
+// Separate from Launchpad's own "pinned" concept - this reflects whatever
+// actually has a visible window open on the OS right now (any app, not just
+// ones launched from here), refreshed on a poll since there's no push
+// notification for "a window opened/closed" available to us.
+
+function windowTile(win) {
+  const el = document.createElement('div');
+  el.className = 'window-tile';
+  el.title = win.title;
+  if (win.iconDataUrl) {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = win.iconDataUrl;
+    el.appendChild(img);
+  } else {
+    const fallback = document.createElement('div');
+    fallback.className = 'window-tile-fallback';
+    fallback.textContent = (win.title || '?').trim().charAt(0).toUpperCase();
+    el.appendChild(fallback);
+  }
+  el.addEventListener('click', () => window.launcherAPI.focusWindow(win.handle));
+  return el;
+}
+
+async function refreshOpenWindows() {
+  const list = await window.launcherAPI.listOpenWindows();
+  openWindowsRow.innerHTML = '';
+  for (const win of list) {
+    openWindowsRow.appendChild(windowTile(win));
+  }
+  taskbarDivider.classList.toggle('hidden', list.length === 0);
+  openWindowsCount = list.length;
+  updatePinnedEmptyVisibility();
+}
+
+refreshOpenWindows();
+setInterval(refreshOpenWindows, 3000);
 
 // ---------- context menu ----------
 
@@ -1093,7 +1686,13 @@ function openContextMenu(x, y, menuItems) {
     }
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.textContent = it.label;
+    if (it.icon) {
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'menu-item-icon';
+      iconSpan.innerHTML = it.icon;
+      btn.appendChild(iconSpan);
+    }
+    btn.appendChild(document.createTextNode(it.label));
     if (it.danger) btn.classList.add('danger');
     btn.addEventListener('click', () => {
       closeContextMenu();
@@ -1121,7 +1720,7 @@ function showItemContextMenu(x, y, item) {
     menuItems.push({ label: 'Edit…', action: () => openEditModal(item) });
   }
   if (item.special === 'recycleBin') {
-    menuItems.push({ label: 'Empty Recycle Bin', danger: true, action: () => emptyRecycleBin() });
+    menuItems.push({ label: 'Empty Recycle Bin', icon: ICONS.trash, danger: true, action: () => emptyRecycleBin() });
   }
   if (item.kind === 'island') {
     menuItems.push({
@@ -1202,6 +1801,21 @@ document.addEventListener('click', (e) => {
   if (!recentPopout.contains(e.target) && e.target !== recentBtn) {
     recentPopout.classList.add('hidden');
   }
+  if (!volumePopout.contains(e.target) && e.target !== volumeBtn) {
+    closeVolumePopout();
+  }
+  if (!usbPopout.contains(e.target) && e.target !== usbBtn) {
+    closeUsbPopout();
+  }
+  if (!bluetoothPopout.contains(e.target) && e.target !== bluetoothBtn) {
+    closeBluetoothPopout();
+  }
+  if (!networkPopout.contains(e.target) && e.target !== networkBtn) {
+    closeNetworkPopout();
+  }
+  if (!powerPopout.contains(e.target) && e.target !== powerBtn) {
+    closePowerPopout();
+  }
 });
 
 // ---------- item actions ----------
@@ -1231,15 +1845,31 @@ function buildColorSwatches() {
     sw.addEventListener('click', () => setSelectedSwatch(c));
     colorSwatches.appendChild(sw);
   }
+  const customSw = document.createElement('button');
+  customSw.type = 'button';
+  customSw.className = 'swatch custom-swatch';
+  customSw.title = 'Custom color…';
+  customSw.addEventListener('click', () => customIslandColorInput.click());
+  colorSwatches.appendChild(customSw);
 }
 buildColorSwatches();
 
 function setSelectedSwatch(color) {
   selectedIslandColor = color || ISLAND_COLORS[0];
-  Array.from(colorSwatches.children).forEach((s, i) => {
-    s.classList.toggle('selected', ISLAND_COLORS[i] === selectedIslandColor);
+  const isPreset = ISLAND_COLORS.includes(selectedIslandColor);
+  const swatches = Array.from(colorSwatches.children);
+  const customSw = swatches[swatches.length - 1];
+  swatches.forEach((s, i) => {
+    if (s !== customSw) s.classList.toggle('selected', ISLAND_COLORS[i] === selectedIslandColor);
   });
+  customSw.classList.toggle('selected', !isPreset);
+  customSw.style.background = isPreset ? '' : selectedIslandColor;
+  if (!isPreset) customIslandColorInput.value = selectedIslandColor;
 }
+
+customIslandColorInput.addEventListener('input', () => {
+  setSelectedSwatch(customIslandColorInput.value);
+});
 
 function openNewIslandModal() {
   nameModalMode = 'newIsland';
@@ -1359,10 +1989,16 @@ function formatAccelerator(accel) {
   return accel.replace('CommandOrControl', 'Ctrl').replace('Command', 'Cmd');
 }
 
+function currentAccentColor() {
+  return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+}
+
 settingsBtn.addEventListener('click', async () => {
   autoLaunchToggle.checked = await window.launcherAPI.getAutoLaunch();
   themeToggle.checked = document.documentElement.getAttribute('data-theme') === 'light';
   fullscreenToggle.checked = await window.launcherAPI.getStartFullscreen();
+  minimizeToTrayToggle.checked = await window.launcherAPI.getMinimizeToTrayOnClose();
+  accentColorInput.value = currentAccentColor();
   hotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getHotkey());
   settingsModalOverlay.classList.remove('hidden');
 });
@@ -1383,6 +2019,10 @@ autoLaunchToggle.addEventListener('change', () => {
 
 fullscreenToggle.addEventListener('change', () => {
   window.launcherAPI.setStartFullscreen(fullscreenToggle.checked);
+});
+
+minimizeToTrayToggle.addEventListener('change', () => {
+  window.launcherAPI.setMinimizeToTrayOnClose(minimizeToTrayToggle.checked);
 });
 
 let capturingHotkey = false;
@@ -1446,6 +2086,21 @@ themeToggle.addEventListener('change', () => {
   try {
     localStorage.setItem('launchpad-theme', light ? 'light' : 'dark');
   } catch {}
+});
+
+accentColorInput.addEventListener('input', () => {
+  document.documentElement.style.setProperty('--accent', accentColorInput.value);
+  try {
+    localStorage.setItem('launchpad-accent', accentColorInput.value);
+  } catch {}
+});
+
+accentResetBtn.addEventListener('click', () => {
+  document.documentElement.style.removeProperty('--accent');
+  try {
+    localStorage.removeItem('launchpad-accent');
+  } catch {}
+  accentColorInput.value = currentAccentColor();
 });
 
 detectIconsBtn.addEventListener('click', async () => {
@@ -1670,6 +2325,11 @@ document.addEventListener('keydown', (e) => {
   closeContextMenu();
   searchResults.classList.add('hidden');
   recentPopout.classList.add('hidden');
+  closeVolumePopout();
+  closeUsbPopout();
+  closeBluetoothPopout();
+  closeNetworkPopout();
+  closePowerPopout();
   clearSelection();
 });
 

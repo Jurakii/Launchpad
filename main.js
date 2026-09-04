@@ -18,6 +18,13 @@ const icons = require('./lib/icons');
 const launcher = require('./lib/launcher');
 const layout = require('./lib/layout');
 const settings = require('./lib/settings');
+const volume = require('./lib/volume');
+const audioDevices = require('./lib/audio-devices');
+const drives = require('./lib/drives');
+const openWindows = require('./lib/windows');
+const bluetooth = require('./lib/bluetooth');
+const power = require('./lib/power');
+const wifi = require('./lib/wifi');
 
 let mainWindow = null;
 let tray = null;
@@ -131,6 +138,7 @@ function createWindow() {
     height: 680,
     minWidth: 640,
     minHeight: 420,
+    fullscreen: !!settings.load().startFullscreen,
     icon: fs.existsSync(ICON_PATH) ? ICON_PATH : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -140,17 +148,24 @@ function createWindow() {
     },
   });
   mainWindow.setMenuBarVisibility(false);
-  if (settings.load().startFullscreen) mainWindow.maximize();
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
-  // Closing the window (the X button) minimizes to tray instead of quitting -
-  // that's the whole point of the tray icon + global hotkey combo.
+  // Closing the window (the X button) minimizes to tray instead of quitting by
+  // default - that's the whole point of the tray icon + global hotkey combo -
+  // but the user can turn that off in Settings so the X button fully quits.
   mainWindow.on('close', (e) => {
-    if (!isQuitting) {
+    const minimizeToTray = settings.load().minimizeToTrayOnClose !== false;
+    if (!isQuitting && minimizeToTray) {
       e.preventDefault();
       mainWindow.hide();
     }
   });
+
+  // The fullscreen toolbar button needs to reflect reality even when
+  // fullscreen is toggled some other way (F11, Esc, OS window snap), so push
+  // state changes to the renderer instead of only answering on request.
+  mainWindow.on('enter-full-screen', () => mainWindow.webContents.send('fullscreen-changed', true));
+  mainWindow.on('leave-full-screen', () => mainWindow.webContents.send('fullscreen-changed', false));
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -586,6 +601,214 @@ ipcMain.handle('system:emptyRecycleBin', () => {
       resolve({ ok: !error, error: error ? error.message : null });
     });
   });
+});
+
+ipcMain.handle('system:getVolume', async () => {
+  try {
+    return await volume.getVolume();
+  } catch (err) {
+    return { volume: 0, muted: false, error: err.message };
+  }
+});
+
+ipcMain.handle('system:setVolume', async (_e, pct) => {
+  try {
+    await volume.setVolume(pct);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('system:setMuted', async (_e, muted) => {
+  try {
+    await volume.setMuted(muted);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('system:openNetworkSettings', () => {
+  shell.openExternal('ms-settings:network-status');
+  return { ok: true };
+});
+
+ipcMain.handle('system:listAudioDevices', async () => {
+  try {
+    return await audioDevices.listDevices();
+  } catch (err) {
+    return [];
+  }
+});
+
+ipcMain.handle('system:setAudioDevice', async (_e, deviceId) => {
+  try {
+    return await audioDevices.setDevice(deviceId);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('system:listAudioSessions', async () => {
+  try {
+    return await audioDevices.listSessions();
+  } catch (err) {
+    return [];
+  }
+});
+
+ipcMain.handle('system:setSessionVolume', async (_e, pid, pct) => {
+  try {
+    return await audioDevices.setSessionVolume(pid, pct);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('system:setSessionMuted', async (_e, pid, muted) => {
+  try {
+    return await audioDevices.setSessionMuted(pid, muted);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('system:listUsbDrives', async () => {
+  try {
+    return await drives.listUsbDrives();
+  } catch (err) {
+    return [];
+  }
+});
+
+ipcMain.handle('system:ejectDrive', async (_e, driveLetter) => {
+  try {
+    return await drives.ejectDrive(driveLetter);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// Icon extraction is a slow shell call, and the same exe gets asked about
+// on every poll while the window list is open - cache per path so it only
+// happens once per unique running app.
+const windowIconCache = new Map();
+
+async function iconDataUrlForExe(exePath) {
+  if (!exePath) return null;
+  if (windowIconCache.has(exePath)) return windowIconCache.get(exePath);
+  let dataUrl = null;
+  try {
+    const img = await icons.extractIcon(exePath);
+    dataUrl = img ? img.toDataURL() : null;
+  } catch {
+    dataUrl = null;
+  }
+  windowIconCache.set(exePath, dataUrl);
+  return dataUrl;
+}
+
+ipcMain.handle('system:listOpenWindows', async () => {
+  try {
+    const list = await openWindows.listWindows(process.pid);
+    for (const w of list) {
+      w.iconDataUrl = await iconDataUrlForExe(w.path);
+    }
+    return list;
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle('system:focusWindow', async (_e, handle) => {
+  try {
+    return await openWindows.focusWindow(handle);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('system:listBluetoothDevices', async () => {
+  try {
+    return await bluetooth.listDevices();
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle('system:disconnectBluetoothDevice', async (_e, instanceId) => {
+  try {
+    return await bluetooth.disconnectDevice(instanceId);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('system:shutdown', async () => {
+  try {
+    await power.shutdown();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('system:restart', async () => {
+  try {
+    await power.restart();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('system:sleep', async () => {
+  try {
+    await power.sleep();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('system:listWifiNetworks', async () => {
+  try {
+    return await wifi.listNetworks();
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle('system:connectWifi', async (_e, ssid) => {
+  try {
+    return await wifi.connect(ssid);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('system:disconnectWifi', async () => {
+  try {
+    return await wifi.disconnect();
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('settings:getMinimizeToTrayOnClose', () => settings.load().minimizeToTrayOnClose !== false);
+
+ipcMain.handle('settings:setMinimizeToTrayOnClose', (_e, enable) => {
+  settings.save({ minimizeToTrayOnClose: !!enable });
+  return { ok: true };
+});
+
+ipcMain.handle('window:isFullscreen', () => (mainWindow ? mainWindow.isFullScreen() : false));
+
+ipcMain.handle('window:toggleFullscreen', () => {
+  if (!mainWindow) return { ok: false, isFullscreen: false };
+  mainWindow.setFullScreen(!mainWindow.isFullScreen());
+  return { ok: true, isFullscreen: mainWindow.isFullScreen() };
 });
 
 ipcMain.handle('item:togglePin', (_e, id) => {
