@@ -79,6 +79,11 @@ body {
 
 .toolbar-spacer { flex: 1; }
 
+:root[data-hide-add-buttons="1"] #newFolderBtn,
+:root[data-hide-add-buttons="1"] #addBtn {
+  display: none;
+}
+
 .breadcrumb {
   display: flex;
   align-items: center;

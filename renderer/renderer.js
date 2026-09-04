@@ -17,6 +17,9 @@ try {
   if (savedTopbarStyle && savedTopbarStyle !== 'solid') {
     document.querySelector('.toolbar').setAttribute('data-style', savedTopbarStyle);
   }
+  if (localStorage.getItem('launchpad-hide-add-buttons') === '1') {
+    document.documentElement.setAttribute('data-hide-add-buttons', '1');
+  }
 } catch {}
 
 const grid = document.getElementById('grid');
@@ -82,6 +85,7 @@ const autoLaunchToggle = document.getElementById('autoLaunchToggle');
 const themeToggle = document.getElementById('themeToggle');
 const fullscreenToggle = document.getElementById('fullscreenToggle');
 const minimizeToTrayToggle = document.getElementById('minimizeToTrayToggle');
+const showAddButtonsToggle = document.getElementById('showAddButtonsToggle');
 const accentColorInput = document.getElementById('accentColorInput');
 const accentResetBtn = document.getElementById('accentResetBtn');
 const taskbarStyleSelect = document.getElementById('taskbarStyleSelect');
@@ -2015,6 +2019,7 @@ settingsBtn.addEventListener('click', async () => {
   themeToggle.checked = document.documentElement.getAttribute('data-theme') === 'light';
   fullscreenToggle.checked = await window.launcherAPI.getStartFullscreen();
   minimizeToTrayToggle.checked = await window.launcherAPI.getMinimizeToTrayOnClose();
+  showAddButtonsToggle.checked = localStorage.getItem('launchpad-hide-add-buttons') !== '1';
   accentColorInput.value = currentAccentColor();
   taskbarStyleSelect.value = localStorage.getItem('launchpad-taskbar-style') || 'solid';
   topbarStyleSelect.value = localStorage.getItem('launchpad-topbar-style') || 'solid';
@@ -2042,6 +2047,16 @@ fullscreenToggle.addEventListener('change', () => {
 
 minimizeToTrayToggle.addEventListener('change', () => {
   window.launcherAPI.setMinimizeToTrayOnClose(minimizeToTrayToggle.checked);
+});
+
+showAddButtonsToggle.addEventListener('change', () => {
+  const hide = !showAddButtonsToggle.checked;
+  if (hide) document.documentElement.setAttribute('data-hide-add-buttons', '1');
+  else document.documentElement.removeAttribute('data-hide-add-buttons');
+  try {
+    if (hide) localStorage.setItem('launchpad-hide-add-buttons', '1');
+    else localStorage.removeItem('launchpad-hide-add-buttons');
+  } catch {}
 });
 
 let capturingHotkey = false;
