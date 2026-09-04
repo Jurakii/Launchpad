@@ -10,23 +10,35 @@
   <div class="toolbar">
     <div id="breadcrumb" class="breadcrumb"></div>
     <div class="toolbar-spacer"></div>
-    <button id="newFolderBtn">+ New Folder</button>
+    <button id="settingsBtn" title="Settings">⚙</button>
+    <button id="newFolderBtn">+ New Island</button>
     <button id="addBtn" class="primary">+ Add App</button>
   </div>
 
-  <div id="grid" class="grid"></div>
+  <div id="grid" class="grid"><div id="canvas" class="canvas"></div></div>
   <div id="empty" class="empty hidden">
     <p id="emptyTitle">No apps yet.</p>
     <p id="emptySubtitle">Click <strong>+ Add App</strong> to add your first one.</p>
   </div>
 
   <div id="taskbar" class="taskbar">
-    <div id="pinnedRow" class="pinned-row"></div>
-    <div id="pinnedEmpty" class="pinned-empty">Right-click an app → Pin to Taskbar</div>
-    <div class="taskbar-search-wrap">
-      <input id="taskbarSearch" type="text" placeholder="Search everything…" autocomplete="off" />
-      <div id="searchResults" class="search-results hidden"></div>
+    <div class="taskbar-left">
+      <div id="pinnedRow" class="pinned-row">
+        <div id="pinInsertLine" class="pin-insert-line hidden"></div>
+      </div>
+      <div id="pinnedEmpty" class="pinned-empty">Right-click an app or island → Pin to Taskbar</div>
     </div>
+
+    <div class="taskbar-center">
+      <div class="taskbar-search-wrap">
+        <input id="taskbarSearch" type="text" placeholder="Search everything…" autocomplete="off" />
+        <div id="searchResults" class="search-results hidden"></div>
+      </div>
+      <button id="recentBtn" class="recent-btn" title="Recent">🕓</button>
+      <div id="recentPopout" class="search-results hidden"></div>
+    </div>
+
+    <div class="taskbar-right"></div>
   </div>
 
   <div id="contextMenu" class="context-menu hidden"></div>
@@ -103,11 +115,15 @@
 
   <div id="nameModalOverlay" class="modal-overlay hidden">
     <div class="modal small">
-      <h2 id="nameModalTitle">New Folder</h2>
+      <h2 id="nameModalTitle">New Island</h2>
       <form id="nameForm">
         <label>Name
           <input id="nameInput" type="text" required />
         </label>
+        <div id="colorRow" class="color-row hidden">
+          <span class="color-row-label">Color</span>
+          <div id="colorSwatches" class="color-swatches"></div>
+        </div>
         <div class="modal-actions">
           <div class="spacer"></div>
           <button type="button" id="nameCancelBtn">Cancel</button>
@@ -119,11 +135,61 @@
 
   <div id="moveModalOverlay" class="modal-overlay hidden">
     <div class="modal small">
-      <h2>Move to Folder</h2>
+      <h2>Move to Island</h2>
       <div id="moveList" class="move-list"></div>
       <div class="modal-actions">
         <div class="spacer"></div>
         <button type="button" id="moveCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settingsModalOverlay" class="modal-overlay hidden">
+    <div class="modal small">
+      <h2>Settings</h2>
+
+      <div class="settings-row">
+        <label class="switch-row"><input type="checkbox" id="autoLaunchToggle" /> Start with Windows</label>
+      </div>
+      <div class="settings-row">
+        <label class="switch-row"><input type="checkbox" id="themeToggle" /> Light theme</label>
+      </div>
+      <div class="settings-row">
+        <label class="switch-row"><input type="checkbox" id="fullscreenToggle" /> Start fullscreen</label>
+      </div>
+      <div class="settings-row settings-hotkey-row">
+        <span>Toggle hotkey</span>
+        <button type="button" id="hotkeyBtn">Ctrl+Space</button>
+      </div>
+      <div class="settings-row settings-hint">
+        The hotkey shows/hides Launchpad from anywhere. Closing the window
+        minimizes it to the system tray instead of quitting - use the tray icon's Quit to fully exit.
+      </div>
+      <div class="settings-row settings-actions">
+        <button type="button" id="detectIconsBtn">Detect Missing Icons</button>
+        <button type="button" id="restoreDefaultsBtn">Restore Default Apps</button>
+      </div>
+      <div class="settings-row settings-actions">
+        <button type="button" id="exportBtn">Export Config…</button>
+        <button type="button" id="importBtn">Import Config…</button>
+      </div>
+
+      <div class="settings-row settings-version" id="versionLabel"></div>
+
+      <div class="modal-actions">
+        <div class="spacer"></div>
+        <button type="button" id="settingsCloseBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="dialogOverlay" class="modal-overlay hidden">
+    <div class="modal small">
+      <p id="dialogMessage" class="dialog-message"></p>
+      <div class="modal-actions">
+        <div class="spacer"></div>
+        <button type="button" id="dialogCancelBtn" class="hidden">Cancel</button>
+        <button type="button" id="dialogOkBtn" class="primary">OK</button>
       </div>
     </div>
   </div>

@@ -8,7 +8,31 @@
   --danger: #ff5b6b;
 }
 
+:root[data-theme="light"] {
+  --bg: #f2f3f6;
+  --panel: #ffffff;
+  --border: #dde1e8;
+  --text: #1b1d22;
+  --muted: #6b7280;
+  --accent: #3b6fe0;
+  --danger: #e0394f;
+}
+
 * { box-sizing: border-box; }
+
+/* Low-key scrollbars matching the app's own palette instead of the stock
+   OS/Chromium ones - applies everywhere something scrolls (canvas, modal
+   lists, search popouts). */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
 
 body {
   margin: 0;
@@ -54,6 +78,7 @@ body {
 .breadcrumb .crumb.current { color: var(--text); cursor: default; font-weight: 600; }
 .breadcrumb .crumb.current:hover { color: var(--text); }
 .breadcrumb .sep { color: var(--border); }
+.breadcrumb .crumb.drag-over { background: var(--panel); outline: 2px dashed var(--accent); outline-offset: -2px; }
 
 button {
   background: var(--panel);
@@ -68,28 +93,67 @@ button:hover { border-color: var(--accent); }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
 
+/* Freeform, snap-to-grid canvas at every level (Home, and inside each
+   island) - everything is absolutely positioned at a saved cell instead of
+   flowing in sorted order.
+
+   .grid is purely the scroll VIEWPORT: fixed to its flex-allocated space
+   (min-height: 0 is what lets a flex item actually shrink to that space
+   instead of growing to fit its content) so the taskbar below it never
+   moves. .canvas is the content INSIDE it that can be arbitrarily tall/wide
+   - .grid scrolls to reach whatever overflows it, exactly like the rest of
+   the page never needing to move when a document gets longer. */
 .grid {
   flex: 1;
-  overflow-y: auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 18px;
+  min-height: 0;
+  overflow: auto;
   padding: 20px;
-  align-content: start;
+}
+.canvas {
+  position: relative;
+}
+.canvas .tile,
+.canvas .island-card {
+  position: absolute;
 }
 
 .tile {
   position: relative;
+  /* Fixed and perfectly square regardless of name length, so every tile
+     lines up with its snap-grid cell the same way - name length must never
+     change a tile's own box size (that's what was throwing icons in
+     adjacent rows out of alignment with each other). */
+  width: 96px;
+  height: 96px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   padding: 10px 6px;
   border-radius: 10px;
   cursor: pointer;
   user-select: none;
+  overflow: hidden;
 }
 .tile:hover { background: var(--panel); }
+.tile.selected { background: var(--panel); outline: 2px solid var(--accent); outline-offset: -2px; }
+.tile.missing { opacity: 0.45; }
+.tile.drag-over { background: var(--panel); outline: 2px dashed var(--accent); outline-offset: -2px; }
+.tile.multi-selected,
+.island-card.multi-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+
+.marquee {
+  position: absolute;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
 
 .tile img.tile-icon {
   width: 48px;
@@ -102,7 +166,7 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   font-size: 12px;
   text-align: center;
   color: var(--text);
-  max-width: 90px;
+  max-width: 82px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -123,13 +187,6 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   line-height: 1;
 }
 .tile:hover .edit-btn { display: flex; }
-.tile .pin-badge {
-  position: absolute;
-  top: 4px;
-  right: 8px;
-  font-size: 11px;
-}
-.tile:hover .pin-badge { display: none; }
 
 .folder-icon {
   width: 48px;
@@ -137,8 +194,141 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 30px;
 }
+.folder-icon svg { width: 70%; height: 70%; }
+
+/* ---------- Expanded island card ---------- */
+
+.island-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  cursor: default;
+  user-select: none;
+  /* width/height are set inline per-instance (renderer.js) since islands
+     are user-resizable - they're not a fixed size. */
+}
+.island-card.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.island-card.resizing { transition: none; }
+
+.island-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 10px 14px;
+  background: color-mix(in srgb, var(--island-color) 22%, var(--panel));
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.island-card-header::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--island-color);
+  flex-shrink: 0;
+}
+.island-card-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.island-collapse-btn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.island-card-body {
+  flex: 1;
+  /* Grid with auto-fill lets the browser work out the real column count
+     from actual available width, instead of a JS estimate that can drift
+     from it and leave an unexplained gap down one side. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--icon-size, 44px), 1fr));
+  grid-auto-rows: min-content;
+  justify-items: center;
+  align-content: flex-start;
+  gap: 8px;
+  padding: 12px;
+  overflow: hidden;
+}
+.island-mini-icon {
+  /* --icon-size is set per-instance based on the island's current size, so
+     icons scale up/down as you resize it (default matches the old fixed 44px). */
+  width: var(--icon-size, 44px);
+  height: var(--icon-size, 44px);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.island-mini-icon.with-name {
+  height: auto;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 6px;
+}
+.island-mini-icon:hover { background: var(--bg); }
+.island-mini-icon img { width: 64%; height: 64%; object-fit: contain; }
+.island-mini-icon .folder-icon { width: 64%; height: 64%; }
+.island-mini-icon.with-name img,
+.island-mini-icon.with-name .folder-icon {
+  width: 60%;
+  height: 60%;
+}
+.island-mini-icon .mini-icon-name {
+  font-size: 9px;
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+.island-mini-icon.island-more {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.island-card-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px;
+}
+
+/* A rounded corner bracket (two edges joined by a curve) hugging the
+   card's own bottom-right corner, rather than a floating dot. */
+.island-resize-handle {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 20px;
+  height: 20px;
+  border-right: 5px solid #fff;
+  border-bottom: 5px solid #fff;
+  border-radius: 0 0 14px 0;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35));
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.island-card:hover .island-resize-handle { opacity: 1; }
 
 .empty {
   flex: 1;
@@ -219,11 +409,25 @@ button.danger { background: transparent; border-color: var(--danger); color: var
 
 .modal.small { width: 320px; }
 
+.dialog-message {
+  margin: 0 0 4px;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 /* ---------- Taskbar ---------- */
 
+/* Three-zone layout (left / center / right, side zones equal width) is what
+   actually centers the middle group regardless of how much is pinned on the
+   left - the same trick Windows 11's taskbar uses. */
 .taskbar {
   flex-shrink: 0;
-  display: flex;
+  position: relative;
+  z-index: 5; /* stays above canvas content (belt-and-suspenders; the grid
+                 already clips its own overflow so this shouldn't be needed) */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 12px;
   height: 60px;
@@ -232,14 +436,32 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   border-top: 1px solid var(--border);
 }
 
+.taskbar-left {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+.taskbar-right { min-width: 0; }
+
 .pinned-row {
-  flex: 1;
+  position: relative;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
   overflow-x: auto;
   height: 100%;
+}
+
+.pin-insert-line {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  pointer-events: none;
 }
 
 .pinned-empty {
@@ -262,6 +484,13 @@ button.danger { background: transparent; border-color: var(--danger); color: var
 .pin-tile img { width: 26px; height: 26px; object-fit: contain; }
 .pin-tile .folder-icon { width: 26px; height: 26px; font-size: 18px; }
 
+.taskbar-center {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .taskbar-search-wrap {
   position: relative;
   width: 260px;
@@ -278,10 +507,21 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   font-size: 14px;
 }
 
+.recent-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+
 .search-results {
   position: absolute;
   bottom: calc(100% + 8px);
-  right: 0;
   width: 320px;
   max-height: 360px;
   overflow-y: auto;
@@ -291,6 +531,11 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   padding: 6px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
 }
+/* Search results hang off the search box's own right edge; the Recent
+   popout hangs off the right edge of the whole center cluster (so it reads
+   as "to the right of the search bar," anchored near the Recent button). */
+#searchResults { right: 0; }
+#recentPopout { right: 0; }
 
 .search-result {
   display: flex;
@@ -357,3 +602,73 @@ button.danger { background: transparent; border-color: var(--danger); color: var
 }
 .move-row:hover { background: var(--bg); }
 .move-row.disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+
+/* ---------- External file drop ---------- */
+
+body.file-drag-over::after {
+  content: "Drop to add to Launchpad";
+  position: fixed;
+  inset: 8px;
+  border: 2px dashed var(--accent);
+  border-radius: 12px;
+  background: rgba(91, 140, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: var(--text);
+  pointer-events: none;
+  z-index: 40;
+}
+
+/* ---------- Settings modal ---------- */
+
+.settings-row { padding: 6px 0; }
+.switch-row {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text) !important;
+  cursor: pointer;
+}
+.switch-row input { width: 16px; height: 16px; }
+.settings-hint {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.settings-version {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  padding-top: 4px;
+}
+.settings-actions { display: flex; gap: 8px; }
+
+.settings-hotkey-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--text);
+}
+.settings-hotkey-row button { min-width: 120px; font-variant-numeric: tabular-nums; }
+.settings-hotkey-row button.capturing { border-color: var(--accent); color: var(--accent); }
+
+/* ---------- Folder color swatches ---------- */
+
+.color-row { display: flex; align-items: center; gap: 10px; }
+.color-row-label { font-size: 13px; color: var(--muted); }
+.color-swatches { display: flex; gap: 8px; }
+.swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  padding: 0;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.swatch.selected { border-color: var(--text); }

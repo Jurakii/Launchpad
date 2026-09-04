@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('launcherAPI', {
   listApps: () => ipcRenderer.invoke('apps:list'),
@@ -9,8 +9,30 @@ contextBridge.exposeInMainWorld('launcherAPI', {
   pickTarget: (kind) => ipcRenderer.invoke('dialog:pickTarget', kind),
   pickIcon: () => ipcRenderer.invoke('dialog:pickIcon'),
   extractIconPreview: (targetPath) => ipcRenderer.invoke('icon:extractPreview', targetPath),
-  addFolder: (name, parentId) => ipcRenderer.invoke('folder:add', { name, parentId }),
+  fetchFaviconPreview: (url) => ipcRenderer.invoke('icon:fetchFaviconPreview', url),
+  detectMissingIcons: () => ipcRenderer.invoke('apps:detectMissingIcons'),
+  restoreDefaults: () => ipcRenderer.invoke('apps:restoreDefaults'),
+  emptyRecycleBin: () => ipcRenderer.invoke('system:emptyRecycleBin'),
+  addIsland: (name, parentId, color) => ipcRenderer.invoke('folder:add', { name, parentId, color }),
   renameItem: (id, name) => ipcRenderer.invoke('item:rename', { id, name }),
+  setColor: (id, color) => ipcRenderer.invoke('item:setColor', { id, color }),
   moveItem: (id, parentId) => ipcRenderer.invoke('item:move', { id, parentId }),
   togglePin: (id) => ipcRenderer.invoke('item:togglePin', id),
+  setPinned: (id, pinned) => ipcRenderer.invoke('item:setPinned', { id, pinned }),
+  setPinOrder: (orderedIds) => ipcRenderer.invoke('item:setPinOrder', orderedIds),
+  setPositions: (updates) => ipcRenderer.invoke('item:setPositions', updates),
+  setPosition: (id, gridX, gridY) => ipcRenderer.invoke('item:setPosition', { id, gridX, gridY }),
+  setCollapsed: (id, collapsed) => ipcRenderer.invoke('item:setCollapsed', { id, collapsed }),
+  setShowNames: (id, showNames) => ipcRenderer.invoke('item:setShowNames', { id, showNames }),
+  setSize: (id, w, h) => ipcRenderer.invoke('item:setSize', { id, w, h }),
+  getAutoLaunch: () => ipcRenderer.invoke('settings:getAutoLaunch'),
+  setAutoLaunch: (enable) => ipcRenderer.invoke('settings:setAutoLaunch', enable),
+  getStartFullscreen: () => ipcRenderer.invoke('settings:getStartFullscreen'),
+  setStartFullscreen: (enable) => ipcRenderer.invoke('settings:setStartFullscreen', enable),
+  getHotkey: () => ipcRenderer.invoke('settings:getHotkey'),
+  setHotkey: (accelerator) => ipcRenderer.invoke('settings:setHotkey', accelerator),
+  getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  exportBackup: () => ipcRenderer.invoke('backup:export'),
+  importBackup: () => ipcRenderer.invoke('backup:import'),
+  getPathForFile: (file) => webUtils.getPathForFile(file),
 });
