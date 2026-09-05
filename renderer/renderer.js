@@ -699,8 +699,18 @@ function renderCanvas(items) {
     canvas.appendChild(el);
   }
   // Sized on the CONTENT wrapper, not the scroll viewport - see the comment
-  // on .grid/.canvas in styles.css for why that split matters.
-  canvas.style.minHeight = `${maxRow * CELL + 24}px`;
+  // on .grid/.canvas in styles.css for why that split matters. Also floored
+  // to the viewport's own available content height: a block with only
+  // absolutely-positioned children has zero natural height, so with few
+  // icons the canvas would otherwise end short of the visible .grid area,
+  // leaving a dead zone below the icons where mousedown never reaches canvas
+  // and drag-select silently does nothing. Subtracting .grid's own padding
+  // is what keeps this floor from itself creating ~40px of overflow (and a
+  // bogus scrollbar) when there are zero or few apps.
+  const gridStyle = getComputedStyle(grid);
+  const gridVPad = parseFloat(gridStyle.paddingTop) + parseFloat(gridStyle.paddingBottom);
+  const availableHeight = grid.clientHeight - gridVPad;
+  canvas.style.minHeight = `${Math.max(maxRow * CELL + 24, availableHeight)}px`;
   canvas.style.minWidth = `${maxCol * CELL + 24}px`;
   return sorted;
 }
@@ -777,9 +787,15 @@ grid.addEventListener('drop', async (e) => {
 
 // ---------- drag-select (marquee) ----------
 
-canvas.addEventListener('mousedown', (e) => {
+grid.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return; // left button only
-  if (e.target !== canvas) return; // must start on empty canvas, not a tile/card
+  // Must start on empty space, not a tile/card. Listening on .grid (the
+  // scroll viewport) rather than .canvas (the content box) matters because
+  // .canvas can end shorter or narrower than the visible viewport - see the
+  // comment in renderCanvas(). Checking closest('[data-id]') instead of an
+  // exact-element match keeps this working regardless of which of the two
+  // empty-space elements the click actually landed on.
+  if (e.target.closest('[data-id]')) return;
   e.preventDefault();
 
   const additive = e.shiftKey || e.ctrlKey || e.metaKey;
@@ -790,12 +806,27 @@ canvas.addEventListener('mousedown', (e) => {
   const startX = e.clientX - canvasRect.left;
   const startY = e.clientY - canvasRect.top;
 
+  // Snapshot every tile's box once, up front - positions can't change during
+  // a marquee drag, so re-reading offsetLeft/Top from the live DOM on every
+  // mousemove (right after writing the marquee's own style) forced a
+  // synchronous layout flush per event. That read-after-write thrashing is
+  // what made the marquee feel laggy and made fast drags miss/skip tiles.
+  const candidates = Array.from(canvas.querySelectorAll('[data-id]')).map((el) => ({
+    id: el.dataset.id,
+    left: el.offsetLeft,
+    top: el.offsetTop,
+    right: el.offsetLeft + el.offsetWidth,
+    bottom: el.offsetTop + el.offsetHeight,
+  }));
+
   const marquee = document.createElement('div');
   marquee.className = 'marquee';
   canvas.appendChild(marquee);
   let moved = false;
+  let pendingEvent = null;
+  let rafId = null;
 
-  function onMove(ev) {
+  function applyMove(ev) {
     const curRect = canvas.getBoundingClientRect();
     const curX = ev.clientX - curRect.left;
     const curY = ev.clientY - curRect.top;
@@ -809,21 +840,29 @@ canvas.addEventListener('mousedown', (e) => {
     marquee.style.width = `${w}px`;
     marquee.style.height = `${h}px`;
 
+    const right = left + w;
+    const bottom = top + h;
     const next = new Set(baseSelection);
-    for (const el of canvas.querySelectorAll('[data-id]')) {
-      const elLeft = el.offsetLeft;
-      const elTop = el.offsetTop;
-      const intersects =
-        elLeft < left + w && elLeft + el.offsetWidth > left && elTop < top + h && elTop + el.offsetHeight > top;
-      if (intersects) next.add(el.dataset.id);
+    for (const c of candidates) {
+      if (c.left < right && c.right > left && c.top < bottom && c.bottom > top) next.add(c.id);
     }
     selectedIds = next;
     updateSelectionVisuals();
   }
 
+  function onMove(ev) {
+    pendingEvent = ev;
+    if (rafId !== null) return;
+    rafId = requestAnimationFrame(() => {
+      rafId = null;
+      applyMove(pendingEvent);
+    });
+  }
+
   function onUp() {
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
+    if (rafId !== null) cancelAnimationFrame(rafId);
     marquee.remove();
     if (!moved && !additive) clearSelection(); // plain click on empty space
   }
