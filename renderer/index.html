@@ -42,7 +42,8 @@
     </div>
 
     <div class="taskbar-right">
-      <div class="volume-control">
+      <div id="trayInsertLine" class="pin-insert-line hidden"></div>
+      <div class="volume-control" data-tray-id="volume" draggable="true">
         <button id="volumeBtn" class="taskbar-icon-btn" title="Volume"></button>
         <div id="volumePopout" class="volume-popout hidden">
           <div class="volume-master-row">
@@ -60,21 +61,21 @@
           </div>
         </div>
       </div>
-      <div class="usb-control">
+      <div class="usb-control" data-tray-id="usb" draggable="true">
         <button id="usbBtn" class="taskbar-icon-btn" title="USB devices"></button>
         <div id="usbPopout" class="usb-popout hidden">
           <div class="volume-section-label">USB devices</div>
           <div id="usbList" class="usb-list"></div>
         </div>
       </div>
-      <div class="usb-control">
+      <div class="usb-control" data-tray-id="bluetooth" draggable="true">
         <button id="bluetoothBtn" class="taskbar-icon-btn" title="Bluetooth devices"></button>
         <div id="bluetoothPopout" class="usb-popout hidden">
           <div class="volume-section-label">Bluetooth devices</div>
           <div id="bluetoothList" class="usb-list"></div>
         </div>
       </div>
-      <div class="usb-control">
+      <div class="usb-control" data-tray-id="network" draggable="true">
         <button id="networkBtn" class="taskbar-icon-btn" title="Wi-Fi networks"></button>
         <div id="networkPopout" class="usb-popout hidden">
           <div class="volume-section-label">Wi-Fi networks</div>
@@ -82,11 +83,11 @@
           <button type="button" id="networkSettingsBtn" class="network-settings-link">More network settings…</button>
         </div>
       </div>
-      <div id="clockWidget" class="clock-widget" title="">
+      <div id="clockWidget" class="clock-widget" title="" data-tray-id="clock" draggable="true">
         <div id="clockTime" class="clock-time"></div>
         <div id="clockDate" class="clock-date"></div>
       </div>
-      <div class="usb-control">
+      <div class="usb-control" data-tray-id="power" draggable="true">
         <button id="powerBtn" class="taskbar-icon-btn" title="Power"></button>
         <div id="powerPopout" class="power-popout hidden">
           <button type="button" id="powerSleepBtn" class="power-option-btn">Sleep</button>
@@ -249,6 +250,16 @@
           <option value="left">Left</option>
           <option value="right">Right</option>
         </select>
+      </div>
+      <div class="settings-row settings-accent-row">
+        <span>System tray position</span>
+        <select id="trayAlignSelect">
+          <option value="edge">Snap to edge</option>
+          <option value="center">Snap to center</option>
+        </select>
+      </div>
+      <div class="settings-row settings-hint">
+        Drag the clock/volume/network icons in the taskbar to reorder them.
       </div>
       <div class="settings-row settings-accent-row">
         <span>Wallpaper</span>

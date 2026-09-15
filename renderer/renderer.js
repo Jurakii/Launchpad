@@ -20,6 +20,9 @@ try {
   if (localStorage.getItem('launchpad-taskbar-position') === 'right') {
     document.getElementById('taskbar').setAttribute('data-pinned-side', 'right');
   }
+  if (localStorage.getItem('launchpad-tray-align') === 'center') {
+    document.getElementById('taskbar').setAttribute('data-tray-align', 'center');
+  }
   if (localStorage.getItem('launchpad-hide-add-buttons') === '1') {
     document.documentElement.setAttribute('data-hide-add-buttons', '1');
   }
@@ -94,6 +97,7 @@ const accentResetBtn = document.getElementById('accentResetBtn');
 const taskbarStyleSelect = document.getElementById('taskbarStyleSelect');
 const topbarStyleSelect = document.getElementById('topbarStyleSelect');
 const taskbarPositionSelect = document.getElementById('taskbarPositionSelect');
+const trayAlignSelect = document.getElementById('trayAlignSelect');
 const notifyUpdatesToggle = document.getElementById('notifyUpdatesToggle');
 const updateStatusLabel = document.getElementById('updateStatusLabel');
 const wallpaperPickBtn = document.getElementById('wallpaperPickBtn');
@@ -1177,6 +1181,104 @@ pinnedRow.addEventListener('drop', async (e) => {
   await refreshFromServer(window.launcherAPI.setPinOrder(orderToSave));
 });
 
+// ---------- taskbar: system tray reordering ----------
+
+// The tray row is a fixed set of built-in controls (not user data like
+// apps), so its order/alignment are simple view preferences kept in
+// localStorage - same tier as theme/accent/wallpaper - rather than round-
+// tripped through the main process like apps.json.
+const TRAY_IDS = ['volume', 'usb', 'bluetooth', 'network', 'clock', 'power'];
+const trayRow = document.querySelector('.taskbar-right');
+const trayInsertLine = document.getElementById('trayInsertLine');
+let pendingTrayInsertIndex = -1;
+
+function getTrayOrder() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('launchpad-tray-order') || 'null');
+    if (Array.isArray(saved) && saved.length === TRAY_IDS.length && TRAY_IDS.every((id) => saved.includes(id))) {
+      return saved;
+    }
+  } catch {}
+  return TRAY_IDS.slice();
+}
+
+function saveTrayOrder(order) {
+  try {
+    localStorage.setItem('launchpad-tray-order', JSON.stringify(order));
+  } catch {}
+}
+
+// Reorders the actual tray DOM nodes (each already exists statically in
+// index.html, so this just moves them, unlike renderPinned() which builds
+// tiles from scratch) to match the saved order, reversed when mirrored -
+// same reasoning as renderPinned(): real element positions drive the drag
+// math below, so the mirror has to be baked into actual DOM order rather
+// than done with flex-direction.
+function renderTrayOrder() {
+  let order = getTrayOrder();
+  if (isTaskbarMirrored()) order = order.slice().reverse();
+  for (const id of order) {
+    const el = trayRow.querySelector(`[data-tray-id="${id}"]`);
+    if (el) trayRow.appendChild(el);
+  }
+}
+
+trayRow.querySelectorAll('[data-tray-id]').forEach((el) => {
+  el.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('application/x-launchpad-tray-id', el.dataset.trayId);
+    e.dataTransfer.effectAllowed = 'move';
+  });
+});
+
+trayRow.addEventListener('dragover', (e) => {
+  if (!e.dataTransfer.types.includes('application/x-launchpad-tray-id')) return;
+  e.preventDefault();
+
+  const tiles = Array.from(trayRow.querySelectorAll('[data-tray-id]'));
+  const rowRect = trayRow.getBoundingClientRect();
+  let insertIndex = tiles.length;
+  let lineX = tiles.length ? tiles[tiles.length - 1].getBoundingClientRect().right - rowRect.left : 0;
+
+  for (let i = 0; i < tiles.length; i++) {
+    const r = tiles[i].getBoundingClientRect();
+    if (e.clientX < r.left + r.width / 2) {
+      insertIndex = i;
+      lineX = r.left - rowRect.left;
+      break;
+    }
+  }
+
+  pendingTrayInsertIndex = insertIndex;
+  trayInsertLine.style.left = `${lineX}px`;
+  trayInsertLine.classList.remove('hidden');
+});
+
+trayRow.addEventListener('dragleave', (e) => {
+  if (!trayRow.contains(e.relatedTarget)) trayInsertLine.classList.add('hidden');
+});
+
+trayRow.addEventListener('drop', (e) => {
+  if (!e.dataTransfer.types.includes('application/x-launchpad-tray-id')) return;
+  e.preventDefault();
+  trayInsertLine.classList.add('hidden');
+
+  const draggedId = e.dataTransfer.getData('application/x-launchpad-tray-id');
+  if (!draggedId) return;
+  const order = Array.from(trayRow.querySelectorAll('[data-tray-id]')).map((el) => el.dataset.trayId);
+  const fromIndex = order.indexOf(draggedId);
+  if (fromIndex === -1) return;
+
+  order.splice(fromIndex, 1);
+  let insertAt = pendingTrayInsertIndex;
+  if (fromIndex < insertAt) insertAt -= 1;
+  order.splice(Math.max(0, insertAt), 0, draggedId);
+
+  saveTrayOrder(isTaskbarMirrored() ? order.slice().reverse() : order);
+  renderTrayOrder();
+});
+
+renderTrayOrder();
+
 // ---------- taskbar: search + recent popouts ----------
 
 // Shared row builder for both the search-results and Recent popouts.
@@ -2084,6 +2186,7 @@ settingsBtn.addEventListener('click', async () => {
   taskbarStyleSelect.value = localStorage.getItem('launchpad-taskbar-style') || 'solid';
   topbarStyleSelect.value = localStorage.getItem('launchpad-topbar-style') || 'solid';
   taskbarPositionSelect.value = localStorage.getItem('launchpad-taskbar-position') || 'left';
+  trayAlignSelect.value = localStorage.getItem('launchpad-tray-align') || 'edge';
   notifyUpdatesToggle.checked = await window.launcherAPI.getNotifyUpdates();
   hotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getHotkey());
   settingsModalOverlay.classList.remove('hidden');
@@ -2247,6 +2350,17 @@ taskbarPositionSelect.addEventListener('change', () => {
     else localStorage.removeItem('launchpad-taskbar-position');
   } catch {}
   renderPinned();
+  renderTrayOrder();
+});
+
+trayAlignSelect.addEventListener('change', () => {
+  const align = trayAlignSelect.value;
+  if (align === 'center') taskbarEl.setAttribute('data-tray-align', 'center');
+  else taskbarEl.removeAttribute('data-tray-align');
+  try {
+    if (align === 'center') localStorage.setItem('launchpad-tray-align', 'center');
+    else localStorage.removeItem('launchpad-tray-align');
+  } catch {}
 });
 
 notifyUpdatesToggle.addEventListener('change', () => {
