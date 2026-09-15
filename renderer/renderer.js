@@ -1361,6 +1361,32 @@ taskbarSearch.addEventListener('focus', () => {
   }
 });
 
+// The volume/USB/bluetooth/network/power popouts all default to `right: 0`
+// (CSS) so they hang off their button's right edge - fine as long as that
+// button lives near the taskbar's right edge, which used to always be true.
+// Now that the tray can be dragged, mirrored to the left side, or snapped to
+// center, that same button can end up hard against the left edge of the
+// window, and `right: 0` would then push the popout mostly off-screen. Call
+// this right after un-hiding a popout: it measures where the default
+// placement actually landed and only overrides it if that overflows either
+// edge of the window, so the common case (still on-screen) stays untouched.
+function positionPopoutToFit(popoutEl) {
+  popoutEl.style.left = '';
+  popoutEl.style.right = '';
+  const margin = 8;
+  let rect = popoutEl.getBoundingClientRect();
+  if (rect.left < margin) {
+    popoutEl.style.right = 'auto';
+    popoutEl.style.left = '0';
+    rect = popoutEl.getBoundingClientRect();
+  }
+  if (rect.right > window.innerWidth - margin) {
+    const overflow = rect.right - (window.innerWidth - margin);
+    popoutEl.style.right = 'auto';
+    popoutEl.style.left = `${rect.left - overflow}px`;
+  }
+}
+
 // Opening any one taskbar popout closes every other one, so at most a
 // single popout is ever showing at once - each button's click handler calls
 // this (with its own popout named in `except`) before deciding whether to
@@ -1485,6 +1511,7 @@ networkBtn.addEventListener('click', (e) => {
   }
   closeAllTaskbarPopouts('network');
   networkPopout.classList.remove('hidden');
+  positionPopoutToFit(networkPopout);
   networkList.innerHTML = '<div class="usb-empty">Scanning…</div>';
   refreshNetworkList();
 });
@@ -1610,6 +1637,7 @@ volumeBtn.addEventListener('click', (e) => {
   }
   closeAllTaskbarPopouts('volume');
   volumePopout.classList.remove('hidden');
+  positionPopoutToFit(volumePopout);
   if (!sessionMixerList.children.length) {
     sessionMixerList.innerHTML = '<div class="session-mixer-empty">Scanning…</div>';
   }
@@ -1711,6 +1739,7 @@ usbBtn.addEventListener('click', (e) => {
   }
   closeAllTaskbarPopouts('usb');
   usbPopout.classList.remove('hidden');
+  positionPopoutToFit(usbPopout);
   usbList.innerHTML = '<div class="usb-empty">Scanning…</div>';
   refreshUsbList();
 });
@@ -1779,6 +1808,7 @@ bluetoothBtn.addEventListener('click', (e) => {
   }
   closeAllTaskbarPopouts('bluetooth');
   bluetoothPopout.classList.remove('hidden');
+  positionPopoutToFit(bluetoothPopout);
   bluetoothList.innerHTML = '<div class="usb-empty">Scanning…</div>';
   refreshBluetoothList();
 });
@@ -1797,6 +1827,7 @@ powerBtn.addEventListener('click', (e) => {
   }
   closeAllTaskbarPopouts('power');
   powerPopout.classList.remove('hidden');
+  positionPopoutToFit(powerPopout);
 });
 
 powerSleepBtn.addEventListener('click', async () => {
