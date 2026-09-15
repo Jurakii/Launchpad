@@ -1,6 +1,6 @@
 {
   "name": "launchpad",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Personal desktop-replacement launcher for apps that don't play nice with the taskbar/Start Menu",
   "main": "main.js",
   "private": true,

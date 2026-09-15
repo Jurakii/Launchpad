@@ -197,6 +197,10 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   white-space: nowrap;
 }
 
+:root[data-hide-app-names="1"] .tile .tile-name {
+  display: none;
+}
+
 .tile .edit-btn {
   position: absolute;
   top: 2px;

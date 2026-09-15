@@ -26,6 +26,9 @@ try {
   if (localStorage.getItem('launchpad-hide-add-buttons') === '1') {
     document.documentElement.setAttribute('data-hide-add-buttons', '1');
   }
+  if (localStorage.getItem('launchpad-hide-app-names') === '1') {
+    document.documentElement.setAttribute('data-hide-app-names', '1');
+  }
 } catch {}
 
 const grid = document.getElementById('grid');
@@ -92,6 +95,7 @@ const themeToggle = document.getElementById('themeToggle');
 const fullscreenToggle = document.getElementById('fullscreenToggle');
 const minimizeToTrayToggle = document.getElementById('minimizeToTrayToggle');
 const showAddButtonsToggle = document.getElementById('showAddButtonsToggle');
+const showAppNamesToggle = document.getElementById('showAppNamesToggle');
 const accentColorInput = document.getElementById('accentColorInput');
 const accentResetBtn = document.getElementById('accentResetBtn');
 const taskbarStyleSelect = document.getElementById('taskbarStyleSelect');
@@ -2231,6 +2235,7 @@ settingsBtn.addEventListener('click', async () => {
   fullscreenToggle.checked = await window.launcherAPI.getStartFullscreen();
   minimizeToTrayToggle.checked = await window.launcherAPI.getMinimizeToTrayOnClose();
   showAddButtonsToggle.checked = localStorage.getItem('launchpad-hide-add-buttons') !== '1';
+  showAppNamesToggle.checked = localStorage.getItem('launchpad-hide-app-names') !== '1';
   accentColorInput.value = currentAccentColor();
   taskbarStyleSelect.value = localStorage.getItem('launchpad-taskbar-style') || 'solid';
   topbarStyleSelect.value = localStorage.getItem('launchpad-topbar-style') || 'solid';
@@ -2342,6 +2347,16 @@ showAddButtonsToggle.addEventListener('change', () => {
   try {
     if (hide) localStorage.setItem('launchpad-hide-add-buttons', '1');
     else localStorage.removeItem('launchpad-hide-add-buttons');
+  } catch {}
+});
+
+showAppNamesToggle.addEventListener('change', () => {
+  const hide = !showAppNamesToggle.checked;
+  if (hide) document.documentElement.setAttribute('data-hide-app-names', '1');
+  else document.documentElement.removeAttribute('data-hide-app-names');
+  try {
+    if (hide) localStorage.setItem('launchpad-hide-app-names', '1');
+    else localStorage.removeItem('launchpad-hide-app-names');
   } catch {}
 });
 
