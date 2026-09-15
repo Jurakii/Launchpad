@@ -27,3 +27,31 @@ if (result.status !== 0) {
 }
 
 require('./fix-exe-icon');
+
+// electron-builder's NSIS artifactName keeps spaces ("Launchpad Setup
+// 1.0.1.exe"), but latest.yml - which electron-updater reads at runtime -
+// always references the space-free form ("Launchpad-Setup-1.0.1.exe"), since
+// that's what its GitHub provider expects to find as the release asset name.
+// Uploading the as-built file straight from dist/ silently breaks
+// auto-update (GitHub itself mangles the spaces into periods on upload,
+// which doesn't match latest.yml either) - so rename it here to the exact
+// name latest.yml already commits to, straight after the build produces it.
+const fs = require('fs');
+const distDir = path.join(__dirname, '..', 'dist');
+const latestYmlPath = path.join(distDir, 'latest.yml');
+if (fs.existsSync(latestYmlPath)) {
+  const yml = fs.readFileSync(latestYmlPath, 'utf-8');
+  const wantedNames = new Set(Array.from(yml.matchAll(/^\s*(?:url|path):\s*(.+)$/gm), (m) => m[1].trim()));
+  for (const wanted of wantedNames) {
+    const actual = wanted.replace(/-/g, ' ');
+    if (actual === wanted) continue;
+    for (const suffix of ['', '.blockmap']) {
+      const actualPath = path.join(distDir, actual + suffix);
+      const wantedPath = path.join(distDir, wanted + suffix);
+      if (fs.existsSync(actualPath) && !fs.existsSync(wantedPath)) {
+        fs.renameSync(actualPath, wantedPath);
+        console.log(`renamed to match latest.yml: "${actual}${suffix}" -> "${wanted}${suffix}"`);
+      }
+    }
+  }
+}
