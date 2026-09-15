@@ -480,13 +480,7 @@ button.danger { background: transparent; border-color: var(--danger); color: var
    system tray cluster land in, via `order` - CSS Grid auto-placement fills
    the tracks defined by grid-template-columns in `order` sequence, not DOM
    order. Each side's own justify-content is also flipped so its content
-   still hugs the window's outer edge after the swap. This is a true mirror,
-   not just a relocation: the tray cluster is also flex-direction:row-reverse
-   so Power (last in DOM, normally outermost-right) ends up outermost-left.
-   The pinned row can't use the same CSS trick - its drag-to-reorder math
-   reads real getBoundingClientRect positions assuming DOM order runs
-   left-to-right, which row-reverse would invert - so its mirroring is done
-   in JS instead (see renderPinned/isTaskbarMirrored in renderer.js). */
+   still hugs the window's outer edge after the swap. */
 .taskbar[data-pinned-side="right"] .taskbar-left {
   order: 3;
   justify-content: flex-end;
@@ -497,7 +491,6 @@ button.danger { background: transparent; border-color: var(--danger); color: var
 .taskbar[data-pinned-side="right"] .taskbar-right {
   order: 1;
   justify-content: flex-start;
-  flex-direction: row-reverse;
 }
 
 .taskbar-icon-btn {

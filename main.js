@@ -11,6 +11,7 @@ const {
   Menu,
   globalShortcut,
   shell,
+  Notification,
 } = require('electron');
 
 const store = require('./lib/store');
@@ -25,6 +26,7 @@ const openWindows = require('./lib/windows');
 const bluetooth = require('./lib/bluetooth');
 const power = require('./lib/power');
 const wifi = require('./lib/wifi');
+const updater = require('./lib/updater');
 
 let mainWindow = null;
 let tray = null;
@@ -53,6 +55,17 @@ function registerHotkey(accel) {
     if (currentHotkey) globalShortcut.register(currentHotkey, toggleWindow);
   }
   return ok;
+}
+
+async function checkForUpdateAndNotify() {
+  const result = await updater.checkForUpdate(app.getVersion());
+  if (result.hasUpdate) {
+    new Notification({
+      title: 'Launchpad update available',
+      body: `Version ${result.latestVersion} is available (you have ${result.currentVersion}).`,
+    }).show();
+  }
+  return result;
 }
 
 function decorate(apps) {
@@ -197,6 +210,12 @@ if (!gotLock) {
     createWindow();
     createTray();
     registerHotkey(settings.load().hotkey || DEFAULT_HOTKEY);
+
+    // Background check only - Settings always checks fresh on its own when
+    // opened, so this is purely for the opt-in native notification.
+    if (settings.load().notifyUpdates) {
+      checkForUpdateAndNotify().catch(() => {});
+    }
   });
 
   app.on('will-quit', () => {
@@ -956,6 +975,31 @@ ipcMain.handle('settings:setStartFullscreen', (_e, enable) => {
 ipcMain.handle('settings:getHotkey', () => settings.load().hotkey || DEFAULT_HOTKEY);
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
+
+ipcMain.handle('update:check', async () => {
+  try {
+    return await updater.checkForUpdate(app.getVersion());
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// Scoped to github.com rather than a generic "open any URL" handler - the
+// only thing this ever needs to open is the release page GitHub itself gave us.
+ipcMain.handle('update:openReleasePage', (_e, url) => {
+  if (typeof url === 'string' && /^https:\/\/github\.com\//.test(url)) {
+    shell.openExternal(url);
+    return { ok: true };
+  }
+  return { ok: false };
+});
+
+ipcMain.handle('settings:getNotifyUpdates', () => !!settings.load().notifyUpdates);
+
+ipcMain.handle('settings:setNotifyUpdates', (_e, enable) => {
+  settings.save({ notifyUpdates: !!enable });
+  return { ok: true };
+});
 
 ipcMain.handle('settings:setHotkey', (_e, accel) => {
   if (!accel) return { ok: false, error: 'No keys given.' };

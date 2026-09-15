@@ -1081,17 +1081,8 @@ function updatePinnedEmptyVisibility() {
   pinnedEmpty.classList.toggle('hidden', pinnedCount > 0 || openWindowsCount > 0);
 }
 
-// "Taskbar buttons: Right" is a true mirror, not just a relocation - the
-// pinned row's rendered (and thus draggable) sequence is reversed too, so
-// the whole bar reads as a left-right flip rather than the same sequence
-// shifted to the other edge.
-function isTaskbarMirrored() {
-  return (localStorage.getItem('launchpad-taskbar-position') || 'left') === 'right';
-}
-
 function renderPinned() {
-  let pinned = apps.filter((a) => a.pinned).sort((a, b) => (a.pinOrder ?? Infinity) - (b.pinOrder ?? Infinity));
-  if (isTaskbarMirrored()) pinned = pinned.slice().reverse();
+  const pinned = apps.filter((a) => a.pinned).sort((a, b) => (a.pinOrder ?? Infinity) - (b.pinOrder ?? Infinity));
   currentPinnedOrder = pinned.map((p) => p.id);
   Array.from(pinnedRow.querySelectorAll('.pin-tile')).forEach((el) => el.remove());
   updatePinnedEmptyVisibility();
@@ -1168,13 +1159,7 @@ pinnedRow.addEventListener('drop', async (e) => {
   let insertAt = pendingPinInsertIndex;
   if (fromIndex < insertAt) insertAt -= 1; // removing the dragged item shifted everything after it left
   order.splice(Math.max(0, insertAt), 0, draggedId);
-  // `order` is in whatever sequence is currently on screen - when mirrored
-  // that's the reverse of the canonical (unmirrored) pinOrder, so flip it
-  // back before saving. Otherwise every drag while mirrored would bake the
-  // mirror into the stored order, and un-mirroring later would un-reverse
-  // it right back to something the user never actually arranged.
-  const orderToSave = isTaskbarMirrored() ? order.slice().reverse() : order;
-  await refreshFromServer(window.launcherAPI.setPinOrder(orderToSave));
+  await refreshFromServer(window.launcherAPI.setPinOrder(order));
 });
 
 // ---------- taskbar: search + recent popouts ----------
@@ -2246,7 +2231,6 @@ taskbarPositionSelect.addEventListener('change', () => {
     if (side === 'right') localStorage.setItem('launchpad-taskbar-position', 'right');
     else localStorage.removeItem('launchpad-taskbar-position');
   } catch {}
-  renderPinned();
 });
 
 notifyUpdatesToggle.addEventListener('change', () => {
