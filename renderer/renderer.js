@@ -100,6 +100,7 @@ const taskbarPositionSelect = document.getElementById('taskbarPositionSelect');
 const trayAlignSelect = document.getElementById('trayAlignSelect');
 const notifyUpdatesToggle = document.getElementById('notifyUpdatesToggle');
 const updateStatusLabel = document.getElementById('updateStatusLabel');
+const updateActionBtn = document.getElementById('updateActionBtn');
 const wallpaperPickBtn = document.getElementById('wallpaperPickBtn');
 const wallpaperResetBtn = document.getElementById('wallpaperResetBtn');
 const wallpaperFileInput = document.getElementById('wallpaperFileInput');
@@ -2207,29 +2208,79 @@ settingsBtn.addEventListener('click', async () => {
   notifyUpdatesToggle.checked = await window.launcherAPI.getNotifyUpdates();
   hotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getHotkey());
   settingsModalOverlay.classList.remove('hidden');
-  refreshUpdateStatus();
+  // A download in progress or already finished shouldn't be interrupted by
+  // re-opening Settings and kicking off a fresh check - just re-show where
+  // things stand. Anything else (never checked, none, error) checks fresh
+  // so the label can't go stale across a long session.
+  if (latestUpdateStatus && (latestUpdateStatus.state === 'downloading' || latestUpdateStatus.state === 'downloaded')) {
+    renderUpdateStatus(latestUpdateStatus);
+  } else {
+    checkForUpdates();
+  }
 });
 
-// Checked fresh every time Settings opens (rather than cached) so the label
-// can't go stale while the modal sits open across a long session.
-function refreshUpdateStatus() {
-  updateStatusLabel.textContent = 'Checking for updates…';
-  updateStatusLabel.classList.remove('update-available');
-  updateStatusLabel.onclick = null;
-  window.launcherAPI.checkForUpdate().then((result) => {
-    if (!result || result.error) {
-      updateStatusLabel.textContent = 'Could not check for updates.';
-      return;
-    }
-    if (result.hasUpdate) {
-      updateStatusLabel.textContent = `Update available: v${result.latestVersion} (click to view)`;
-      updateStatusLabel.classList.add('update-available');
-      updateStatusLabel.onclick = () => window.launcherAPI.openReleasePage(result.url);
-    } else {
+// Reflects whatever the main process last reported (see onUpdateStatus
+// below) - main is the source of truth since the actual download/install
+// happens there and can outlive the Settings modal being open.
+let latestUpdateStatus = null;
+
+function renderUpdateStatus(status) {
+  latestUpdateStatus = status;
+  updateActionBtn.classList.add('hidden');
+  updateActionBtn.disabled = false;
+  switch (status.state) {
+    case 'unsupported':
+      updateStatusLabel.textContent = 'Update checking is only available in the installed app.';
+      break;
+    case 'checking':
+      updateStatusLabel.textContent = 'Checking for updates…';
+      break;
+    case 'none':
       updateStatusLabel.textContent = "You're up to date.";
-    }
+      break;
+    case 'available':
+      updateStatusLabel.textContent = `Update available: v${status.version}`;
+      updateActionBtn.textContent = 'Download & Install';
+      updateActionBtn.classList.remove('hidden');
+      break;
+    case 'downloading':
+      updateStatusLabel.textContent = `Downloading v${status.version}… ${Math.round(status.percent || 0)}%`;
+      break;
+    case 'downloaded':
+      updateStatusLabel.textContent = `Version ${status.version} downloaded.`;
+      updateActionBtn.textContent = 'Restart & Install';
+      updateActionBtn.classList.remove('hidden');
+      break;
+    case 'error':
+      updateStatusLabel.textContent = `Update check failed: ${status.message || 'unknown error'}`;
+      break;
+  }
+}
+
+function checkForUpdates() {
+  renderUpdateStatus({ state: 'checking' });
+  window.launcherAPI.checkForUpdate().then((result) => {
+    // A concrete outcome (available/none/error) normally arrives via the
+    // update:status push once autoUpdater finishes - this only needs to
+    // handle the cases the main process can already know synchronously.
+    if (result && result.state === 'unsupported') renderUpdateStatus({ state: 'unsupported' });
+    else if (result && result.error) renderUpdateStatus({ state: 'error', message: result.error });
   });
 }
+
+window.launcherAPI.onUpdateStatus(renderUpdateStatus);
+
+updateActionBtn.addEventListener('click', async () => {
+  updateActionBtn.disabled = true;
+  const res = await window.launcherAPI.installUpdate();
+  if (!res.ok) {
+    updateActionBtn.disabled = false;
+    showAlert(res.error || "Couldn't install the update.");
+  }
+  // On success this either starts a download (status arrives via push,
+  // ending in 'downloaded') or, if already downloaded, quits the app to
+  // install - either way there's nothing further to do here.
+});
 
 // Fetched once at startup (it never changes mid-session) rather than on
 // every Settings open, so the label is already there with no flash.

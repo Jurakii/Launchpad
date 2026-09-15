@@ -26,7 +26,48 @@ const openWindows = require('./lib/windows');
 const bluetooth = require('./lib/bluetooth');
 const power = require('./lib/power');
 const wifi = require('./lib/wifi');
-const updater = require('./lib/updater');
+const { autoUpdater } = require('electron-updater');
+
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = false;
+
+// Populated as autoUpdater's events come in - update:check just kicks off
+// checkForUpdates() and the renderer finds out what happened via the
+// update:status push below, rather than the invoke's return value, since
+// the actual result arrives on an event some time after the check starts.
+let updateInfo = null; // { version } once a newer release is found
+let updateDownloaded = false;
+
+function sendUpdateStatus(status) {
+  if (mainWindow) mainWindow.webContents.send('update:status', status);
+}
+
+autoUpdater.on('update-available', (info) => {
+  updateInfo = info;
+  updateDownloaded = false;
+  if (settings.load().notifyUpdates) {
+    new Notification({
+      title: 'Launchpad update available',
+      body: `Version ${info.version} is ready to install.`,
+    }).show();
+  }
+  sendUpdateStatus({ state: 'available', version: info.version });
+});
+autoUpdater.on('update-not-available', () => {
+  updateInfo = null;
+  updateDownloaded = false;
+  sendUpdateStatus({ state: 'none' });
+});
+autoUpdater.on('download-progress', (progress) => {
+  sendUpdateStatus({ state: 'downloading', percent: progress.percent, version: updateInfo?.version });
+});
+autoUpdater.on('update-downloaded', () => {
+  updateDownloaded = true;
+  sendUpdateStatus({ state: 'downloaded', version: updateInfo?.version });
+});
+autoUpdater.on('error', (err) => {
+  sendUpdateStatus({ state: 'error', message: err.message });
+});
 
 let mainWindow = null;
 let tray = null;
@@ -55,17 +96,6 @@ function registerHotkey(accel) {
     if (currentHotkey) globalShortcut.register(currentHotkey, toggleWindow);
   }
   return ok;
-}
-
-async function checkForUpdateAndNotify() {
-  const result = await updater.checkForUpdate(app.getVersion());
-  if (result.hasUpdate) {
-    new Notification({
-      title: 'Launchpad update available',
-      body: `Version ${result.latestVersion} is available (you have ${result.currentVersion}).`,
-    }).show();
-  }
-  return result;
 }
 
 function decorate(apps) {
@@ -212,9 +242,11 @@ if (!gotLock) {
     registerHotkey(settings.load().hotkey || DEFAULT_HOTKEY);
 
     // Background check only - Settings always checks fresh on its own when
-    // opened, so this is purely for the opt-in native notification.
-    if (settings.load().notifyUpdates) {
-      checkForUpdateAndNotify().catch(() => {});
+    // opened, so this is purely for the opt-in native notification. Update
+    // checks don't work against an unpackaged dev run (no latest.yml to
+    // compare against), so there's nothing to check there anyway.
+    if (app.isPackaged && settings.load().notifyUpdates) {
+      autoUpdater.checkForUpdates().catch(() => {});
     }
   });
 
@@ -977,21 +1009,32 @@ ipcMain.handle('settings:getHotkey', () => settings.load().hotkey || DEFAULT_HOT
 ipcMain.handle('app:getVersion', () => app.getVersion());
 
 ipcMain.handle('update:check', async () => {
+  if (!app.isPackaged) return { state: 'unsupported' };
   try {
-    return await updater.checkForUpdate(app.getVersion());
+    await autoUpdater.checkForUpdates();
+    return { ok: true };
   } catch (err) {
-    return { error: err.message };
+    sendUpdateStatus({ state: 'error', message: err.message });
+    return { ok: false, error: err.message };
   }
 });
 
-// Scoped to github.com rather than a generic "open any URL" handler - the
-// only thing this ever needs to open is the release page GitHub itself gave us.
-ipcMain.handle('update:openReleasePage', (_e, url) => {
-  if (typeof url === 'string' && /^https:\/\/github\.com\//.test(url)) {
-    shell.openExternal(url);
+// Downloads the update on first call; once it's finished (updateDownloaded),
+// a second call installs it. Kept as one handler because the renderer button
+// is the same button throughout - its label just changes from "Download &
+// Install" to "Restart & Install" once update-downloaded fires.
+ipcMain.handle('update:install', async () => {
+  if (!app.isPackaged) return { ok: false, error: 'Not available in a dev build.' };
+  try {
+    if (updateDownloaded) {
+      autoUpdater.quitAndInstall();
+    } else {
+      await autoUpdater.downloadUpdate();
+    }
     return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
   }
-  return { ok: false };
 });
 
 ipcMain.handle('settings:getNotifyUpdates', () => !!settings.load().notifyUpdates);
