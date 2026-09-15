@@ -24,6 +24,13 @@ if errorlevel 1 (
 ) else (
     echo.
     echo Build succeeded. Installer and standalone app are in the dist folder.
+    echo.
+    echo To publish a GitHub release so the in-app updater can find it, upload
+    echo all three of these from dist\ ^(names already fixed to match
+    echo latest.yml - don't let GitHub rename anything^):
+    echo   - the Setup ^<version^>.exe installer
+    echo   - its matching .exe.blockmap
+    echo   - latest.yml
 )
 
 pause
