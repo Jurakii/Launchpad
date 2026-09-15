@@ -1027,17 +1027,34 @@ document.addEventListener('keydown', (e) => {
 
 // ---------- external file drop (drag from Explorer to add) ----------
 
+// dragleave fires on whatever element the pointer is actually leaving, not
+// on document.body just because that's where the listener lives - checking
+// `e.target === document.body` almost never matches (the cursor is nearly
+// always over some child like the grid or taskbar right up until it leaves
+// the window), so the overlay used to stay stuck on screen if the drag was
+// cancelled or dragged back out. Counting enter/leave pairs instead - the
+// standard fix for this - only clears it once every nested crossing has
+// balanced out.
+let fileDragDepth = 0;
+
+document.body.addEventListener('dragenter', (e) => {
+  if (isInternalDrag(e) || !e.dataTransfer.types.includes('Files')) return;
+  fileDragDepth++;
+  document.body.classList.add('file-drag-over');
+});
 document.body.addEventListener('dragover', (e) => {
   if (isInternalDrag(e) || !e.dataTransfer.types.includes('Files')) return;
   e.preventDefault();
-  document.body.classList.add('file-drag-over');
 });
 document.body.addEventListener('dragleave', (e) => {
-  if (e.target === document.body) document.body.classList.remove('file-drag-over');
+  if (isInternalDrag(e) || !e.dataTransfer.types.includes('Files')) return;
+  fileDragDepth = Math.max(0, fileDragDepth - 1);
+  if (fileDragDepth === 0) document.body.classList.remove('file-drag-over');
 });
 document.body.addEventListener('drop', async (e) => {
   if (isInternalDrag(e) || !e.dataTransfer.types.includes('Files')) return;
   e.preventDefault();
+  fileDragDepth = 0;
   document.body.classList.remove('file-drag-over');
   const files = Array.from(e.dataTransfer.files || []);
   for (const file of files) {
