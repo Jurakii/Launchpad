@@ -1038,11 +1038,14 @@ body.file-drag-over::after {
   text-align: center;
   padding-top: 4px;
 }
-.settings-version.update-available {
-  color: var(--accent);
-  cursor: pointer;
-  text-decoration: underline;
+.settings-update-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
+.settings-update-row .settings-version { padding-top: 0; }
+.settings-update-row button { font-size: 12px; padding: 4px 10px; }
 .settings-actions { display: flex; gap: 8px; }
 
 .settings-hotkey-row {
