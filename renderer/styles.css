@@ -519,6 +519,36 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   justify-content: flex-end;
 }
 
+/* Taskbar alignment "center" (Windows 11 style): JS (placeTaskbarZones in
+   renderer.js) moves the pinned/open-windows zone into the center group
+   beside the search bar, so search + icons sit together in the middle. The
+   tray's column keeps at least its own content width, and the center track
+   is minmax(0, auto) - it takes its natural width when there's room but can
+   shrink (the pinned row then scrolls) rather than overflow the tray. When
+   things get tight the empty column gives way first, so the group drifts
+   toward it instead of anything getting clipped. */
+.taskbar[data-align="center"] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(max-content, 1fr);
+}
+.taskbar[data-align="center"][data-pinned-side="right"] {
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(0, 1fr);
+}
+.taskbar[data-align="center"][data-tray-align="shared"] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
+}
+.taskbar[data-align="center"] > .taskbar-center {
+  min-width: 0;
+}
+.taskbar-center > .taskbar-left {
+  flex: 0 1 auto;
+  justify-content: flex-start;
+  margin-left: 4px;
+}
+.taskbar[data-pinned-side="right"] .taskbar-center > .taskbar-left {
+  margin-left: 0;
+  margin-right: 4px;
+}
+
 /* "Same side as taskbar buttons": JS (placeTrayCluster in renderer.js)
    moves the tray cluster inside .taskbar-left, so pinned icons, open
    windows and tray controls all share one side of the search bar and the
@@ -969,6 +999,13 @@ button.danger { background: transparent; border-color: var(--danger); color: var
    popout hangs off the right edge of the whole center cluster (so it reads
    as "to the right of the search bar," anchored near the Recent button). */
 #searchResults { right: 0; }
+/* Own positioning context so the Recent popout stays anchored to its
+   button even when centered alignment adds the pinned zone to this group. */
+.recent-wrap {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+}
 #recentPopout { right: 0; }
 
 .search-result {
