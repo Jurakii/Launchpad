@@ -20,6 +20,9 @@ try {
   if (localStorage.getItem('launchpad-taskbar-position') === 'right') {
     document.getElementById('taskbar').setAttribute('data-pinned-side', 'right');
   }
+  if (localStorage.getItem('launchpad-taskbar-align') === 'center') {
+    document.getElementById('taskbar').setAttribute('data-align', 'center');
+  }
   const savedTrayAlign = localStorage.getItem('launchpad-tray-align');
   if (savedTrayAlign === 'center' || savedTrayAlign === 'shared') {
     document.getElementById('taskbar').setAttribute('data-tray-align', savedTrayAlign);
@@ -103,6 +106,7 @@ const taskbarStyleSelect = document.getElementById('taskbarStyleSelect');
 const topbarStyleSelect = document.getElementById('topbarStyleSelect');
 const taskbarPositionSelect = document.getElementById('taskbarPositionSelect');
 const trayAlignSelect = document.getElementById('trayAlignSelect');
+const taskbarAlignSelect = document.getElementById('taskbarAlignSelect');
 const notifyUpdatesToggle = document.getElementById('notifyUpdatesToggle');
 const updateStatusLabel = document.getElementById('updateStatusLabel');
 const updateActionBtn = document.getElementById('updateActionBtn');
@@ -1245,6 +1249,21 @@ function saveTrayOrder(order) {
 // the search bar), and moved back into its own column for edge/center.
 // Mirrored, the pinned zone sits right of the search bar, so the tray goes
 // in first (nearest the search bar) rather than last.
+//
+// Likewise for taskbar alignment "center" (Windows 11 style): the whole
+// pinned/open-windows zone moves into the center group, after the search
+// bar and Recent button (before them when mirrored), and back out to its
+// own column for "edge".
+function placeTaskbarZones() {
+  if ((localStorage.getItem('launchpad-taskbar-align') || 'edge') === 'center') {
+    if (isTaskbarMirrored()) taskbarCenter.insertBefore(taskbarLeft, taskbarCenter.firstChild);
+    else taskbarCenter.appendChild(taskbarLeft);
+  } else if (taskbarLeft.parentElement !== taskbarEl) {
+    taskbarEl.insertBefore(taskbarLeft, taskbarEl.firstChild);
+  }
+  placeTrayCluster();
+}
+
 function placeTrayCluster() {
   if ((localStorage.getItem('launchpad-tray-align') || 'edge') === 'shared') {
     if (isTaskbarMirrored()) taskbarLeft.insertBefore(trayRow, taskbarLeft.firstChild);
@@ -1255,7 +1274,7 @@ function placeTrayCluster() {
 }
 
 function renderTrayOrder() {
-  placeTrayCluster();
+  placeTaskbarZones();
   let order = getTrayOrder();
   if (isTaskbarMirrored()) order = order.slice().reverse();
   for (const id of order) {
@@ -2267,6 +2286,7 @@ settingsBtn.addEventListener('click', async () => {
   topbarStyleSelect.value = localStorage.getItem('launchpad-topbar-style') || 'solid';
   taskbarPositionSelect.value = localStorage.getItem('launchpad-taskbar-position') || 'left';
   trayAlignSelect.value = localStorage.getItem('launchpad-tray-align') || 'edge';
+  taskbarAlignSelect.value = localStorage.getItem('launchpad-taskbar-align') || 'edge';
   notifyUpdatesToggle.checked = await window.launcherAPI.getNotifyUpdates();
   hotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getHotkey());
   settingsModalOverlay.classList.remove('hidden');
@@ -2490,6 +2510,17 @@ function setTaskbarPosition(side) {
   renderTrayOrder();
 }
 
+function setTaskbarAlign(align) {
+  if (align === 'center') taskbarEl.setAttribute('data-align', 'center');
+  else taskbarEl.removeAttribute('data-align');
+  try {
+    if (align === 'center') localStorage.setItem('launchpad-taskbar-align', 'center');
+    else localStorage.removeItem('launchpad-taskbar-align');
+  } catch {}
+  taskbarAlignSelect.value = align === 'center' ? 'center' : 'edge';
+  placeTaskbarZones();
+}
+
 function setTrayAlign(align) {
   if (align === 'center' || align === 'shared') taskbarEl.setAttribute('data-tray-align', align);
   else taskbarEl.removeAttribute('data-tray-align');
@@ -2509,10 +2540,13 @@ taskbarPositionSelect.addEventListener('change', () => setTaskbarPosition(taskba
 
 trayAlignSelect.addEventListener('change', () => setTrayAlign(trayAlignSelect.value));
 
+taskbarAlignSelect.addEventListener('change', () => setTaskbarAlign(taskbarAlignSelect.value));
+
 // Right-clicking the taskbar itself (anywhere a more specific menu doesn't
 // already claim - pinned tiles stop propagation for their own item menu)
 // offers the same layout choices as Settings, without opening Settings.
 function showTaskbarContextMenu(x, y) {
+  const taskbarAlign = localStorage.getItem('launchpad-taskbar-align') || 'edge';
   const side = localStorage.getItem('launchpad-taskbar-position') || 'left';
   const align = localStorage.getItem('launchpad-tray-align') || 'edge';
   const style = localStorage.getItem('launchpad-taskbar-style') || 'solid';
@@ -2521,6 +2555,9 @@ function showTaskbarContextMenu(x, y) {
     taskbarStyleSelect.value = value;
   };
   openContextMenu(x, y, [
+    { label: 'Align to Edge', checked: taskbarAlign === 'edge', action: () => setTaskbarAlign('edge') },
+    { label: 'Align to Center', checked: taskbarAlign === 'center', action: () => setTaskbarAlign('center') },
+    { sep: true },
     { label: 'Buttons on Left', checked: side === 'left', action: () => setTaskbarPosition('left') },
     { label: 'Buttons on Right', checked: side === 'right', action: () => setTaskbarPosition('right') },
     { sep: true },

@@ -37,8 +37,10 @@
         <input id="taskbarSearch" type="text" placeholder="Search everything…" autocomplete="off" />
         <div id="searchResults" class="search-results hidden"></div>
       </div>
-      <button id="recentBtn" class="recent-btn" title="Recent"></button>
-      <div id="recentPopout" class="search-results hidden"></div>
+      <div class="recent-wrap">
+        <button id="recentBtn" class="recent-btn" title="Recent"></button>
+        <div id="recentPopout" class="search-results hidden"></div>
+      </div>
     </div>
 
     <div class="taskbar-right">
@@ -245,6 +247,13 @@
           <option value="solid">Solid</option>
           <option value="translucent">Translucent</option>
           <option value="transparent">Transparent</option>
+        </select>
+      </div>
+      <div class="settings-row settings-accent-row">
+        <span>Taskbar alignment</span>
+        <select id="taskbarAlignSelect">
+          <option value="edge">Edge (Windows 10)</option>
+          <option value="center">Center (Windows 11)</option>
         </select>
       </div>
       <div class="settings-row settings-accent-row">
