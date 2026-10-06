@@ -17,6 +17,7 @@ try {
   if (savedTopbarStyle && savedTopbarStyle !== 'solid') {
     document.querySelector('.toolbar').setAttribute('data-style', savedTopbarStyle);
   }
+  applyTaskbarEdgeAttrs(localStorage.getItem('launchpad-taskbar-edge'));
   if (localStorage.getItem('launchpad-taskbar-position') === 'right') {
     document.getElementById('taskbar').setAttribute('data-pinned-side', 'right');
   }
@@ -107,6 +108,7 @@ const topbarStyleSelect = document.getElementById('topbarStyleSelect');
 const taskbarPositionSelect = document.getElementById('taskbarPositionSelect');
 const trayAlignSelect = document.getElementById('trayAlignSelect');
 const taskbarAlignSelect = document.getElementById('taskbarAlignSelect');
+const taskbarEdgeSelect = document.getElementById('taskbarEdgeSelect');
 const notifyUpdatesToggle = document.getElementById('notifyUpdatesToggle');
 const updateStatusLabel = document.getElementById('updateStatusLabel');
 const updateActionBtn = document.getElementById('updateActionBtn');
@@ -1094,6 +1096,58 @@ async function quickAddFromPath(filePath) {
   );
 }
 
+// ---------- taskbar: location ----------
+
+// Which screen edge the taskbar docks to. Kept on <html> (not the taskbar)
+// because the body itself has to make room for a left/right bar. Function
+// declaration so the pre-paint block at the top of this file can use it.
+function applyTaskbarEdgeAttrs(edge) {
+  const root = document.documentElement;
+  if (edge === 'top' || edge === 'left' || edge === 'right') root.setAttribute('data-taskbar-edge', edge);
+  else root.removeAttribute('data-taskbar-edge');
+  if (edge === 'left' || edge === 'right') root.setAttribute('data-taskbar-vertical', '1');
+  else root.removeAttribute('data-taskbar-vertical');
+}
+
+function isTaskbarVertical() {
+  return document.documentElement.hasAttribute('data-taskbar-vertical');
+}
+
+// Shared by the pinned row's and the tray's drag-to-reorder: finds which
+// gap between `tiles` the cursor is over, along whichever axis the taskbar
+// currently runs, and returns that gap's index plus the insertion line's
+// offset from the start of `row`.
+function findInsertGap(row, tiles, e) {
+  const vertical = isTaskbarVertical();
+  const start = vertical ? 'top' : 'left';
+  const end = vertical ? 'bottom' : 'right';
+  const size = vertical ? 'height' : 'width';
+  const pos = vertical ? e.clientY : e.clientX;
+  const rowStart = row.getBoundingClientRect()[start];
+  let index = tiles.length;
+  let offset = tiles.length ? tiles[tiles.length - 1].getBoundingClientRect()[end] - rowStart : 0;
+  for (let i = 0; i < tiles.length; i++) {
+    const r = tiles[i].getBoundingClientRect();
+    if (pos < r[start] + r[size] / 2) {
+      index = i;
+      offset = r[start] - rowStart;
+      break;
+    }
+  }
+  return { index, offset };
+}
+
+function showInsertLine(line, offset) {
+  if (isTaskbarVertical()) {
+    line.style.left = '';
+    line.style.top = `${offset}px`;
+  } else {
+    line.style.top = '';
+    line.style.left = `${offset}px`;
+  }
+  line.classList.remove('hidden');
+}
+
 // ---------- taskbar: pinned row ----------
 
 // Tracks the currently-displayed pin order (for the row-level drop handler
@@ -1162,22 +1216,9 @@ pinnedRow.addEventListener('dragover', (e) => {
   e.preventDefault();
 
   const tiles = Array.from(pinnedRow.querySelectorAll('.pin-tile'));
-  const rowRect = pinnedRow.getBoundingClientRect();
-  let insertIndex = tiles.length;
-  let lineX = tiles.length ? tiles[tiles.length - 1].getBoundingClientRect().right - rowRect.left : 0;
-
-  for (let i = 0; i < tiles.length; i++) {
-    const r = tiles[i].getBoundingClientRect();
-    if (e.clientX < r.left + r.width / 2) {
-      insertIndex = i;
-      lineX = r.left - rowRect.left;
-      break;
-    }
-  }
-
-  pendingPinInsertIndex = insertIndex;
-  pinInsertLine.style.left = `${lineX + pinnedRow.scrollLeft}px`;
-  pinInsertLine.classList.remove('hidden');
+  const { index, offset } = findInsertGap(pinnedRow, tiles, e);
+  pendingPinInsertIndex = index;
+  showInsertLine(pinInsertLine, offset + (isTaskbarVertical() ? pinnedRow.scrollTop : pinnedRow.scrollLeft));
 });
 
 pinnedRow.addEventListener('dragleave', (e) => {
@@ -1295,22 +1336,9 @@ trayRow.addEventListener('dragover', (e) => {
   e.preventDefault();
 
   const tiles = Array.from(trayRow.querySelectorAll('[data-tray-id]'));
-  const rowRect = trayRow.getBoundingClientRect();
-  let insertIndex = tiles.length;
-  let lineX = tiles.length ? tiles[tiles.length - 1].getBoundingClientRect().right - rowRect.left : 0;
-
-  for (let i = 0; i < tiles.length; i++) {
-    const r = tiles[i].getBoundingClientRect();
-    if (e.clientX < r.left + r.width / 2) {
-      insertIndex = i;
-      lineX = r.left - rowRect.left;
-      break;
-    }
-  }
-
-  pendingTrayInsertIndex = insertIndex;
-  trayInsertLine.style.left = `${lineX}px`;
-  trayInsertLine.classList.remove('hidden');
+  const { index, offset } = findInsertGap(trayRow, tiles, e);
+  pendingTrayInsertIndex = index;
+  showInsertLine(trayInsertLine, offset);
 });
 
 trayRow.addEventListener('dragleave', (e) => {
@@ -1394,38 +1422,46 @@ taskbarSearch.addEventListener('input', () => {
   const matches = apps.filter((a) => a.name.toLowerCase().includes(q)).slice(0, 20);
   renderResultRows(searchResults, matches, 'No matches.', selectSearchResult);
   searchResults.classList.remove('hidden');
+  positionPopoutToFit(searchResults);
 });
 
 taskbarSearch.addEventListener('focus', () => {
   if (taskbarSearch.value.trim()) {
     closeAllTaskbarPopouts('search');
     searchResults.classList.remove('hidden');
+    positionPopoutToFit(searchResults);
   }
 });
 
-// The volume/USB/bluetooth/network/power popouts all default to `right: 0`
-// (CSS) so they hang off their button's right edge - fine as long as that
-// button lives near the taskbar's right edge, which used to always be true.
-// Now that the tray can be dragged, mirrored to the left side, or snapped to
-// center, that same button can end up hard against the left edge of the
-// window, and `right: 0` would then push the popout mostly off-screen. Call
-// this right after un-hiding a popout: it measures where the default
-// placement actually landed and only overrides it if that overflows either
-// edge of the window, so the common case (still on-screen) stays untouched.
+// Taskbar popouts are placed by CSS relative to their button - above it by
+// default, below it with the taskbar on top, beside it with the taskbar on
+// the left/right - and hang off the button's right edge (or top edge, when
+// vertical). Depending on where the button sits (the tray can be dragged,
+// mirrored, centered, or docked to any screen edge) that default can run
+// off the window. Call this right after un-hiding a popout: it measures
+// where the default placement actually landed and only nudges it back on
+// screen along whichever axis overflows, so the common case stays untouched.
 function positionPopoutToFit(popoutEl) {
-  popoutEl.style.left = '';
-  popoutEl.style.right = '';
+  for (const side of ['left', 'right', 'top', 'bottom']) popoutEl.style[side] = '';
   const margin = 8;
-  let rect = popoutEl.getBoundingClientRect();
-  if (rect.left < margin) {
+  const rect = popoutEl.getBoundingClientRect();
+  let dx = 0;
+  if (rect.left < margin) dx = margin - rect.left;
+  else if (rect.right > window.innerWidth - margin) dx = window.innerWidth - margin - rect.right;
+  let dy = 0;
+  if (rect.top < margin) dy = margin - rect.top;
+  else if (rect.bottom > window.innerHeight - margin) dy = window.innerHeight - margin - rect.bottom;
+  // offsetLeft/Top are relative to the same positioned ancestor the CSS
+  // placement is, so re-anchoring from them keeps everything else as-is.
+  if (dx) {
+    const left = popoutEl.offsetLeft;
     popoutEl.style.right = 'auto';
-    popoutEl.style.left = '0';
-    rect = popoutEl.getBoundingClientRect();
+    popoutEl.style.left = `${left + dx}px`;
   }
-  if (rect.right > window.innerWidth - margin) {
-    const overflow = rect.right - (window.innerWidth - margin);
-    popoutEl.style.right = 'auto';
-    popoutEl.style.left = `${rect.left - overflow}px`;
+  if (dy) {
+    const top = popoutEl.offsetTop;
+    popoutEl.style.bottom = 'auto';
+    popoutEl.style.top = `${top + dy}px`;
   }
 }
 
@@ -1458,6 +1494,7 @@ recentBtn.addEventListener('click', (e) => {
     recentPopout.classList.add('hidden');
     await launchApp(item);
   });
+  positionPopoutToFit(recentPopout);
 });
 
 // ---------- clock ----------
@@ -2078,6 +2115,9 @@ document.addEventListener('click', (e) => {
   if (!contextMenu.contains(e.target)) closeContextMenu();
   if (!searchResults.contains(e.target) && e.target !== taskbarSearch) {
     searchResults.classList.add('hidden');
+    // On a left/right taskbar the search box only slides out while focused,
+    // and canvas clicks don't take focus, so collapse it explicitly.
+    if (isTaskbarVertical()) taskbarSearch.blur();
   }
   if (!recentPopout.contains(e.target) && e.target !== recentBtn) {
     recentPopout.classList.add('hidden');
@@ -2287,6 +2327,7 @@ settingsBtn.addEventListener('click', async () => {
   taskbarPositionSelect.value = localStorage.getItem('launchpad-taskbar-position') || 'left';
   trayAlignSelect.value = localStorage.getItem('launchpad-tray-align') || 'edge';
   taskbarAlignSelect.value = localStorage.getItem('launchpad-taskbar-align') || 'edge';
+  taskbarEdgeSelect.value = localStorage.getItem('launchpad-taskbar-edge') || 'bottom';
   notifyUpdatesToggle.checked = await window.launcherAPI.getNotifyUpdates();
   hotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getHotkey());
   settingsModalOverlay.classList.remove('hidden');
@@ -2510,6 +2551,17 @@ function setTaskbarPosition(side) {
   renderTrayOrder();
 }
 
+function setTaskbarEdge(edge) {
+  const valid = edge === 'top' || edge === 'left' || edge === 'right' ? edge : 'bottom';
+  closeAllTaskbarPopouts();
+  applyTaskbarEdgeAttrs(valid);
+  try {
+    if (valid === 'bottom') localStorage.removeItem('launchpad-taskbar-edge');
+    else localStorage.setItem('launchpad-taskbar-edge', valid);
+  } catch {}
+  taskbarEdgeSelect.value = valid;
+}
+
 function setTaskbarAlign(align) {
   if (align === 'center') taskbarEl.setAttribute('data-align', 'center');
   else taskbarEl.removeAttribute('data-align');
@@ -2542,32 +2594,33 @@ trayAlignSelect.addEventListener('change', () => setTrayAlign(trayAlignSelect.va
 
 taskbarAlignSelect.addEventListener('change', () => setTaskbarAlign(taskbarAlignSelect.value));
 
+taskbarEdgeSelect.addEventListener('change', () => setTaskbarEdge(taskbarEdgeSelect.value));
+
 // Right-clicking the taskbar itself (anywhere a more specific menu doesn't
 // already claim - pinned tiles stop propagation for their own item menu)
 // offers the same layout choices as Settings, without opening Settings.
 function showTaskbarContextMenu(x, y) {
+  const edge = localStorage.getItem('launchpad-taskbar-edge') || 'bottom';
   const taskbarAlign = localStorage.getItem('launchpad-taskbar-align') || 'edge';
   const side = localStorage.getItem('launchpad-taskbar-position') || 'left';
   const align = localStorage.getItem('launchpad-tray-align') || 'edge';
-  const style = localStorage.getItem('launchpad-taskbar-style') || 'solid';
-  const setStyle = (value) => {
-    applyBarStyle(taskbarEl, 'launchpad-taskbar-style', value);
-    taskbarStyleSelect.value = value;
-  };
+  // "Left/Right" button sides read as top/bottom on a vertical taskbar.
+  const [startName, endName] = isTaskbarVertical() ? ['Top', 'Bottom'] : ['Left', 'Right'];
   openContextMenu(x, y, [
+    { label: 'Taskbar on Bottom', checked: edge === 'bottom', action: () => setTaskbarEdge('bottom') },
+    { label: 'Taskbar on Top', checked: edge === 'top', action: () => setTaskbarEdge('top') },
+    { label: 'Taskbar on Left', checked: edge === 'left', action: () => setTaskbarEdge('left') },
+    { label: 'Taskbar on Right', checked: edge === 'right', action: () => setTaskbarEdge('right') },
+    { sep: true },
     { label: 'Align to Edge', checked: taskbarAlign === 'edge', action: () => setTaskbarAlign('edge') },
     { label: 'Align to Center', checked: taskbarAlign === 'center', action: () => setTaskbarAlign('center') },
     { sep: true },
-    { label: 'Buttons on Left', checked: side === 'left', action: () => setTaskbarPosition('left') },
-    { label: 'Buttons on Right', checked: side === 'right', action: () => setTaskbarPosition('right') },
+    { label: `Buttons at ${startName}`, checked: side === 'left', action: () => setTaskbarPosition('left') },
+    { label: `Buttons at ${endName}`, checked: side === 'right', action: () => setTaskbarPosition('right') },
     { sep: true },
     { label: 'Tray: Snap to Edge', checked: align === 'edge', action: () => setTrayAlign('edge') },
     { label: 'Tray: Snap to Center', checked: align === 'center', action: () => setTrayAlign('center') },
     { label: 'Tray: Same Side as Buttons', checked: align === 'shared', action: () => setTrayAlign('shared') },
-    { sep: true },
-    { label: 'Solid', checked: style === 'solid', action: () => setStyle('solid') },
-    { label: 'Translucent', checked: style === 'translucent', action: () => setStyle('translucent') },
-    { label: 'Transparent', checked: style === 'transparent', action: () => setStyle('transparent') },
     { sep: true },
     { label: 'Taskbar Settings…', icon: ICONS.settings, action: () => settingsBtn.click() },
   ]);

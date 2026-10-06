@@ -994,6 +994,7 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   border-radius: 10px;
   padding: 6px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 20;
 }
 /* Search results hang off the search box's own right edge; the Recent
    popout hangs off the right edge of the whole center cluster (so it reads
@@ -1183,4 +1184,211 @@ body.file-drag-over::after {
   border: 0;
   opacity: 0;
   pointer-events: none;
+}
+
+/* ---------- Taskbar location (top / left / right) ----------
+   Bottom is the default layout above. The location lives on <html> as
+   data-taskbar-edge (plus data-taskbar-vertical for left/right) since the
+   page body has to make room for it, not just the taskbar itself. */
+
+/* Top: same horizontal layout, moved above the toolbar, with popouts
+   dropping down instead of up. */
+:root[data-taskbar-edge="top"] .taskbar {
+  order: -1;
+  border-top: none;
+  border-bottom: 1px solid var(--border);
+}
+:root[data-taskbar-edge="top"] .window-tile::after {
+  bottom: auto;
+  top: 3px;
+}
+:root[data-taskbar-edge="top"] :is(.volume-popout, .usb-popout, .power-popout, .search-results, #recentPopout) {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+
+/* Left/right: a fixed full-height column, with the body padded so the rest
+   of the app sits beside it. The three zones stack top-to-bottom in a flex
+   column - the equal flex-basis of the two outer zones keeps the center
+   group centered just like the horizontal grid does - and every existing
+   justify-content rule above (button side, tray edge/center) keeps working
+   unchanged, since justify-content now runs along the vertical axis. */
+:root[data-taskbar-edge="left"] body { padding-left: 64px; }
+:root[data-taskbar-edge="right"] body { padding-right: 64px; }
+
+:root[data-taskbar-vertical] .taskbar {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 64px;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: none;
+}
+:root[data-taskbar-edge="left"] .taskbar {
+  left: 0;
+  border-right: 1px solid var(--border);
+}
+:root[data-taskbar-edge="right"] .taskbar {
+  right: 0;
+  border-left: 1px solid var(--border);
+}
+
+:root[data-taskbar-vertical] .taskbar > .taskbar-left,
+:root[data-taskbar-vertical] .taskbar > .taskbar-right {
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
+}
+:root[data-taskbar-vertical] .taskbar > .taskbar-left { order: 1; }
+:root[data-taskbar-vertical] .taskbar > .taskbar-center { order: 2; }
+:root[data-taskbar-vertical] .taskbar > .taskbar-right { order: 3; }
+:root[data-taskbar-vertical] .taskbar[data-pinned-side="right"] > .taskbar-left { order: 3; }
+:root[data-taskbar-vertical] .taskbar[data-pinned-side="right"] > .taskbar-right { order: 1; }
+
+:root[data-taskbar-vertical] .taskbar-left,
+:root[data-taskbar-vertical] .taskbar-right,
+:root[data-taskbar-vertical] .taskbar-center,
+:root[data-taskbar-vertical] .pinned-row,
+:root[data-taskbar-vertical] .open-windows-row {
+  flex-direction: column;
+  align-items: center;
+}
+:root[data-taskbar-vertical] .taskbar-center {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+:root[data-taskbar-vertical] .pinned-row,
+:root[data-taskbar-vertical] .open-windows-row {
+  flex: 0 1 auto;
+  min-height: 0;
+  height: auto;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+:root[data-taskbar-vertical] .taskbar-divider {
+  width: 32px;
+  height: 1px;
+  margin: 8px 0;
+}
+:root[data-taskbar-vertical] .pinned-empty { display: none; }
+
+/* Centered alignment / shared tray: same auto-margin tricks as the
+   horizontal versions, turned onto the vertical axis. */
+:root[data-taskbar-vertical] .taskbar-center > .taskbar-left,
+:root[data-taskbar-vertical] .taskbar[data-pinned-side="right"] .taskbar-center > .taskbar-left {
+  flex: 0 1 auto;
+  min-height: 0;
+  margin: 4px 0 0;
+}
+:root[data-taskbar-vertical] .taskbar[data-pinned-side="right"] .taskbar-center > .taskbar-left {
+  margin: 0 0 4px;
+}
+:root[data-taskbar-vertical] .taskbar[data-tray-align="shared"] .taskbar-left > .taskbar-right {
+  height: auto;
+  margin: auto 0 0;
+  padding: 12px 0 0;
+}
+:root[data-taskbar-vertical] .taskbar[data-pinned-side="right"][data-tray-align="shared"] .taskbar-left > .taskbar-right {
+  margin: 0 0 auto;
+  padding: 0 0 12px;
+}
+
+:root[data-taskbar-vertical] .clock-widget {
+  align-items: center;
+  padding: 4px 0;
+}
+:root[data-taskbar-vertical] .clock-time { font-size: 12px; }
+:root[data-taskbar-vertical] .clock-date { font-size: 10px; }
+
+/* Running-window indicator moves to the bar's outer edge. */
+:root[data-taskbar-vertical] .window-tile::after {
+  bottom: auto;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 14px;
+}
+:root[data-taskbar-edge="left"] .window-tile::after { left: 3px; }
+:root[data-taskbar-edge="right"] .window-tile::after { left: auto; right: 3px; }
+
+/* Drag-to-reorder insertion line turns horizontal. */
+:root[data-taskbar-vertical] .pin-insert-line {
+  top: auto;
+  bottom: auto;
+  left: 6px;
+  right: 6px;
+  width: auto;
+  height: 2px;
+}
+
+/* The search box collapses to a magnifier button and slides out over the
+   canvas while focused (type-anywhere still focuses it); any leftover text
+   is kept but hidden while collapsed. */
+:root[data-taskbar-vertical] .taskbar-search-wrap {
+  width: 40px;
+  height: 40px;
+}
+:root[data-taskbar-vertical] #taskbarSearch {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40px;
+  height: 40px;
+  z-index: 30;
+  cursor: pointer;
+  transition: width 0.15s ease;
+}
+:root[data-taskbar-edge="right"] #taskbarSearch {
+  left: auto;
+  right: 0;
+}
+:root[data-taskbar-vertical] #taskbarSearch:not(:focus),
+:root[data-taskbar-vertical] #taskbarSearch::placeholder { color: transparent; }
+:root[data-taskbar-vertical] #taskbarSearch:focus {
+  width: 300px;
+  cursor: text;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+:root[data-taskbar-vertical] #taskbarSearch:focus::placeholder { color: var(--muted); }
+:root[data-taskbar-vertical] .taskbar-search-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 11px;
+  z-index: 31;
+  pointer-events: none;
+  background: var(--accent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6.5'/%3E%3Cpath d='M15.5 15.5L21 21'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+:root[data-taskbar-vertical] .taskbar-search-wrap:focus-within::before {
+  display: none;
+}
+
+/* Popouts open sideways, out over the canvas; JS (positionPopoutToFit)
+   then nudges them vertically if they'd run off the top or bottom. */
+:root[data-taskbar-edge="left"] :is(.volume-popout, .usb-popout, .power-popout, .search-results, #recentPopout) {
+  bottom: auto;
+  right: auto;
+  top: 0;
+  left: calc(100% + 8px);
+}
+:root[data-taskbar-edge="right"] :is(.volume-popout, .usb-popout, .power-popout, .search-results, #recentPopout) {
+  bottom: auto;
+  left: auto;
+  top: 0;
+  right: calc(100% + 8px);
+}
+/* Search results hang below the slid-out search box rather than beside it. */
+:root[data-taskbar-edge="left"] #searchResults {
+  top: calc(100% + 8px);
+  left: 0;
+}
+:root[data-taskbar-edge="right"] #searchResults {
+  top: calc(100% + 8px);
+  right: 0;
 }
