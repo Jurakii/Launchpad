@@ -481,27 +481,30 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   gap: 6px;
 }
 
+/* Each zone is pinned to an explicit grid cell (rather than relying on
+   auto-placement) so the layout holds even when the tray cluster is moved
+   out of its own column entirely - see the "shared" tray position below. */
+.taskbar > .taskbar-left { grid-row: 1; grid-column: 1; }
+.taskbar > .taskbar-center { grid-row: 1; grid-column: 2; }
+.taskbar > .taskbar-right { grid-row: 1; grid-column: 3; }
+
 /* Swaps which outer grid column the pinned/open-windows cluster and the
-   system tray cluster land in, via `order` - CSS Grid auto-placement fills
-   the tracks defined by grid-template-columns in `order` sequence, not DOM
-   order. Each side's own justify-content is also flipped so its content
-   still hugs the window's outer edge after the swap. This is a true mirror,
-   not just a relocation: the tray cluster's icon order is reversed too, so
-   Power (normally outermost-right) ends up outermost-left - but that's done
-   by reordering the actual DOM nodes in JS (renderTrayOrder/isTaskbarMirrored
-   in renderer.js), the same way the pinned row's own drag-to-reorder is
-   mirrored, rather than via flex-direction:row-reverse - both rows read real
-   getBoundingClientRect positions to place a drag, which assumes DOM order
-   runs left-to-right, and row-reverse would invert that and break dragging. */
-.taskbar[data-pinned-side="right"] .taskbar-left {
-  order: 3;
+   system tray cluster land in. Each side's own justify-content is also
+   flipped so its content still hugs the window's outer edge after the swap.
+   This is a true mirror, not just a relocation: the tray cluster's icon
+   order is reversed too, so Power (normally outermost-right) ends up
+   outermost-left - but that's done by reordering the actual DOM nodes in JS
+   (renderTrayOrder/isTaskbarMirrored in renderer.js), the same way the
+   pinned row's own drag-to-reorder is mirrored, rather than via
+   flex-direction:row-reverse - both rows read real getBoundingClientRect
+   positions to place a drag, which assumes DOM order runs left-to-right,
+   and row-reverse would invert that and break dragging. */
+.taskbar[data-pinned-side="right"] > .taskbar-left {
+  grid-column: 3;
   justify-content: flex-end;
 }
-.taskbar[data-pinned-side="right"] .taskbar-center {
-  order: 2;
-}
-.taskbar[data-pinned-side="right"] .taskbar-right {
-  order: 1;
+.taskbar[data-pinned-side="right"] > .taskbar-right {
+  grid-column: 1;
   justify-content: flex-start;
 }
 
@@ -514,6 +517,41 @@ button.danger { background: transparent; border-color: var(--danger); color: var
 }
 .taskbar[data-pinned-side="right"][data-tray-align="center"] .taskbar-right {
   justify-content: flex-end;
+}
+
+/* "Same side as taskbar buttons": JS (placeTrayCluster in renderer.js)
+   moves the tray cluster inside .taskbar-left, so pinned icons, open
+   windows and tray controls all share one side of the search bar and the
+   opposite column is left empty. The pinned icons keep the outer edge and
+   the tray is pushed up against the search bar via an auto margin - on the
+   far end when unmirrored, the near end (it's inserted first) when mirrored. */
+/* With everything on one side, the opposite column would otherwise sit
+   empty while this one runs out of room, so the occupied column is allowed
+   to grow past half-width (pushing the search bar off-center toward the
+   empty side) - but only once its content no longer fits. The max-width
+   caps that growth at the space left after the search group (~304px) plus
+   the taskbar's padding and gaps, so it can't push anything off-screen; past
+   that, the pinned/open-windows rows scroll as usual. */
+.taskbar[data-tray-align="shared"] {
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(0, 1fr);
+}
+.taskbar[data-pinned-side="right"][data-tray-align="shared"] {
+  grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
+}
+.taskbar[data-tray-align="shared"] > .taskbar-left {
+  max-width: calc(100vw - 360px);
+}
+.taskbar[data-tray-align="shared"] .taskbar-left > .taskbar-right {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 12px;
+  justify-content: flex-start;
+}
+.taskbar[data-pinned-side="right"][data-tray-align="shared"] .taskbar-left > .taskbar-right {
+  margin-left: 0;
+  margin-right: auto;
+  padding-left: 0;
+  padding-right: 12px;
 }
 
 .taskbar-icon-btn {
@@ -972,6 +1010,7 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   font-size: 13px;
   color: var(--text);
   cursor: pointer;
+  white-space: nowrap;
 }
 .context-menu button:hover { background: var(--bg); border-color: transparent; }
 .context-menu button.danger { color: var(--danger); }
