@@ -1,0 +1,85 @@
+# Builds the Windows installer and publishes it as a GitHub release - run by
+# hand from the Actions tab ("Release" -> "Run workflow") after bumping the
+# version in package.json. The release is tagged v<package.json version>, so
+# bump the version first; the run refuses to overwrite an existing release.
+#
+# The three uploaded files are exactly what electron-updater needs to find
+# and install an update: the installer, its .blockmap, and latest.yml
+# (scripts/build.js has already renamed the installer to match latest.yml).
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: Create as a draft (review it before publishing; the in-app updater ignores drafts)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Read version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Make sure this version isn't already released
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v${{ steps.version.outputs.version }}" > /dev/null 2>&1; then
+            echo "::error::Release v${{ steps.version.outputs.version }} already exists - bump the version in package.json first."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      # --publish never: upload is done below with gh, so electron-builder's
+      # own CI auto-publish logic never kicks in.
+      - name: Build installer
+        run: npm run dist -- --publish never
+
+      - name: Check build output
+        id: files
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          installer="dist/Launchpad-Setup-${version}.exe"
+          for f in "$installer" "$installer.blockmap" dist/latest.yml; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Expected build output missing: $f"
+              ls -la dist
+              exit 1
+            fi
+          done
+          echo "installer=$installer" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          draft_flag=""
+          if [ "${{ inputs.draft }}" = "true" ]; then draft_flag="--draft"; fi
+          gh release create "v${version}" \
+            "${{ steps.files.outputs.installer }}" \
+            "${{ steps.files.outputs.installer }}.blockmap" \
+            dist/latest.yml \
+            --target "${{ github.sha }}" \
+            --title "Launchpad ${version}" \
+            --generate-notes \
+            $draft_flag
