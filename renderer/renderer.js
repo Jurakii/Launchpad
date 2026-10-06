@@ -20,8 +20,9 @@ try {
   if (localStorage.getItem('launchpad-taskbar-position') === 'right') {
     document.getElementById('taskbar').setAttribute('data-pinned-side', 'right');
   }
-  if (localStorage.getItem('launchpad-tray-align') === 'center') {
-    document.getElementById('taskbar').setAttribute('data-tray-align', 'center');
+  const savedTrayAlign = localStorage.getItem('launchpad-tray-align');
+  if (savedTrayAlign === 'center' || savedTrayAlign === 'shared') {
+    document.getElementById('taskbar').setAttribute('data-tray-align', savedTrayAlign);
   }
   if (localStorage.getItem('launchpad-hide-add-buttons') === '1') {
     document.documentElement.setAttribute('data-hide-add-buttons', '1');
@@ -1211,6 +1212,8 @@ pinnedRow.addEventListener('drop', async (e) => {
 // tripped through the main process like apps.json.
 const TRAY_IDS = ['volume', 'usb', 'bluetooth', 'network', 'clock', 'power'];
 const trayRow = document.querySelector('.taskbar-right');
+const taskbarLeft = document.querySelector('.taskbar-left');
+const taskbarCenter = document.querySelector('.taskbar-center');
 const trayInsertLine = document.getElementById('trayInsertLine');
 let pendingTrayInsertIndex = -1;
 
@@ -1236,7 +1239,23 @@ function saveTrayOrder(order) {
 // same reasoning as renderPinned(): real element positions drive the drag
 // math below, so the mirror has to be baked into actual DOM order rather
 // than done with flex-direction.
+// "Same side as taskbar buttons" can't be done with grid placement alone -
+// two zones can't share one grid cell side by side - so the tray cluster
+// node itself is moved into the pinned zone (CSS then pushes it up against
+// the search bar), and moved back into its own column for edge/center.
+// Mirrored, the pinned zone sits right of the search bar, so the tray goes
+// in first (nearest the search bar) rather than last.
+function placeTrayCluster() {
+  if ((localStorage.getItem('launchpad-tray-align') || 'edge') === 'shared') {
+    if (isTaskbarMirrored()) taskbarLeft.insertBefore(trayRow, taskbarLeft.firstChild);
+    else taskbarLeft.appendChild(trayRow);
+  } else if (trayRow.parentElement !== taskbarEl) {
+    taskbarCenter.after(trayRow);
+  }
+}
+
 function renderTrayOrder() {
+  placeTrayCluster();
   let order = getTrayOrder();
   if (isTaskbarMirrored()) order = order.slice().reverse();
   for (const id of order) {
@@ -1911,6 +1930,8 @@ function closeContextMenu() {
   contextMenu.classList.add('hidden');
 }
 
+const MENU_CHECK_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
+
 function openContextMenu(x, y, menuItems) {
   contextMenu.innerHTML = '';
   for (const it of menuItems) {
@@ -1922,10 +1943,12 @@ function openContextMenu(x, y, menuItems) {
     }
     const btn = document.createElement('button');
     btn.type = 'button';
-    if (it.icon) {
+    // `checked` (true/false) marks a radio-style choice: true shows a check,
+    // false still reserves the same space so a group's labels line up.
+    if (it.icon || it.checked !== undefined) {
       const iconSpan = document.createElement('span');
       iconSpan.className = 'menu-item-icon';
-      iconSpan.innerHTML = it.icon;
+      iconSpan.innerHTML = it.checked ? MENU_CHECK_SVG : it.icon || '';
       btn.appendChild(iconSpan);
     }
     btn.appendChild(document.createTextNode(it.label));
@@ -1937,13 +1960,16 @@ function openContextMenu(x, y, menuItems) {
     contextMenu.appendChild(btn);
   }
 
-  const estWidth = 190;
-  const estHeight = menuItems.reduce((h, it) => h + (it.sep ? 9 : 34), 12);
-  const left = Math.min(x, window.innerWidth - estWidth - 8);
-  const top = Math.min(y, window.innerHeight - estHeight - 8);
+  // Shown first, then measured, so the clamp uses the menu's real size
+  // (labels vary) to keep it on-screen near the window's right/bottom edges.
+  contextMenu.style.left = '0px';
+  contextMenu.style.top = '0px';
+  contextMenu.classList.remove('hidden');
+  const { width, height } = contextMenu.getBoundingClientRect();
+  const left = Math.min(x, window.innerWidth - width - 8);
+  const top = Math.min(y, window.innerHeight - height - 8);
   contextMenu.style.left = `${Math.max(8, left)}px`;
   contextMenu.style.top = `${Math.max(8, top)}px`;
-  contextMenu.classList.remove('hidden');
 }
 
 function showItemContextMenu(x, y, item) {
@@ -2451,30 +2477,71 @@ taskbarStyleSelect.addEventListener('change', () => {
   applyBarStyle(taskbarEl, 'launchpad-taskbar-style', taskbarStyleSelect.value);
 });
 
-topbarStyleSelect.addEventListener('change', () => {
-  applyBarStyle(toolbarEl, 'launchpad-topbar-style', topbarStyleSelect.value);
-});
-
-taskbarPositionSelect.addEventListener('change', () => {
-  const side = taskbarPositionSelect.value;
+// Shared by the Settings selects and the taskbar's own right-click menu.
+function setTaskbarPosition(side) {
   if (side === 'right') taskbarEl.setAttribute('data-pinned-side', 'right');
   else taskbarEl.removeAttribute('data-pinned-side');
   try {
     if (side === 'right') localStorage.setItem('launchpad-taskbar-position', 'right');
     else localStorage.removeItem('launchpad-taskbar-position');
   } catch {}
+  taskbarPositionSelect.value = side === 'right' ? 'right' : 'left';
   renderPinned();
   renderTrayOrder();
-});
+}
 
-trayAlignSelect.addEventListener('change', () => {
-  const align = trayAlignSelect.value;
-  if (align === 'center') taskbarEl.setAttribute('data-tray-align', 'center');
+function setTrayAlign(align) {
+  if (align === 'center' || align === 'shared') taskbarEl.setAttribute('data-tray-align', align);
   else taskbarEl.removeAttribute('data-tray-align');
   try {
-    if (align === 'center') localStorage.setItem('launchpad-tray-align', 'center');
+    if (align === 'center' || align === 'shared') localStorage.setItem('launchpad-tray-align', align);
     else localStorage.removeItem('launchpad-tray-align');
   } catch {}
+  trayAlignSelect.value = align === 'center' || align === 'shared' ? align : 'edge';
+  placeTrayCluster();
+}
+
+topbarStyleSelect.addEventListener('change', () => {
+  applyBarStyle(toolbarEl, 'launchpad-topbar-style', topbarStyleSelect.value);
+});
+
+taskbarPositionSelect.addEventListener('change', () => setTaskbarPosition(taskbarPositionSelect.value));
+
+trayAlignSelect.addEventListener('change', () => setTrayAlign(trayAlignSelect.value));
+
+// Right-clicking the taskbar itself (anywhere a more specific menu doesn't
+// already claim - pinned tiles stop propagation for their own item menu)
+// offers the same layout choices as Settings, without opening Settings.
+function showTaskbarContextMenu(x, y) {
+  const side = localStorage.getItem('launchpad-taskbar-position') || 'left';
+  const align = localStorage.getItem('launchpad-tray-align') || 'edge';
+  const style = localStorage.getItem('launchpad-taskbar-style') || 'solid';
+  const setStyle = (value) => {
+    applyBarStyle(taskbarEl, 'launchpad-taskbar-style', value);
+    taskbarStyleSelect.value = value;
+  };
+  openContextMenu(x, y, [
+    { label: 'Buttons on Left', checked: side === 'left', action: () => setTaskbarPosition('left') },
+    { label: 'Buttons on Right', checked: side === 'right', action: () => setTaskbarPosition('right') },
+    { sep: true },
+    { label: 'Tray: Snap to Edge', checked: align === 'edge', action: () => setTrayAlign('edge') },
+    { label: 'Tray: Snap to Center', checked: align === 'center', action: () => setTrayAlign('center') },
+    { label: 'Tray: Same Side as Buttons', checked: align === 'shared', action: () => setTrayAlign('shared') },
+    { sep: true },
+    { label: 'Solid', checked: style === 'solid', action: () => setStyle('solid') },
+    { label: 'Translucent', checked: style === 'translucent', action: () => setStyle('translucent') },
+    { label: 'Transparent', checked: style === 'transparent', action: () => setStyle('transparent') },
+    { sep: true },
+    { label: 'Taskbar Settings…', icon: ICONS.settings, action: () => settingsBtn.click() },
+  ]);
+}
+
+taskbarEl.addEventListener('contextmenu', (e) => {
+  // Leave the search box alone, and don't stack a menu over an open popout.
+  if (e.target.closest('input, select, .search-results, .volume-popout, .usb-popout, .power-popout')) return;
+  e.preventDefault();
+  closeAllTaskbarPopouts();
+  showTaskbarContextMenu(e.clientX, e.clientY);
 });
 
 notifyUpdatesToggle.addEventListener('change', () => {
