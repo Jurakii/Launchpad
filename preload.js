@@ -57,6 +57,8 @@ contextBridge.exposeInMainWorld('launcherAPI', {
   setStartFullscreen: (enable) => ipcRenderer.invoke('settings:setStartFullscreen', enable),
   getHotkey: () => ipcRenderer.invoke('settings:getHotkey'),
   setHotkey: (accelerator) => ipcRenderer.invoke('settings:setHotkey', accelerator),
+  getDisableHotkeyInApps: () => ipcRenderer.invoke('settings:getDisableHotkeyInApps'),
+  setDisableHotkeyInApps: (enable) => ipcRenderer.invoke('settings:setDisableHotkeyInApps', enable),
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
   checkForUpdate: () => ipcRenderer.invoke('update:check'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
