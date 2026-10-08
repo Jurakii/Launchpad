@@ -26,6 +26,7 @@ const openWindows = require('./lib/windows');
 const bluetooth = require('./lib/bluetooth');
 const power = require('./lib/power');
 const wifi = require('./lib/wifi');
+const foreground = require('./lib/foreground');
 const { autoUpdater } = require('electron-updater');
 
 autoUpdater.autoDownload = false;
@@ -73,6 +74,9 @@ let mainWindow = null;
 let tray = null;
 let isQuitting = false;
 let currentHotkey = null;
+// True while the "disable hotkey while another app is focused" setting has
+// the hotkey unregistered, so the keys pass straight through to that app.
+let hotkeySuspended = false;
 
 const ICON_PATH = path.join(__dirname, 'build', 'icon.ico');
 const DEFAULT_HOTKEY = 'CommandOrControl+Space';
@@ -81,6 +85,11 @@ const DEFAULT_HOTKEY = 'CommandOrControl+Space';
 // its place. On failure (already claimed by another app), leaves the
 // previous hotkey working rather than the app silently losing its toggle.
 function registerHotkey(accel) {
+  if (hotkeySuspended) {
+    // Not registered right now - just remember it for when it's resumed.
+    currentHotkey = accel;
+    return true;
+  }
   if (currentHotkey) {
     try {
       globalShortcut.unregister(currentHotkey);
@@ -96,6 +105,33 @@ function registerHotkey(accel) {
     if (currentHotkey) globalShortcut.register(currentHotkey, toggleWindow);
   }
   return ok;
+}
+
+function setHotkeySuspended(suspend) {
+  if (suspend === hotkeySuspended) return;
+  hotkeySuspended = suspend;
+  if (!currentHotkey) return;
+  if (suspend) {
+    try {
+      globalShortcut.unregister(currentHotkey);
+    } catch {
+      // ignore
+    }
+  } else if (!globalShortcut.register(currentHotkey, toggleWindow)) {
+    console.error(`Could not re-register hotkey "${currentHotkey}" (already in use by another app).`);
+  }
+}
+
+// Starts/stops watching the foreground window for the "disable hotkey while
+// another app is focused" setting. Launchpad's own window doesn't count as
+// "another app", so the hotkey can still hide it.
+function applyHotkeyAppFocusSetting(enable) {
+  if (enable && process.platform === 'win32') {
+    foreground.start(process.pid, setHotkeySuspended);
+  } else {
+    foreground.stop();
+    setHotkeySuspended(false);
+  }
 }
 
 function decorate(apps) {
@@ -240,6 +276,7 @@ if (!gotLock) {
     createWindow();
     createTray();
     registerHotkey(settings.load().hotkey || DEFAULT_HOTKEY);
+    applyHotkeyAppFocusSetting(!!settings.load().disableHotkeyInApps);
 
     // Background check only - Settings always checks fresh on its own when
     // opened, so this is purely for the opt-in native notification. Update
@@ -251,6 +288,7 @@ if (!gotLock) {
   });
 
   app.on('will-quit', () => {
+    foreground.stop();
     globalShortcut.unregisterAll();
   });
 
@@ -1049,6 +1087,14 @@ ipcMain.handle('settings:setHotkey', (_e, accel) => {
   const ok = registerHotkey(accel);
   if (ok) settings.save({ hotkey: accel });
   return ok ? { ok: true } : { ok: false, error: `"${accel}" is already in use by another app.` };
+});
+
+ipcMain.handle('settings:getDisableHotkeyInApps', () => !!settings.load().disableHotkeyInApps);
+
+ipcMain.handle('settings:setDisableHotkeyInApps', (_e, enable) => {
+  settings.save({ disableHotkeyInApps: !!enable });
+  applyHotkeyAppFocusSetting(!!enable);
+  return { ok: true };
 });
 
 ipcMain.handle('backup:export', async () => {

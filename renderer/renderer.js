@@ -110,6 +110,7 @@ const trayAlignSelect = document.getElementById('trayAlignSelect');
 const taskbarAlignSelect = document.getElementById('taskbarAlignSelect');
 const taskbarEdgeSelect = document.getElementById('taskbarEdgeSelect');
 const notifyUpdatesToggle = document.getElementById('notifyUpdatesToggle');
+const disableHotkeyInAppsToggle = document.getElementById('disableHotkeyInAppsToggle');
 const updateStatusLabel = document.getElementById('updateStatusLabel');
 const updateActionBtn = document.getElementById('updateActionBtn');
 const wallpaperPickBtn = document.getElementById('wallpaperPickBtn');
@@ -2330,6 +2331,7 @@ settingsBtn.addEventListener('click', async () => {
   taskbarEdgeSelect.value = localStorage.getItem('launchpad-taskbar-edge') || 'bottom';
   notifyUpdatesToggle.checked = await window.launcherAPI.getNotifyUpdates();
   hotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getHotkey());
+  disableHotkeyInAppsToggle.checked = await window.launcherAPI.getDisableHotkeyInApps();
   settingsModalOverlay.classList.remove('hidden');
   // A download in progress or already finished shouldn't be interrupted by
   // re-opening Settings and kicking off a fresh check - just re-show where
@@ -2632,6 +2634,10 @@ taskbarEl.addEventListener('contextmenu', (e) => {
   e.preventDefault();
   closeAllTaskbarPopouts();
   showTaskbarContextMenu(e.clientX, e.clientY);
+});
+
+disableHotkeyInAppsToggle.addEventListener('change', () => {
+  window.launcherAPI.setDisableHotkeyInApps(disableHotkeyInAppsToggle.checked);
 });
 
 notifyUpdatesToggle.addEventListener('change', () => {
