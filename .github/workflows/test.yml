@@ -1,0 +1,30 @@
+# Runs the unit tests (npm test) on every push to main and on pull requests.
+# Windows runner on purpose: the app is Windows-only, and lib/safe-file.js
+# relies on Windows rename-over-existing behaviour that the store tests cover.
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The tests stub out the electron module, so its ~100 MB binary
+      # download is wasted time here.
+      - name: Install dependencies
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      - name: Run tests
+        run: npm test

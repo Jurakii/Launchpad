@@ -49,6 +49,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run tests
+        run: npm test
+
       # --publish never: upload is done below with gh, so electron-builder's
       # own CI auto-publish logic never kicks in.
       - name: Build installer
