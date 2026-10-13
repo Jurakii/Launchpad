@@ -427,6 +427,8 @@ function siblingOccupiedFootprints(apps, parentId, excludeId) {
 
 ipcMain.handle('apps:list', () => decorate(store.load()));
 
+ipcMain.handle('apps:loadIssue', () => store.getLoadIssue());
+
 ipcMain.handle('apps:add', async (_e, formData) => {
   const apps = store.load();
   const id = store.newId();
@@ -1097,6 +1099,8 @@ ipcMain.handle('settings:setDisableHotkeyInApps', (_e, enable) => {
   return { ok: true };
 });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 ipcMain.handle('backup:export', async () => {
   const res = await dialog.showSaveDialog(mainWindow, {
     defaultPath: `launchpad-backup-${new Date().toISOString().slice(0, 10)}.json`,
@@ -1124,14 +1128,36 @@ ipcMain.handle('backup:import', async () => {
   });
   if (res.canceled || !res.filePaths[0]) return { ok: false };
 
-  const raw = fs.readFileSync(res.filePaths[0], 'utf-8');
-  const bundle = JSON.parse(raw);
+  let bundle = null;
+  try {
+    bundle = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf-8'));
+  } catch {}
   if (!Array.isArray(bundle)) throw new Error('That file is not a valid Launchpad backup.');
+  const rawEntries = bundle.filter((e) => e && typeof e === 'object');
 
-  const restored = bundle.map((rawEntry) => {
-    const { iconData, ...rest } = rawEntry;
-    const entry = store.normalize({ ...rest });
-    if (iconData) {
+  // Ids become icon file names (icons/<id>.png), so anything that isn't a
+  // plain UUID - or repeats one - gets a fresh id; a crafted backup could
+  // otherwise write outside the icons folder. Children follow the new id.
+  const idMap = new Map();
+  const ids = rawEntries.map((e) => {
+    const keep = typeof e.id === 'string' && UUID_RE.test(e.id) && !idMap.has(e.id);
+    const id = keep ? e.id : store.newId();
+    if (typeof e.id === 'string' && !idMap.has(e.id)) idMap.set(e.id, id);
+    return id;
+  });
+  const entries = rawEntries.map(({ iconData, ...rest }, i) => ({
+    iconData,
+    entry: store.normalize({ ...rest, id: ids[i] }),
+  }));
+  // An item whose parent island isn't in the backup would never be shown.
+  const islandIds = new Set(entries.filter(({ entry }) => entry.kind === 'island').map(({ entry }) => entry.id));
+  for (const { entry } of entries) {
+    const parentId = entry.parentId ? idMap.get(entry.parentId) : null;
+    entry.parentId = parentId && islandIds.has(parentId) ? parentId : null;
+  }
+
+  const restored = entries.map(({ iconData, entry }) => {
+    if (typeof iconData === 'string' && iconData) {
       const iconPath = path.join(store.iconsDir(), `${entry.id}.png`);
       fs.writeFileSync(iconPath, Buffer.from(iconData, 'base64'));
       entry.iconPath = iconPath;
@@ -1141,6 +1167,6 @@ ipcMain.handle('backup:import', async () => {
     return entry;
   });
 
-  store.save(restored);
+  store.replaceAll(restored);
   return { ok: true, apps: decorate(restored) };
 });

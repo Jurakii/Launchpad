@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('launcherAPI', {
   listApps: () => ipcRenderer.invoke('apps:list'),
+  getLoadIssue: () => ipcRenderer.invoke('apps:loadIssue'),
   addApp: (formData) => ipcRenderer.invoke('apps:add', formData),
   updateApp: (id, formData) => ipcRenderer.invoke('apps:update', { id, formData }),
   removeApp: (id) => ipcRenderer.invoke('apps:remove', id),
