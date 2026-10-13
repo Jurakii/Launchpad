@@ -321,8 +321,16 @@ function applyShortcutResolution(entry) {
   if (info.cwd && path.resolve(info.cwd) !== path.resolve(targetDir)) entry.cwd = info.cwd;
 }
 
+// Absent = on, so existing installs keep finding icons for sites that
+// don't serve their own (see lib/icons.js fetchGoogleFavicon).
+function faviconOptions() {
+  return { googleFallback: settings.load().googleFaviconFallback !== false };
+}
+
 function autoFetchIcon(id, entry) {
-  return entry.type === 'url' ? icons.fetchAndSaveFavicon(id, entry.target) : icons.extractAndSaveIcon(id, entry.target);
+  return entry.type === 'url'
+    ? icons.fetchAndSaveFavicon(id, entry.target, faviconOptions())
+    : icons.extractAndSaveIcon(id, entry.target);
 }
 
 // File Explorer and Recycle Bin - the two things every fresh Windows
@@ -1013,7 +1021,7 @@ ipcMain.handle('icon:extractPreview', async (_e, targetPath) => {
 
 ipcMain.handle('icon:fetchFaviconPreview', async (_e, url) => {
   if (!url) return null;
-  const img = await icons.fetchFavicon(url);
+  const img = await icons.fetchFavicon(url, faviconOptions());
   return img ? img.toDataURL() : null;
 });
 
@@ -1081,6 +1089,13 @@ ipcMain.handle('settings:getNotifyUpdates', () => !!settings.load().notifyUpdate
 
 ipcMain.handle('settings:setNotifyUpdates', (_e, enable) => {
   settings.save({ notifyUpdates: !!enable });
+  return { ok: true };
+});
+
+ipcMain.handle('settings:getGoogleFaviconFallback', () => faviconOptions().googleFallback);
+
+ipcMain.handle('settings:setGoogleFaviconFallback', (_e, enable) => {
+  settings.save({ googleFaviconFallback: !!enable });
   return { ok: true };
 });
 

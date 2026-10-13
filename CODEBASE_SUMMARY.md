@@ -16,7 +16,7 @@ A personal Windows desktop-replacement launcher (Electron 44). It runs as a full
 ```
 main.js              Electron main process: window, tray, hotkey, auto-updater, ALL ipcMain handlers
 preload.js           contextBridge → window.launcherAPI (the only renderer↔main surface)
-lib/                 Main-process modules (store, layout, launcher, icons, settings, safe-file, + system wrappers)
+lib/                 Main-process modules (store, layout, launcher, icons, favicon, settings, safe-file, + system wrappers)
 lib/*.ps1            PowerShell helpers invoked by lib/*.js (asarUnpacked, see §6)
 renderer/            index.html, renderer.js (all UI logic), styles.css, icons/*.svg
 scripts/build.js     Wraps electron-builder; re-embeds icon; renames installer to match latest.yml
@@ -24,7 +24,7 @@ scripts/fix-exe-icon.js  Patches the exe icon post-build (safety net)
 build.bat            Local build helper for Windows (npm install → npm run dist)
 .github/workflows/release.yml  Manual "Release" workflow (windows-latest) → GitHub release
 build/icon.ico       App/window/tray icon (electron-builder win icon)
-test/                node:test unit tests (store, settings); helpers.js stubs `electron` with a temp userData
+test/                node:test unit tests (store, settings, favicon); helpers.js stubs `electron` with a temp userData
 Launchpad/           Icon sources (not used at runtime)
 ```
 
@@ -87,7 +87,7 @@ Renderer calls these through `launcherAPI` (preload method → channel):
 | Wi-Fi | `system:listWifiNetworks`, `system:connectWifi`, `system:disconnectWifi`, `system:openNetworkSettings` |
 | Misc system | `system:emptyRecycleBin` |
 | Window | `window:isFullscreen`, `window:toggleFullscreen` (+ push `fullscreen-changed`) |
-| Settings | `settings:getAutoLaunch/setAutoLaunch`, `getStartFullscreen/setStartFullscreen`, `getHotkey/setHotkey`, `getDisableHotkeyInApps/setDisableHotkeyInApps`, `getNotifyUpdates/setNotifyUpdates`, `getMinimizeToTrayOnClose/setMinimizeToTrayOnClose` |
+| Settings | `settings:getAutoLaunch/setAutoLaunch`, `getStartFullscreen/setStartFullscreen`, `getHotkey/setHotkey`, `getDisableHotkeyInApps/setDisableHotkeyInApps`, `getNotifyUpdates/setNotifyUpdates`, `getGoogleFaviconFallback/setGoogleFaviconFallback`, `getMinimizeToTrayOnClose/setMinimizeToTrayOnClose` |
 | Updates | `app:getVersion`, `update:check`, `update:install` (+ push `update:status`) |
 | Backup | `backup:export`, `backup:import` |
 
@@ -100,7 +100,12 @@ Pattern used throughout: `store.load()` → mutate → `store.save(apps)` → `r
 - **Shortcut handling:** `.lnk` targets are resolved through `shell.readShortcutLink` into the real target/args/cwd on add/update.
 - **Icons:**
   - Auto-fetched from the target file via `app.getFileIcon` (for `path`/`script` entries).
-  - Favicons for URLs come from `https://www.google.com/s2/favicons` (a third-party request).
+  - Favicons for URL items (`lib/icons.js` `fetchFavicon`, via Electron `net.fetch`):
+    1. The page's best `<link rel="icon">` or apple-touch-icon (largest declared size first, SVG skipped).
+    2. Then `/favicon.ico`.
+    3. Then Google's `s2/favicons` service, only if `googleFaviconFallback` is on.
+    - `.ico` files are decoded by `lib/favicon.js` `decodeIco`, because `nativeImage` can't read ICO from a buffer.
+    - Images larger than 128px are resized down. Non-http(s) targets (`steam://` etc.) get no favicon.
   - Custom icons are resized to 128×128 PNG.
   - Saved as `<userData>/icons/<id>.png`.
   - `iconIsCustom` protects a user-chosen icon from being overwritten by auto-detect.
@@ -142,7 +147,7 @@ Common: `id` (UUID), `kind` (`'app'` | `'island'`), `parentId` (null = Home, or 
 - **Backup import** gives a fresh UUID to any entry whose `id` isn't a UUID or is a duplicate (ids become icon filenames). Children are re-pointed to the new id. A `parentId` that isn't an island in the backup becomes `null`.
 
 ### 4.2 `settings.json` keys
-`hotkey` (default `CommandOrControl+Space`), `startFullscreen`, `minimizeToTrayOnClose` (default true), `notifyUpdates`, `disableHotkeyInApps`.
+`hotkey` (default `CommandOrControl+Space`), `startFullscreen`, `minimizeToTrayOnClose` (default true), `notifyUpdates`, `disableHotkeyInApps`, `googleFaviconFallback` (default true; absent = on).
 
 ### 4.3 Renderer `localStorage` keys (UI-only prefs, read before first paint)
 `launchpad-theme` (`light`/`dark`), `launchpad-accent`, `launchpad-wallpaper`, `launchpad-taskbar-style`, `launchpad-topbar-style`, `launchpad-taskbar-edge`, `launchpad-taskbar-position` (`right` = pinned side), `launchpad-taskbar-align` (`center`), `launchpad-tray-align` (`center`/`shared`), `launchpad-tray-order` (JSON), `launchpad-hide-add-buttons` (`1`), `launchpad-hide-app-names` (`1`).
@@ -185,7 +190,7 @@ Each `.js` wrapper runs `powershell -NoProfile -NonInteractive -ExecutionPolicy 
 
 `lib/unpacked-path.js` rewrites `app.asar` → `app.asar.unpacked` so child PowerShell can read the scripts. `package.json` `asarUnpack: ["lib/*.ps1"]` makes this work in the packaged build.
 
-Other utilities: `lib/safe-file.js` (atomic writes, corrupt-copy naming), `lib/icons.js` (icon extraction, favicon fetch, custom icons), `lib/drives.js`, `lib/bluetooth.js`, `lib/wifi.js`, and `lib/power.js` are the wrappers listed above.
+Other utilities: `lib/safe-file.js` (atomic writes, corrupt-copy naming), `lib/favicon.js` (pure: URL normalizing, icon `<link>` parsing, ICO decoding), `lib/icons.js` (icon extraction, favicon fetch, custom icons), `lib/drives.js`, `lib/bluetooth.js`, `lib/wifi.js`, and `lib/power.js` are the wrappers listed above.
 
 ---
 
@@ -260,9 +265,8 @@ Rendering pattern: the renderer keeps a local `apps` cache. Each mutation calls 
 
 ## 11. Known issues and open items
 
-1. **Third-party request:** favicons are fetched from `google.com/s2/favicons` for URL items. Planned: try the site's own favicon first, with Google as an opt-out fallback setting.
-2. **Limited tests.** Only `lib/store.js` and `lib/settings.js` are covered (`npm test`). `lib/layout.js` is next. CI doesn't run the tests yet. UI verification is manual (`npm start`).
-3. **No README.** This file serves that role for now.
+1. **Limited tests.** Only `lib/store.js`, `lib/settings.js` and `lib/favicon.js` are covered (`npm test`). `lib/layout.js` is next. CI doesn't run the tests yet. UI verification is manual (`npm start`).
+2. **No README.** This file serves that role for now.
 
 ---
 
