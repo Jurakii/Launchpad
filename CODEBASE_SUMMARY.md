@@ -5,7 +5,7 @@ A personal Windows desktop-replacement launcher (Electron 44). It runs as a full
 - **Version:** 1.0.3 (`package.json`)
 - **Repo:** `Jurakii/Launchpad` on GitHub, branch `main`
 - **Platform:** Windows only (PowerShell helpers, `Clear-RecycleBin`, `shutdown.exe`, `ms-settings:`, etc.)
-- **Size:** ~75 tracked files; ~1,150 lines in `main.js`, ~2,900 in `renderer/renderer.js`, ~1,400 in `renderer/styles.css`. No README.
+- **Size:** ~1,200 lines in `main.js`, ~2,950 in `renderer/renderer.js`, ~1,400 in `renderer/styles.css`. User-facing docs are in `README.md`.
 
 > Keep this file current. When you change architecture, IPC channels, storage keys or the release process, update the matching section below.
 
@@ -248,7 +248,7 @@ Rendering pattern: the renderer keeps a local `apps` cache. Each mutation calls 
 - Freeform grid with islands (folders): nested, collapsible, resizable, colorable, optional name labels. Multi-select with marquee, bulk move/pin/remove.
 - Auto icons (exe, favicon), custom icon picker, "Detect Missing Icons", "Restore Default Apps".
 - Taskbar: pins (drag-reorder), running-window buttons (focus), search across everything, recent items, tray widgets (volume + per-app mixer + output device, USB eject, Bluetooth disconnect, Wi-Fi connect, power, clock, fullscreen), reorderable tray.
-- Taskbar placement: bottom/top/left/right edge, left/center alignment, tray center/shared alignment, solid/glass styles, light/dark theme, accent color, custom wallpaper.
+- Taskbar placement: bottom/top/left/right edge, left/center alignment, tray center/shared alignment, solid/translucent/transparent bar styles, light/dark theme, accent color, custom wallpaper.
 - Global hotkey (customisable; optional suspend while another app is focused). Tray icon, minimize-to-tray, start with Windows, start fullscreen.
 - Export/import JSON backup (with icons). Auto-update check with notification and in-app download/install.
 
@@ -266,7 +266,6 @@ Rendering pattern: the renderer keeps a local `apps` cache. Each mutation calls 
 ## 11. Known issues and open items
 
 1. **Limited tests.** Only `lib/store.js`, `lib/settings.js` and `lib/favicon.js` are covered (`npm test`). `lib/layout.js` is next. CI doesn't run the tests yet. UI verification is manual (`npm start`).
-2. **No README.** This file serves that role for now.
 
 ---
 
