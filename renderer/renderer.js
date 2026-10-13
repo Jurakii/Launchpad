@@ -345,8 +345,23 @@ function descendantIslandIds(islandId) {
   return ids;
 }
 
+// ipcRenderer.invoke wraps errors thrown in main as "Error invoking remote
+// method 'x': Error: <message>" - only the last part means anything here.
+function ipcErrorMessage(err) {
+  return String((err && err.message) || err).replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, '');
+}
+
 async function refreshFromServer(promise) {
-  apps = await promise;
+  try {
+    apps = await promise;
+  } catch (err) {
+    // Redraw from the unchanged cache so an optimistic drag/resize snaps
+    // back instead of showing a change that was never saved.
+    render();
+    renderPinned();
+    await showAlert(`Launchpad couldn't do that:\n${ipcErrorMessage(err)}`);
+    return;
+  }
   // If the island we're standing in just got removed, bump back to Home
   // instead of showing a dead end.
   if (currentFolderId && !apps.some((a) => a.id === currentFolderId && a.kind === 'island')) {
@@ -2681,6 +2696,9 @@ detectIconsBtn.addEventListener('click', async () => {
     render();
     renderPinned();
     await showAlert(res.fixed > 0 ? `Fixed ${res.fixed} icon${res.fixed === 1 ? '' : 's'}.` : 'No missing icons found.');
+  } catch (err) {
+    await showAlert(`Couldn't detect icons:
+${ipcErrorMessage(err)}`);
   } finally {
     detectIconsBtn.disabled = false;
     detectIconsBtn.textContent = originalLabel;
@@ -2698,6 +2716,9 @@ restoreDefaultsBtn.addEventListener('click', async () => {
     render();
     renderPinned();
     await showAlert(res.added > 0 ? `Added ${res.added} default app${res.added === 1 ? '' : 's'}.` : 'Already on your list.');
+  } catch (err) {
+    await showAlert(`Couldn't add the default apps:
+${ipcErrorMessage(err)}`);
   } finally {
     restoreDefaultsBtn.disabled = false;
     restoreDefaultsBtn.textContent = originalLabel;
@@ -2711,7 +2732,14 @@ exportBtn.addEventListener('click', async () => {
 
 importBtn.addEventListener('click', async () => {
   if (!(await showConfirm('Importing will replace everything currently in Launchpad with this backup. Continue?'))) return;
-  const res = await window.launcherAPI.importBackup();
+  let res;
+  try {
+    res = await window.launcherAPI.importBackup();
+  } catch (err) {
+    await showAlert(`Couldn't import that backup:
+${ipcErrorMessage(err)}`);
+    return;
+  }
   if (res && res.ok) {
     apps = res.apps;
     currentFolderId = null;
@@ -2901,4 +2929,34 @@ document.addEventListener('keydown', (e) => {
   clearSelection();
 });
 
-refreshFromServer(window.launcherAPI.listApps());
+// Main sets a load issue when apps.json existed but wouldn't parse - tell
+// the user once the grid is up, since their apps may look missing.
+async function showLoadIssue() {
+  const issue = await window.launcherAPI.getLoadIssue();
+  if (!issue) return;
+  if (issue.state === 'restored') {
+    await showAlert(
+      `Your saved apps file couldn't be read, so Launchpad restored the previous version from its backup. ` +
+        `Your most recent change may be missing.
+
+The unreadable file was kept at:
+${issue.corruptCopy}`
+    );
+  } else {
+    await showAlert(
+      `Your saved apps file couldn't be read and there's no usable backup, so Launchpad opened empty ` +
+        `and won't save changes - that way nothing gets overwritten.
+
+` +
+        `A copy of the unreadable file is at:
+${issue.corruptCopy}
+
+` +
+        `Fix or replace:
+${issue.appsFile}
+or import a backup from Settings.`
+    );
+  }
+}
+
+refreshFromServer(window.launcherAPI.listApps()).then(showLoadIssue);
