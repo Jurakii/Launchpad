@@ -110,6 +110,7 @@ const trayAlignSelect = document.getElementById('trayAlignSelect');
 const taskbarAlignSelect = document.getElementById('taskbarAlignSelect');
 const taskbarEdgeSelect = document.getElementById('taskbarEdgeSelect');
 const notifyUpdatesToggle = document.getElementById('notifyUpdatesToggle');
+const googleFaviconToggle = document.getElementById('googleFaviconToggle');
 const disableHotkeyInAppsToggle = document.getElementById('disableHotkeyInAppsToggle');
 const updateStatusLabel = document.getElementById('updateStatusLabel');
 const updateActionBtn = document.getElementById('updateActionBtn');
@@ -2345,6 +2346,7 @@ settingsBtn.addEventListener('click', async () => {
   taskbarAlignSelect.value = localStorage.getItem('launchpad-taskbar-align') || 'edge';
   taskbarEdgeSelect.value = localStorage.getItem('launchpad-taskbar-edge') || 'bottom';
   notifyUpdatesToggle.checked = await window.launcherAPI.getNotifyUpdates();
+  googleFaviconToggle.checked = await window.launcherAPI.getGoogleFaviconFallback();
   hotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getHotkey());
   disableHotkeyInAppsToggle.checked = await window.launcherAPI.getDisableHotkeyInApps();
   settingsModalOverlay.classList.remove('hidden');
@@ -2657,6 +2659,10 @@ disableHotkeyInAppsToggle.addEventListener('change', () => {
 
 notifyUpdatesToggle.addEventListener('change', () => {
   window.launcherAPI.setNotifyUpdates(notifyUpdatesToggle.checked);
+});
+
+googleFaviconToggle.addEventListener('change', () => {
+  window.launcherAPI.setGoogleFaviconFallback(googleFaviconToggle.checked);
 });
 
 wallpaperPickBtn.addEventListener('click', () => wallpaperFileInput.click());
