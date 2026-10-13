@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist": "node scripts/build.js"
+    "dist": "node scripts/build.js",
+    "test": "node --test test/*.test.js"
   },
   "build": {
     "appId": "com.ncrouse.launchpad",
