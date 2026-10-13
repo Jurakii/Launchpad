@@ -66,6 +66,8 @@ contextBridge.exposeInMainWorld('launcherAPI', {
   onUpdateStatus: (callback) => ipcRenderer.on('update:status', (_e, status) => callback(status)),
   getNotifyUpdates: () => ipcRenderer.invoke('settings:getNotifyUpdates'),
   setNotifyUpdates: (enable) => ipcRenderer.invoke('settings:setNotifyUpdates', enable),
+  getGoogleFaviconFallback: () => ipcRenderer.invoke('settings:getGoogleFaviconFallback'),
+  setGoogleFaviconFallback: (enable) => ipcRenderer.invoke('settings:setGoogleFaviconFallback', enable),
   exportBackup: () => ipcRenderer.invoke('backup:export'),
   importBackup: () => ipcRenderer.invoke('backup:import'),
   getPathForFile: (file) => webUtils.getPathForFile(file),
