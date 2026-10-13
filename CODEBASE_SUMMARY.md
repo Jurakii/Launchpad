@@ -23,8 +23,9 @@ scripts/build.js     Wraps electron-builder; re-embeds icon; renames installer t
 scripts/fix-exe-icon.js  Patches the exe icon post-build (safety net)
 build.bat            Local build helper for Windows (npm install → npm run dist)
 .github/workflows/release.yml  Manual "Release" workflow (windows-latest) → GitHub release
+.github/workflows/test.yml     "Test" workflow: npm test on push to main and on PRs (windows-latest)
 build/icon.ico       App/window/tray icon (electron-builder win icon)
-test/                node:test unit tests (store, settings, favicon); helpers.js stubs `electron` with a temp userData
+test/                node:test unit tests (store, settings, favicon, layout); helpers.js stubs `electron` with a temp userData
 Launchpad/           Icon sources (not used at runtime)
 ```
 
@@ -235,7 +236,7 @@ Rendering pattern: the renderer keeps a local `apps` cache. Each mutation calls 
 - **Release (CI):** `.github/workflows/release.yml`. Manual `workflow_dispatch` with a `draft` input.
   - Reads the version from `package.json`.
   - Refuses to run if the `vX.Y.Z` release already exists.
-  - `npm ci` → `npm run dist -- --publish never`.
+  - `npm ci` → `npm test` → `npm run dist -- --publish never`. Failing tests stop the release.
   - Uploads the installer, its `.blockmap` and `latest.yml` with `gh release create`.
   - **Rule:** bump `package.json` version *before* running the workflow.
 - **Auto-update target:** GitHub provider, `Jurakii/Launchpad`. The in-app updater only sees published, non-draft releases.
@@ -265,7 +266,7 @@ Rendering pattern: the renderer keeps a local `apps` cache. Each mutation calls 
 
 ## 11. Known issues and open items
 
-1. **Limited tests.** Only `lib/store.js`, `lib/settings.js` and `lib/favicon.js` are covered (`npm test`). `lib/layout.js` is next. CI doesn't run the tests yet. UI verification is manual (`npm start`).
+1. **No UI tests.** `npm test` covers the pure/main-side modules (`store`, `settings`, `favicon`, `layout`) and runs in CI. The renderer, IPC handlers and PowerShell wrappers are verified manually (`npm start`).
 
 ---
 
