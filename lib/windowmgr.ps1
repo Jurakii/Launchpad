@@ -12,7 +12,9 @@ param(
 # the helper exits on its own.
 #
 # Requests (all rects are physical pixels, [left, top, right, bottom]):
-#   monitor      {hwnd}             -> {bounds, work} of the monitor the window is on
+#   monitor      {hwnd}             -> {bounds, work} of the monitor the window is on,
+#                                      plus the window's visible frame and whether
+#                                      it's minimized
 #   place        {hwnd, x, y, w, h} -> moves the window so its visible frame fills the rect
 #   focus        {hwnd}             -> restores it if minimized and brings it to the front
 #   appbarSet    {hwnd, msg, x, y, w, h, renew}
@@ -394,6 +396,8 @@ public static class WindowManager {
         var o = new Dictionary<string, object>();
         o["bounds"] = R(mi.rcMonitor);
         o["work"] = R(mi.rcWork);
+        o["frame"] = R(Frame(h));
+        o["minimized"] = IsIconic(h);
         return o;
     }
 

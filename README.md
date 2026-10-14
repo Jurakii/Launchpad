@@ -16,9 +16,11 @@ It runs as its own window (or full screen). The window has a grid of your apps g
   - clock
   - power
 - **Window snapping:** right-click an open window on the taskbar to snap it into a half, third, two thirds, main + stack or quarter of its screen. Turn on **Window organizer** in Settings for a panel along the top of each screen: click a zone in it to move the window you're using there, or drag any window to the top of a screen and drop it on a zone. The panel shows the window's title and a clock, can auto-hide, and stays out of the way of fullscreen apps. Maximized windows stop below it.
+  - **Grid placer:** press **Ctrl+Alt+G** (or the grid button on the panel) to lay a grid over the screen, then drag across cells, or use the arrow keys and Enter, to size the window to them.
+  - **Your own layouts:** **Layouts** in the toolbar lets you make layouts by merging and splitting cells, hide the ones you don't use, and set the gap between snapped windows.
 - **Layout and look:** dock the taskbar to any screen edge. Align it to the edge or center (Windows 10 or 11 style), and reorder the tray icons. Choose light or dark, an accent color, solid, translucent or transparent bars, and a wallpaper.
 - **Icons:** Launchpad picks icons automatically from the program or website. You can also choose your own.
-- **Backups and updates:** export and import your whole setup, icons included. Updates install from inside the app.
+- **Backups and updates:** export and import your whole setup, icons and window layouts included. Updates install from inside the app.
 
 ## Install
 
@@ -34,6 +36,7 @@ Settings shows when an update is available and installs it for you. You can also
 - **+ Add App** adds a program, file, folder, website, script or command. Or drag something in from Explorer.
 - **+ New Island** creates a group. Drag items onto it, and right-click it to rename, recolor, expand or show names.
 - Right-click an item, empty grid space, or the taskbar for more options.
+- With the window organizer on, **Ctrl+Alt+G** opens the grid placer for the window you're using: arrow keys move the selection, **Shift**+arrows resize it, **Enter** places the window and **Esc** cancels. You can change the keys in Settings.
 - Keyboard: use the arrow keys to move, **Enter** to launch, and **Esc** to close menus. Start typing to search.
 
 ## Your data
@@ -45,7 +48,7 @@ Everything is stored in `%APPDATA%\launchpad`:
 | `apps.json` | Your items, islands, pins and layout |
 | `apps.json.bak` | The previous version of `apps.json`, kept as a safety net |
 | `settings.json` | App settings (hotkey, startup, update notifications, …) |
-| `layouts.json` | Your own window layouts and the gap between snapped windows. Optional: the built-in layouts don't need it. |
+| `layouts.json` | Your own window layouts, which layouts are hidden, and the gap between snapped windows. Optional: the built-in layouts don't need it. |
 | `icons\` | One PNG per item |
 
 Visual preferences (theme, accent color, wallpaper, taskbar layout) are stored inside the app itself.
