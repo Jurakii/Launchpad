@@ -412,7 +412,28 @@
           <input id="layoutGapInput" type="number" min="0" max="64" step="1" /> px
         </label>
         <div class="spacer"></div>
+        <button type="button" id="layoutsScenesBtn" title="Saved window arrangements">Scenes…</button>
         <button type="button" id="layoutsCloseBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="scenesModalOverlay" class="modal-overlay hidden">
+    <div class="modal scenes-modal">
+      <h2>Scenes</h2>
+      <p class="settings-hint">
+        A scene remembers where your app windows are, on every screen. Apply it to put each of those
+        windows that's open back in place. Save one from an island (right-click it) and the island can
+        open as that scene, starting whichever of its apps aren't running.
+      </p>
+      <div id="scenesList" class="scenes-list"></div>
+      <p id="scenesEmpty" class="scenes-empty hidden">
+        No scenes yet. Arrange your windows, then save them with the button below or the scenes button on the panel.
+      </p>
+      <div class="modal-actions">
+        <button type="button" id="saveSceneBtn" class="primary">Save current arrangement</button>
+        <div class="spacer"></div>
+        <button type="button" id="scenesCloseBtn">Close</button>
       </div>
     </div>
   </div>
