@@ -53,6 +53,17 @@ contextBridge.exposeInMainWorld('launcherAPI', {
   onTopbarState: (callback) => ipcRenderer.on('topbar:state', (_e, state) => callback(state)),
   onTopbarAction: (callback) => ipcRenderer.on('topbar:action', (_e, action) => callback(action)),
   setTopbarCrumbs: (crumbs) => ipcRenderer.invoke('topbar:setCrumbs', crumbs),
+  // Scenes: saved window arrangements. The list-changing calls resolve to
+  // the new list; applying resolves to a message saying what happened.
+  listScenes: () => ipcRenderer.invoke('organizer:listScenes'),
+  saveScene: (id) => ipcRenderer.invoke('organizer:saveScene', id), // id: save over that scene
+  renameScene: (id, name) => ipcRenderer.invoke('organizer:renameScene', { id, name }),
+  removeScene: (id) => ipcRenderer.invoke('organizer:removeScene', id),
+  applyScene: (id) => ipcRenderer.invoke('organizer:applyScene', id),
+  saveIslandScene: (islandId) => ipcRenderer.invoke('organizer:saveIslandScene', islandId), // -> { scenes, message }
+  openIslandScene: (islandId) => ipcRenderer.invoke('organizer:openIslandScene', islandId),
+  onScenesChanged: (callback) => ipcRenderer.on('scenes:changed', () => callback()),
+  onOpenScenes: (callback) => ipcRenderer.on('scenes:open', () => callback()),
   addIsland: (name, parentId, color) => ipcRenderer.invoke('folder:add', { name, parentId, color }),
   renameItem: (id, name) => ipcRenderer.invoke('item:rename', { id, name }),
   setColor: (id, color) => ipcRenderer.invoke('item:setColor', { id, color }),

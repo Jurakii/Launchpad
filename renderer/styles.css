@@ -1342,6 +1342,39 @@ body.file-drag-over::after {
   pointer-events: none;
 }
 
+/* ---------- Scenes ---------- */
+
+.modal.scenes-modal { width: min(620px, calc(100vw - 32px)); }
+
+.scenes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+/* Name and buttons on one line, what's in it underneath. */
+.scene-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.scene-name-input { min-width: 0; font-weight: 600; }
+.scene-meta { grid-column: 1 / -1; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.scene-actions { grid-column: 2; grid-row: 1; display: flex; gap: 6px; }
+.scene-actions button { padding: 5px 10px; font-size: 13px; }
+@media (max-width: 560px) {
+  .scene-row { grid-template-columns: minmax(0, 1fr); }
+  .scene-actions { grid-column: 1; grid-row: auto; }
+}
+
+.scenes-empty { margin: 4px 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
 /* ---------- Taskbar location (top / left / right) ----------
    Bottom is the default layout above. The location lives on <html> as
    data-taskbar-edge (plus data-taskbar-vertical for left/right) since the

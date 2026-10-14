@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';" />
+<title>Launchpad scenes</title>
+<link rel="stylesheet" href="scenes-menu.css" />
+</head>
+<body>
+  <div id="menu" class="menu" role="menu" aria-label="Scenes">
+    <div class="menu-label">Scenes</div>
+    <div id="list" class="list"></div>
+    <p id="empty" class="empty hidden">No scenes yet. Arrange your windows, then save them here.</p>
+    <div class="sep"></div>
+    <button type="button" id="saveBtn" class="item" role="menuitem">Save current arrangement</button>
+    <button type="button" id="manageBtn" class="item" role="menuitem">Manage scenes…</button>
+  </div>
+  <script src="scenes-menu.js"></script>
+</body>
+</html>
