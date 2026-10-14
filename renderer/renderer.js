@@ -34,6 +34,13 @@ try {
   if (localStorage.getItem('launchpad-hide-app-names') === '1') {
     document.documentElement.setAttribute('data-hide-app-names', '1');
   }
+  // The panel carried the toolbar last time: main confirms or undoes this
+  // once the panels are up, but the window doesn't jump in the meantime.
+  if (localStorage.getItem('launchpad-topbar-hosted') === '1') {
+    document.documentElement.setAttribute('data-topbar-hosted', '');
+  }
+  // The panel used to have its own look; it follows the top bar's now.
+  localStorage.removeItem('launchpad-panel-style');
 } catch {}
 
 const grid = document.getElementById('grid');
@@ -115,7 +122,6 @@ const googleFaviconToggle = document.getElementById('googleFaviconToggle');
 const disableHotkeyInAppsToggle = document.getElementById('disableHotkeyInAppsToggle');
 const organizerToggle = document.getElementById('organizerToggle');
 const organizerPanelSelect = document.getElementById('organizerPanelSelect');
-const panelStyleSelect = document.getElementById('panelStyleSelect');
 const snapOnDragToggle = document.getElementById('snapOnDragToggle');
 const gridHotkeyBtn = document.getElementById('gridHotkeyBtn');
 const updateStatusLabel = document.getElementById('updateStatusLabel');
@@ -397,6 +403,8 @@ async function refreshFromServer(promise) {
 
 // ---------- grid / breadcrumb ----------
 
+let sentCrumbs = ''; // the breadcrumb last sent to the panel, as JSON
+
 function renderBreadcrumb() {
   breadcrumbEl.innerHTML = '';
   const chain = getAncestors(currentFolderId);
@@ -436,6 +444,14 @@ function renderBreadcrumb() {
     addDropTarget(btn, f.id);
     breadcrumbEl.appendChild(btn);
   });
+
+  // The organizer's panel shows the same breadcrumb when it's the top bar.
+  const crumbs = [{ id: null, name: 'Home' }, ...chain.map((f) => ({ id: f.id, name: f.name }))];
+  const key = JSON.stringify(crumbs);
+  if (key !== sentCrumbs) {
+    sentCrumbs = key;
+    window.launcherAPI.setTopbarCrumbs(crumbs);
+  }
 }
 
 function isInternalDrag(e) {
@@ -452,24 +468,28 @@ function addDropTarget(el, targetParentId) {
     el.classList.add('drag-over');
   });
   el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
-  el.addEventListener('drop', async (e) => {
+  el.addEventListener('drop', (e) => {
     if (!isInternalDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
     el.classList.remove('drag-over');
 
     const groupData = e.dataTransfer.getData('application/x-launchpad-ids');
-    if (groupData) {
-      const ids = JSON.parse(groupData).filter((gid) => gid !== targetParentId);
-      for (const gid of ids) await window.launcherAPI.moveItem(gid, targetParentId);
-      if (ids.length) await refreshFromServer(window.launcherAPI.listApps());
-      return;
-    }
-    const draggedId = e.dataTransfer.getData('application/x-launchpad-id');
-    if (draggedId && draggedId !== targetParentId) {
-      await refreshFromServer(window.launcherAPI.moveItem(draggedId, targetParentId));
-    }
+    const ids = groupData ? JSON.parse(groupData) : [e.dataTransfer.getData('application/x-launchpad-id')];
+    moveItemsInto(ids, targetParentId);
   });
+}
+
+// Moves the dropped items into island `targetParentId` (null = Home). Also
+// used for drops onto the breadcrumb on the panel, when that's the top bar.
+async function moveItemsInto(ids, targetParentId) {
+  const moving = ids.filter((id) => id && id !== targetParentId);
+  if (moving.length === 1) {
+    await refreshFromServer(window.launcherAPI.moveItem(moving[0], targetParentId));
+    return;
+  }
+  for (const id of moving) await window.launcherAPI.moveItem(id, targetParentId);
+  if (moving.length) await refreshFromServer(window.launcherAPI.listApps());
 }
 
 function buildTile(item) {
@@ -1982,6 +2002,55 @@ fullscreenBtn.addEventListener('click', async () => {
   if (res && res.ok) applyFullscreenIcon(res.isFullscreen);
 });
 
+// ---------- the organizer's panel as the top bar ----------
+// With the organizer's panel on, the panel on this window's display carries
+// the toolbar (breadcrumb and buttons), so the window hides its own. When
+// fullscreen under a docked panel, the content starts below it (inset).
+
+window.launcherAPI.onTopbarState(({ hosted, inset }) => {
+  const root = document.documentElement;
+  root.toggleAttribute('data-topbar-hosted', hosted);
+  root.style.setProperty('--topbar-inset', `${inset}px`);
+  try {
+    if (hosted) localStorage.setItem('launchpad-topbar-hosted', '1');
+    else localStorage.removeItem('launchpad-topbar-hosted');
+  } catch {}
+});
+
+// A click on, or drop onto, the toolbar on the panel. Main has already
+// brought this window to the front (fullscreen it handles itself).
+window.launcherAPI.onTopbarAction(({ action, id, ids, x, y }) => {
+  // The window's own toolbar was covered by any open dialog; the panel isn't.
+  if (document.querySelector('.modal-overlay:not(.hidden)')) return;
+  closeContextMenu();
+  const island = id ? apps.find((a) => a.id === id && a.kind === 'island') : null;
+  if (id && !island) return; // gone since the panel last heard
+  switch (action) {
+    case 'crumb':
+      currentFolderId = id;
+      render();
+      break;
+    case 'crumbMenu':
+      if (island) showItemContextMenu(x, y, island);
+      break;
+    case 'drop':
+      moveItemsInto(ids, id);
+      break;
+    case 'layouts':
+      openLayoutsModal();
+      break;
+    case 'settings':
+      settingsBtn.click();
+      break;
+    case 'newIsland':
+      openNewIslandModal();
+      break;
+    case 'addApp':
+      openAddModal();
+      break;
+  }
+});
+
 // ---------- open windows (Windows-taskbar-style running apps) ----------
 // Separate from Launchpad's own "pinned" concept - this reflects whatever
 // actually has a visible window open on the OS right now (any app, not just
@@ -2460,7 +2529,6 @@ settingsBtn.addEventListener('click', async () => {
   disableHotkeyInAppsToggle.checked = await window.launcherAPI.getDisableHotkeyInApps();
   organizerToggle.checked = await window.launcherAPI.getOrganizerEnabled();
   organizerPanelSelect.value = await window.launcherAPI.getOrganizerPanel();
-  panelStyleSelect.value = localStorage.getItem('launchpad-panel-style') || 'solid';
   snapOnDragToggle.checked = await window.launcherAPI.getOrganizerSnapOnDrag();
   gridHotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getOrganizerHotkey());
   updateOrganizerRows();
@@ -2723,6 +2791,8 @@ function setTrayAlign(align) {
   placeTrayCluster();
 }
 
+// The organizer's panels read this from the shared localStorage too, and
+// restyle themselves when it changes (see renderer/panel.js).
 topbarStyleSelect.addEventListener('change', () => {
   applyBarStyle(toolbarEl, 'launchpad-topbar-style', topbarStyleSelect.value);
 });
@@ -2781,7 +2851,6 @@ disableHotkeyInAppsToggle.addEventListener('change', () => {
 function updateOrganizerRows() {
   const off = !organizerToggle.checked;
   organizerPanelSelect.disabled = off;
-  panelStyleSelect.disabled = off || organizerPanelSelect.value === 'off';
   snapOnDragToggle.disabled = off;
   gridHotkeyBtn.disabled = off;
 }
@@ -2794,15 +2863,6 @@ organizerToggle.addEventListener('change', () => {
 organizerPanelSelect.addEventListener('change', () => {
   updateOrganizerRows();
   window.launcherAPI.setOrganizerPanel(organizerPanelSelect.value);
-});
-
-// The panel windows read this from the shared localStorage and restyle
-// themselves when it changes (see renderer/panel.js).
-panelStyleSelect.addEventListener('change', () => {
-  try {
-    if (panelStyleSelect.value === 'solid') localStorage.removeItem('launchpad-panel-style');
-    else localStorage.setItem('launchpad-panel-style', panelStyleSelect.value);
-  } catch {}
 });
 
 snapOnDragToggle.addEventListener('change', () => {

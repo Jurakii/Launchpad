@@ -79,6 +79,12 @@ body {
 
 .toolbar-spacer { flex: 1; }
 
+/* The organizer's panel carries the toolbar (data-topbar-hosted). When the
+   window is fullscreen under a docked panel, everything starts below it
+   (--topbar-inset, set from main). */
+:root[data-topbar-hosted] .toolbar { display: none; }
+body { padding-top: var(--topbar-inset, 0px); }
+
 :root[data-hide-add-buttons="1"] #newFolderBtn,
 :root[data-hide-add-buttons="1"] #addBtn {
   display: none;
@@ -1368,7 +1374,7 @@ body.file-drag-over::after {
 
 :root[data-taskbar-vertical] .taskbar {
   position: fixed;
-  top: 0;
+  top: var(--topbar-inset, 0px);
   bottom: 0;
   width: 64px;
   height: auto;
