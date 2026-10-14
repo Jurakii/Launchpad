@@ -1,0 +1,66 @@
+/* Drag overlay: a transparent window over one display's work area. Same
+   palette as styles.css (dark by default, light via data-theme). */
+:root {
+  --panel: #1e2128;
+  --border: #2b2f38;
+  --text: #e8e9ec;
+  --muted: #9aa0ac;
+  --accent: #5b8cff;
+}
+
+:root[data-theme="light"] {
+  --panel: #ffffff;
+  --border: #dde1e8;
+  --text: #1b1d22;
+  --muted: #6b7280;
+  --accent: #3b6fe0;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+.hidden { display: none; }
+
+.preview, .strip-bg, .zone, .label {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.strip-layer { position: absolute; inset: 0; }
+
+/* Where the window will land. */
+.preview {
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Hangs from the top edge like a drop-down. */
+.strip-bg {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.zone {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--muted) 30%, var(--panel));
+}
+.zone.hovered { background: var(--accent); }
+
+.label {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted);
+  text-align: center;
+  white-space: nowrap;
+}
+.label.hovered { color: var(--text); }
