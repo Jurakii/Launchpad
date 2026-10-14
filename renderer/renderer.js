@@ -153,6 +153,12 @@ const duplicateLayoutBtn = document.getElementById('duplicateLayoutBtn');
 const deleteLayoutBtn = document.getElementById('deleteLayoutBtn');
 const layoutGapInput = document.getElementById('layoutGapInput');
 const layoutsCloseBtn = document.getElementById('layoutsCloseBtn');
+const layoutsScenesBtn = document.getElementById('layoutsScenesBtn');
+const scenesModalOverlay = document.getElementById('scenesModalOverlay');
+const scenesListEl = document.getElementById('scenesList');
+const scenesEmpty = document.getElementById('scenesEmpty');
+const saveSceneBtn = document.getElementById('saveSceneBtn');
+const scenesCloseBtn = document.getElementById('scenesCloseBtn');
 
 const pinnedRow = document.getElementById('pinnedRow');
 const pinnedEmpty = document.getElementById('pinnedEmpty');
@@ -1023,6 +1029,7 @@ function anyModalOpen() {
     !moveModalOverlay.classList.contains('hidden') ||
     !settingsModalOverlay.classList.contains('hidden') ||
     !layoutsModalOverlay.classList.contains('hidden') ||
+    !scenesModalOverlay.classList.contains('hidden') ||
     !dialogOverlay.classList.contains('hidden') ||
     !contextMenu.classList.contains('hidden')
   );
@@ -2244,6 +2251,10 @@ function showItemContextMenu(x, y, item) {
       label: item.showNames ? 'Hide App Names' : 'Show App Names',
       action: () => refreshFromServer(window.launcherAPI.setShowNames(item.id, !item.showNames)),
     });
+    menuItems.push({ sep: true });
+    if (islandScene(item.id)) menuItems.push({ label: 'Open as scene', action: () => openIslandScene(item) });
+    menuItems.push({ label: 'Save arrangement for this island', action: () => saveIslandScene(item) });
+    menuItems.push({ sep: true });
   }
   menuItems.push({ label: 'Move to Island…', action: () => openMoveModal(item) });
   menuItems.push({
@@ -2971,9 +2982,10 @@ ${ipcErrorMessage(err)}`);
     render();
     renderPinned();
     refreshSnapLayouts();
+    refreshScenes(); // they come with the layouts
     settingsModalOverlay.classList.add('hidden');
     if (res.layoutsError) {
-      await showAlert(`Your apps were imported, but the window layouts in the backup couldn't be:
+      await showAlert(`Your apps were imported, but the window layouts and scenes in the backup couldn't be:
 ${res.layoutsError}`);
     }
   }
@@ -3272,6 +3284,160 @@ layoutsCloseBtn.addEventListener('click', closeLayoutsModal);
 layoutsModalOverlay.addEventListener('click', (e) => {
   if (e.target === layoutsModalOverlay) closeLayoutsModal();
 });
+layoutsScenesBtn.addEventListener('click', () => {
+  closeLayoutsModal();
+  openScenesModal();
+});
+
+// ---------- scenes ----------
+// Saved window arrangements, kept by main in layouts.json. The Scenes
+// dialog lists, applies, saves over, renames and deletes them; an island's
+// right-click menu saves its own scene and opens the island as it. A copy
+// of the list is kept here for those menus, refreshed whenever it changes
+// (main says so when a panel's scenes menu saves one).
+
+let sceneList = [];
+
+async function refreshScenes() {
+  try {
+    sceneList = await window.launcherAPI.listScenes();
+  } catch {
+    sceneList = [];
+  }
+  if (!scenesModalOverlay.classList.contains('hidden')) renderScenesList();
+}
+refreshScenes();
+window.launcherAPI.onScenesChanged(refreshScenes);
+
+const islandScene = (islandId) => sceneList.find((s) => s.islandId === islandId);
+
+// What to call a scene's app: the user's name for it if it's one of their
+// apps, else the exe's file name (same rule as lib/scenes.js appName).
+function sceneAppName(exe) {
+  const key = exe.toLowerCase();
+  const app = apps.find((a) => a.kind === 'app' && a.type === 'path' && typeof a.target === 'string' && a.target.toLowerCase() === key);
+  if (app) return app.name;
+  const file = exe.split(/[\\/]/).pop().replace(/\.exe$/i, '');
+  return file.charAt(0).toUpperCase() + file.slice(1);
+}
+
+function sceneSummary(scene) {
+  const names = [...new Set(scene.windows.map((w) => sceneAppName(w.exe)))];
+  const shown = names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3}` : names.join(', ');
+  const parts = [`${scene.windows.length} window${scene.windows.length === 1 ? '' : 's'}`, shown];
+  const island = scene.islandId && apps.find((a) => a.id === scene.islandId && a.kind === 'island');
+  if (island) parts.push(`Island: ${island.name}`);
+  parts.push(`saved ${new Date(scene.savedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`);
+  return parts.join(' · ');
+}
+
+function renderScenesList() {
+  scenesEmpty.classList.toggle('hidden', sceneList.length > 0);
+  scenesListEl.replaceChildren(
+    ...sceneList.map((scene) => {
+      const row = document.createElement('div');
+      row.className = 'scene-row';
+
+      const name = document.createElement('input');
+      name.type = 'text';
+      name.className = 'scene-name-input';
+      name.id = `sceneName-${scene.id}`;
+      name.maxLength = 40;
+      name.value = scene.name;
+      name.setAttribute('aria-label', 'Scene name');
+      name.addEventListener('change', () => sceneAction(() => window.launcherAPI.renameScene(scene.id, name.value)));
+
+      const meta = document.createElement('div');
+      meta.className = 'scene-meta';
+      meta.textContent = sceneSummary(scene);
+
+      const actions = document.createElement('div');
+      actions.className = 'scene-actions';
+      const button = (label, onClick, extra) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = label;
+        if (extra) b.className = extra;
+        b.addEventListener('click', onClick);
+        actions.appendChild(b);
+      };
+      button('Apply', () => applyScene(scene));
+      button('Save again', () => sceneAction(() => window.launcherAPI.saveScene(scene.id)));
+      button('Delete', () => deleteScene(scene), 'danger');
+
+      row.append(name, meta, actions);
+      return row;
+    })
+  );
+}
+
+// A change that resolves to the new list; errors go to a dialog.
+async function sceneAction(change) {
+  try {
+    sceneList = await change();
+  } catch (err) {
+    await showAlert(ipcErrorMessage(err));
+  }
+  renderScenesList();
+}
+
+async function applyScene(scene) {
+  try {
+    await showAlert(await window.launcherAPI.applyScene(scene.id));
+  } catch (err) {
+    await showAlert(ipcErrorMessage(err));
+  }
+}
+
+async function deleteScene(scene) {
+  if (!(await showConfirm(`Delete the scene "${scene.name}"? Your windows stay where they are.`))) return;
+  await sceneAction(() => window.launcherAPI.removeScene(scene.id));
+}
+
+async function openScenesModal() {
+  await refreshScenes();
+  renderScenesList();
+  scenesModalOverlay.classList.remove('hidden');
+}
+
+function closeScenesModal() {
+  scenesModalOverlay.classList.add('hidden');
+}
+
+saveSceneBtn.addEventListener('click', () => sceneAction(() => window.launcherAPI.saveScene()));
+scenesCloseBtn.addEventListener('click', closeScenesModal);
+scenesModalOverlay.addEventListener('click', (e) => {
+  if (e.target === scenesModalOverlay) closeScenesModal();
+});
+
+// "Manage scenes…" in a panel's scenes menu. A form or question that's
+// open is left alone; the settings, layouts and move dialogs just close.
+window.launcherAPI.onOpenScenes(() => {
+  if (![modalOverlay, nameModalOverlay, dialogOverlay].every((o) => o.classList.contains('hidden'))) return;
+  for (const o of [settingsModalOverlay, layoutsModalOverlay, moveModalOverlay]) o.classList.add('hidden');
+  closeContextMenu();
+  openScenesModal();
+});
+
+async function saveIslandScene(island) {
+  try {
+    const { scenes, message } = await window.launcherAPI.saveIslandScene(island.id);
+    sceneList = scenes;
+    await showAlert(message);
+  } catch (err) {
+    await showAlert(ipcErrorMessage(err));
+  }
+}
+
+async function openIslandScene(island) {
+  try {
+    const message = await window.launcherAPI.openIslandScene(island.id);
+    await refreshFromServer(window.launcherAPI.listApps()); // launches count toward Recent
+    await showAlert(message);
+  } catch (err) {
+    await showAlert(ipcErrorMessage(err));
+  }
+}
 
 // ---------- add / edit app modal ----------
 
@@ -3440,6 +3606,7 @@ document.addEventListener('keydown', (e) => {
   if (!dialogOverlay.classList.contains('hidden')) closeDialog(false);
   if (!modalOverlay.classList.contains('hidden')) closeModal();
   if (!layoutsModalOverlay.classList.contains('hidden')) closeLayoutsModal();
+  if (!scenesModalOverlay.classList.contains('hidden')) closeScenesModal();
   if (!nameModalOverlay.classList.contains('hidden')) nameModalOverlay.classList.add('hidden');
   if (!moveModalOverlay.classList.contains('hidden')) moveModalOverlay.classList.add('hidden');
   if (!settingsModalOverlay.classList.contains('hidden')) settingsModalOverlay.classList.add('hidden');

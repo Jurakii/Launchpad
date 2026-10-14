@@ -15,12 +15,18 @@ param(
 #   monitor      {hwnd}             -> {bounds, work} of the monitor the window is on,
 #                                      plus the window's visible frame and whether
 #                                      it's minimized
-#   place        {hwnd, x, y, w, h} -> moves the window so its visible frame fills the rect
+#   place        {hwnd, x, y, w, h, max}
+#                                   -> moves the window so its visible frame fills the rect,
+#                                      then maximizes it there if max is true
+#   windows      {}                 -> {windows}: the open windows worth placing (as for
+#                                      dragStart), top of the z-order first, each
+#                                      {hwnd, exe, title, frame, minimized, maximized}
 #   focus        {hwnd}             -> restores it if minimized and brings it to the front
 #   appbarSet    {hwnd, msg, x, y, w, h, renew}
 #                                   -> docks the window along the top of the rect as an
 #                                      AppBar (registering it first), replies {rect}
-#   appbarRemove {hwnd}             -> gives the AppBar's space back
+#   appbarRemove {hwnd, ifGone}     -> gives the AppBar's space back (with ifGone, only
+#                                      if the window no longer exists)
 #   fullscreen   {own}              -> {monitors}: the bounds of each monitor a
 #                                      fullscreen window is covering right now.
 #                                      own lists windows (Launchpad's main window)
@@ -92,6 +98,7 @@ public static class WindowManager {
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int value, int size);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
     [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromRect(ref RECT rc, uint flags);
     [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr hMon, ref MONITORINFO info);
     [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vKey);
     [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
@@ -117,6 +124,7 @@ public static class WindowManager {
     const int DWMWA_EXTENDED_FRAME_BOUNDS = 9, DWMWA_CLOAKED = 14;
     const uint SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_NOOWNERZORDER = 0x0200;
     const int SW_RESTORE = 9;
+    const int SW_MAXIMIZE = 3;
     const int ERROR_ACCESS_DENIED = 5;
     const int GWL_STYLE = -16, GWL_EXSTYLE = -20;
     const int WS_THICKFRAME = 0x00040000, WS_EX_TOOLWINDOW = 0x00000080;
@@ -403,12 +411,25 @@ public static class WindowManager {
         return o;
     }
 
-    static Dictionary<string, object> Place(IntPtr h, int x, int y, int w, int hgt) {
+    static Dictionary<string, object> Place(IntPtr h, int x, int y, int w, int hgt, bool max) {
         // Saying so up front gives a clear message instead of a window that
         // just doesn't move.
         uint pid;
         GetWindowThreadProcessId(h, out pid);
         if (BlockedByElevation(pid)) return Fail("denied");
+
+        // Already maximized on the right monitor (a scene putting back a
+        // window that never moved): restoring and maximizing it again would
+        // only make it flicker.
+        if (max && IsZoomed(h)) {
+            var target = new RECT { Left = x, Top = y, Right = x + w, Bottom = y + hgt };
+            if (MonitorFromWindow(h, 2) == MonitorFromRect(ref target, 2)) {
+                var same = new Dictionary<string, object>();
+                same["frame"] = R(Frame(h));
+                same["exact"] = true;
+                return same;
+            }
+        }
 
         // Aero Snap may already have maximized it (it does so before the
         // drag-end event arrives), and a maximized window ignores SetWindowPos.
@@ -430,9 +451,39 @@ public static class WindowManager {
             off = Math.Max(Math.Max(Math.Abs(after.Left - x), Math.Abs(after.Top - y)),
                            Math.Max(Math.Abs(after.Right - (x + w)), Math.Abs(after.Bottom - (y + hgt))));
         }
+        // A window maximizes on the monitor it's on, so it's moved there first.
+        if (max) ShowWindow(h, SW_MAXIMIZE);
         var o = new Dictionary<string, object>();
         o["frame"] = R(Frame(h));
-        o["exact"] = off <= 1; // false when the app enforces a minimum size bigger than the zone
+        o["exact"] = max || off <= 1; // false when the app enforces a minimum size bigger than the zone
+        return o;
+    }
+
+    // The windows a scene can hold: the ones dragStart is sent for, not
+    // Launchpad's own or the shell's, with a title to tell them apart by.
+    static Dictionary<string, object> Windows() {
+        var list = new List<Dictionary<string, object>>();
+        EnumWindowsProc onWindow = (IntPtr h, IntPtr lp) => {
+            uint pid;
+            GetWindowThreadProcessId(h, out pid);
+            if (pid == excludePid || pid == selfPid || !IsWindowVisible(h)) return true;
+            string exe = ExePath(pid);
+            if (exe == null || IsShell(h, exe) || !IsSnappable(h, pid)) return true;
+            string title = TitleOf(h);
+            if (title.Length == 0) return true;
+            var w = new Dictionary<string, object>();
+            w["hwnd"] = h.ToInt64();
+            w["exe"] = exe;
+            w["title"] = title;
+            w["frame"] = R(Frame(h));
+            w["minimized"] = IsIconic(h);
+            w["maximized"] = IsZoomed(h);
+            list.Add(w);
+            return true;
+        };
+        EnumWindows(onWindow, IntPtr.Zero);
+        var o = new Dictionary<string, object>();
+        o["windows"] = list;
         return o;
     }
 
@@ -593,12 +644,20 @@ public static class WindowManager {
             }
             return Fullscreen(own);
         }
+        if (cmd == "windows") return Windows();
         var h = new IntPtr(Convert.ToInt64(r["hwnd"]));
-        if (cmd == "appbarRemove") return AppBarRemove(h);
+        if (cmd == "appbarRemove") {
+            // A panel a killed Launchpad left docked: Explorer accepts the
+            // removal for a window that's gone, and one that isn't (a reused
+            // handle) is left alone.
+            if (r.ContainsKey("ifGone") && Convert.ToBoolean(r["ifGone"]) && IsWindow(h)) return new Dictionary<string, object>();
+            return AppBarRemove(h);
+        }
         if (!IsWindow(h)) return Fail("gone");
         switch (cmd) {
             case "monitor": return Monitor(h);
-            case "place": return Place(h, I(r, "x"), I(r, "y"), I(r, "w"), I(r, "h"));
+            case "place":
+                return Place(h, I(r, "x"), I(r, "y"), I(r, "w"), I(r, "h"), r.ContainsKey("max") && Convert.ToBoolean(r["max"]));
             case "focus": return Focus(h);
             case "appbarSet":
                 return AppBarSet(h, (uint)Convert.ToInt64(r["msg"]), I(r, "x"), I(r, "y"), I(r, "w"), I(r, "h"),
