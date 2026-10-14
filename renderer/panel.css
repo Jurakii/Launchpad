@@ -55,11 +55,16 @@ html, body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
+/* Clipped rather than running under the title when there are a lot of
+   layouts. */
 .layouts {
   justify-self: start;
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .thumb {
@@ -104,8 +109,26 @@ html, body {
 }
 .focused-title.message { color: var(--muted); }
 
-.clock {
+.right {
   justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.grid-btn {
+  all: unset;
+  display: flex;
+  padding: 3px;
+  border-radius: 4px;
+  color: var(--muted);
+}
+.grid-btn svg { width: 16px; height: 16px; }
+.grid-btn:hover { color: var(--text); background: color-mix(in srgb, var(--text) 10%, transparent); }
+.grid-btn.idle { opacity: 0.45; }
+.grid-btn.idle:hover { color: var(--muted); background: none; }
+
+.clock {
   display: flex;
   gap: 8px;
   white-space: nowrap;
