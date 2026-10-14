@@ -1,0 +1,100 @@
+/* Grid placer: a window over one display's work area. Same palette as
+   styles.css (dark by default, light via data-theme). */
+:root {
+  --panel: #1e2128;
+  --border: #2b2f38;
+  --text: #e8e9ec;
+  --muted: #9aa0ac;
+  --accent: #5b8cff;
+  --danger: #ff5b6b;
+}
+
+:root[data-theme="light"] {
+  --panel: #ffffff;
+  --border: #dde1e8;
+  --text: #1b1d22;
+  --muted: #6b7280;
+  --accent: #3b6fe0;
+  --danger: #e0394f;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+.hidden { display: none !important; }
+
+/* Gap and padding are set to the organizer's gap, so a block of cells
+   covers the same rect the window will get. */
+.grid {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: grid;
+  background: rgba(0, 0, 0, 0.35);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.cell {
+  border: 1px dashed color-mix(in srgb, #fff 45%, transparent);
+  border-radius: 6px;
+}
+.cell:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+.selection {
+  z-index: 1;
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  pointer-events: none;
+}
+
+/* What's being moved and how. Clicks go through it to the cells. */
+.info {
+  position: absolute;
+  left: 50%;
+  top: 24px;
+  transform: translateX(-50%);
+  max-width: 60%;
+  box-sizing: border-box;
+  padding: 12px 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  text-align: center;
+  pointer-events: none;
+}
+/* Out of the way of a selection along the top. */
+.info.bottom { top: auto; bottom: 24px; }
+
+.info-window {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.info-icon { flex: none; width: 20px; height: 20px; }
+.info-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.info-size {
+  margin-top: 4px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.info-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.info-hint.error { color: var(--danger); }

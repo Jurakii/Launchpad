@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';" />
+<title>Launchpad grid placer</title>
+<link rel="stylesheet" href="grid.css" />
+</head>
+<body>
+  <div id="grid" class="grid hidden"></div>
+  <div id="info" class="info hidden">
+    <div class="info-window">
+      <img id="infoIcon" class="info-icon hidden" alt="" />
+      <span id="infoTitle" class="info-title"></span>
+    </div>
+    <div id="infoSize" class="info-size"></div>
+    <div id="infoHint" class="info-hint"></div>
+  </div>
+  <script src="cells.js"></script>
+  <script src="grid.js"></script>
+</body>
+</html>
