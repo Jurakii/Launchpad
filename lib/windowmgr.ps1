@@ -21,8 +21,10 @@ param(
 #                                   -> docks the window along the top of the rect as an
 #                                      AppBar (registering it first), replies {rect}
 #   appbarRemove {hwnd}             -> gives the AppBar's space back
-#   fullscreen   {}                 -> {monitors}: the bounds of each monitor a
-#                                      fullscreen window is covering right now
+#   fullscreen   {own}              -> {monitors}: the bounds of each monitor a
+#                                      fullscreen window is covering right now.
+#                                      own lists windows (Launchpad's main window)
+#                                      that never count, even when they cover one
 # Failures reply {ok:false, code}: "gone" (window closed), "denied" (an
 # elevated window Windows won't let us move), "failed", or "badRequest".
 #
@@ -535,8 +537,11 @@ public static class WindowManager {
     // (Launchpad's panels and overlays, notifications), click-through and
     // tool windows, and smaller always-on-top ones, so a sticky note can't
     // hide a fullscreen game from this. A maximized window doesn't count even
-    // when it fills the monitor because nothing reserves any space.
-    static Dictionary<string, object> Fullscreen() {
+    // when it fills the monitor because nothing reserves any space. Nor does
+    // an own window (Launchpad's main window, whose top bar is the panel):
+    // it ends the walk like any other, so a fullscreen app behind it doesn't
+    // count either.
+    static Dictionary<string, object> Fullscreen(List<long> own) {
         var monitors = new List<RECT>();
         MonitorEnumProc onMonitor = (IntPtr hMon, IntPtr hdc, IntPtr rect, IntPtr lp) => {
             var mi = new MONITORINFO();
@@ -566,7 +571,7 @@ public static class WindowManager {
                 GetWindowRect(h, out r);
                 if (r.Left >= m.Right || r.Right <= m.Left || r.Top >= m.Bottom || r.Bottom <= m.Top) continue; // not on this monitor
                 bool covers = r.Left <= m.Left && r.Top <= m.Top && r.Right >= m.Right && r.Bottom >= m.Bottom;
-                if (covers && !IsZoomed(h)) covered.Add(R(m));
+                if (covers && !IsZoomed(h) && !own.Contains(h.ToInt64())) covered.Add(R(m));
                 if (covers || (GetWindowLong(h, GWL_EXSTYLE) & WS_EX_TOPMOST) == 0) break;
             }
         }
@@ -579,7 +584,15 @@ public static class WindowManager {
 
     static Dictionary<string, object> Handle(Dictionary<string, object> r) {
         string cmd = (string)r["cmd"];
-        if (cmd == "fullscreen") return Fullscreen();
+        if (cmd == "fullscreen") {
+            var own = new List<long>();
+            object list;
+            // JavaScriptSerializer hands arrays back as an ArrayList here.
+            if (r.TryGetValue("own", out list) && list is System.Collections.IEnumerable && !(list is string)) {
+                foreach (object o in (System.Collections.IEnumerable)list) own.Add(Convert.ToInt64(o));
+            }
+            return Fullscreen(own);
+        }
         var h = new IntPtr(Convert.ToInt64(r["hwnd"]));
         if (cmd == "appbarRemove") return AppBarRemove(h);
         if (!IsWindow(h)) return Fail("gone");

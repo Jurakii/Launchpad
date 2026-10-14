@@ -315,6 +315,9 @@
         Adds a panel along the top of each screen. Click a zone in one of its layouts to move the window
         you're using there, or its grid button to size the window to any block of cells. Right-click an open
         window on the taskbar for the same layouts, organizer on or off. Make your own with <strong>Layouts</strong>.
+        While the panel is on, it's also Launchpad's top bar: the breadcrumb and the Layouts, Settings,
+        New Island, Add App and fullscreen buttons move into the panel on the screen Launchpad is on.
+        It follows the top bar look.
       </div>
       <div class="settings-row settings-accent-row">
         <span>Organizer panel</span>
@@ -324,21 +327,13 @@
           <option value="off">Off</option>
         </select>
       </div>
-      <div class="settings-row settings-accent-row">
-        <span>Organizer panel look</span>
-        <select id="panelStyleSelect">
-          <option value="solid">Solid</option>
-          <option value="translucent">Translucent</option>
-          <option value="transparent">Transparent</option>
-        </select>
-      </div>
       <div class="settings-row">
         <label class="switch-row"><input type="checkbox" id="snapOnDragToggle" /> Snap windows by dragging them to the top of the screen</label>
       </div>
       <div class="settings-row settings-hint">
         Drag a window by its title bar to the top of a screen, then drop it on a zone in the layouts that
         appear. Press Esc or move away to cancel. Auto-hide brings the panel down when the pointer rests
-        against the top edge; fullscreen apps always cover it.
+        against the top edge. Fullscreen apps cover it, apart from Launchpad itself.
       </div>
       <div class="settings-row settings-hotkey-row">
         <span>Grid placer hotkey</span>
