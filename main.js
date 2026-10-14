@@ -280,6 +280,7 @@ if (!gotLock) {
     createTray();
     registerHotkey(settings.load().hotkey || DEFAULT_HOTKEY);
     applyHotkeyAppFocusSetting(!!settings.load().disableHotkeyInApps);
+    organizer.setDragSnapping(!!settings.load().organizerEnabled);
 
     // Background check only - Settings always checks fresh on its own when
     // opened, so this is purely for the opt-in native notification. Update
@@ -1125,6 +1126,16 @@ ipcMain.handle('settings:getDisableHotkeyInApps', () => !!settings.load().disabl
 ipcMain.handle('settings:setDisableHotkeyInApps', (_e, enable) => {
   settings.save({ disableHotkeyInApps: !!enable });
   applyHotkeyAppFocusSetting(!!enable);
+  return { ok: true };
+});
+
+// Drag-to-snap. Off by default: while on, a helper process watches every
+// window drag on the system.
+ipcMain.handle('settings:getOrganizerEnabled', () => !!settings.load().organizerEnabled);
+
+ipcMain.handle('settings:setOrganizerEnabled', (_e, enable) => {
+  settings.save({ organizerEnabled: !!enable });
+  organizer.setDragSnapping(!!enable);
   return { ok: true };
 });
 
