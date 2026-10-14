@@ -2,10 +2,10 @@
 
 A personal Windows desktop-replacement launcher (Electron 44). It runs as a full-screen-capable window with a custom taskbar, an app/folder grid, and a set of system-tray widgets (volume, USB, Bluetooth, Wi-Fi, clock, power). It is meant for apps that don't behave well with the native taskbar or Start Menu.
 
-- **Version:** 1.0.3 (`package.json`)
+- **Version:** 1.0.4 (`package.json`)
 - **Repo:** `Jurakii/Launchpad` on GitHub, branch `main`
 - **Platform:** Windows only (PowerShell helpers, `Clear-RecycleBin`, `shutdown.exe`, `ms-settings:`, etc.)
-- **Size:** ~1,200 lines in `main.js`, ~2,950 in `renderer/renderer.js`, ~1,400 in `renderer/styles.css`. User-facing docs are in `README.md`.
+- **Size:** ~1,200 lines in `main.js`, ~3,050 in `renderer/renderer.js`, ~1,400 in `renderer/styles.css`. User-facing docs are in `README.md`.
 
 > Keep this file current. When you change architecture, IPC channels, storage keys or the release process, update the matching section below.
 
@@ -16,8 +16,9 @@ A personal Windows desktop-replacement launcher (Electron 44). It runs as a full
 ```
 main.js              Electron main process: window, tray, hotkey, auto-updater, ALL ipcMain handlers
 preload.js           contextBridge → window.launcherAPI (the only renderer↔main surface)
-lib/                 Main-process modules (store, layout, launcher, icons, favicon, settings, safe-file, + system wrappers)
+lib/                 Main-process modules (store, layout, launcher, icons, favicon, settings, safe-file, window organizer, + system wrappers)
 lib/*.ps1            PowerShell helpers invoked by lib/*.js (asarUnpacked, see §6)
+spikes/organizer/    Throwaway Win32 experiments for the window organizer (not shipped, not tested; README has the findings)
 renderer/            index.html, renderer.js (all UI logic), styles.css, icons/*.svg
 scripts/build.js     Wraps electron-builder; re-embeds icon; renames installer to match latest.yml
 scripts/fix-exe-icon.js  Patches the exe icon post-build (safety net)
@@ -25,7 +26,7 @@ build.bat            Local build helper for Windows (npm install → npm run dis
 .github/workflows/release.yml  Manual "Release" workflow (windows-latest) → GitHub release
 .github/workflows/test.yml     "Test" workflow: npm test on push to main and on PRs (windows-latest)
 build/icon.ico       App/window/tray icon (electron-builder win icon)
-test/                node:test unit tests (store, settings, favicon, layout); helpers.js stubs `electron` with a temp userData
+test/                node:test unit tests (store, settings, favicon, layout, zones, layouts); helpers.js stubs `electron` with a temp userData
 Launchpad/           Icon sources (not used at runtime)
 ```
 
@@ -53,7 +54,7 @@ Dependencies: `electron-updater` (runtime); `electron`, `electron-builder` (dev)
   4. `applyHotkeyAppFocusSetting(settings.disableHotkeyInApps)`.
   5. If packaged and `notifyUpdates` is on, a background `autoUpdater.checkForUpdates()`.
 - Closing the window hides it to the tray by default (`minimizeToTrayOnClose !== false`). `isQuitting` distinguishes a real quit.
-- `will-quit` stops the foreground watcher and calls `globalShortcut.unregisterAll()`.
+- `will-quit` stops the foreground watcher and the window-manager helper, and calls `globalShortcut.unregisterAll()`.
 - `activate` (macOS-style re-open) shows or recreates the window.
 
 ### 3.2 Window, tray, hotkey
@@ -83,6 +84,7 @@ Renderer calls these through `launcherAPI` (preload method → channel):
 | Volume / audio | `system:getVolume`, `system:setVolume`, `system:setMuted`, `system:listAudioDevices`, `system:setAudioDevice`, `system:listAudioSessions`, `system:setSessionVolume`, `system:setSessionMuted` |
 | USB | `system:listUsbDrives`, `system:ejectDrive` |
 | Open windows | `system:listOpenWindows`, `system:focusWindow` |
+| Window organizer | `organizer:listLayouts`, `organizer:placeWindow` (handle, layoutId, zoneId → `{ ok, error }`) |
 | Bluetooth | `system:listBluetoothDevices`, `system:disconnectBluetoothDevice` |
 | Power | `system:shutdown`, `system:restart`, `system:sleep` |
 | Wi-Fi | `system:listWifiNetworks`, `system:connectWifi`, `system:disconnectWifi`, `system:openNetworkSettings` |
@@ -123,8 +125,9 @@ Stored under Electron's `app.getPath('userData')`:
 |---|---|---|
 | `apps.json` | `lib/store.js` | JSON array of entries (apps, islands, pins, positions) |
 | `apps.json.bak` | `lib/store.js` | The previous `apps.json`, copied before every save (only if it still parses) |
-| `apps.corrupt-<ts>.json`, `settings.corrupt-<ts>.json` | store / settings | Unreadable files kept aside on load (see §4.1) |
+| `apps.corrupt-<ts>.json`, `settings.corrupt-<ts>.json`, `layouts.corrupt-<ts>.json` | store / settings / layouts | Unreadable files kept aside on load (see §4.1) |
 | `settings.json` | `lib/settings.js` | Main-process prefs (see below) |
+| `layouts.json` | `lib/layouts.js` | User window layouts and the organizer gap (see §4.4). Optional; nothing writes it yet |
 | `icons/<id>.png` | `lib/icons.js` | Per-item icon |
 
 ### 4.1 Entry shape (`apps.json`)
@@ -155,6 +158,12 @@ Common: `id` (UUID), `kind` (`'app'` | `'island'`), `parentId` (null = Home, or 
 
 Split of responsibility: anything the main process must know before a renderer exists lives in `settings.json`. Pure visual prefs live in `localStorage`.
 
+### 4.4 `layouts.json` (window organizer)
+`{ version: 1, gap, layouts: [...] }`. `gap` is a whole number of DIP from 0 to 64 (default 8). A layout is `{ id, name, cols, rows, zones: [{ id, name, x, y, w, h }] }`, with zones in whole cells of its own grid (max 12×12, no overlaps; `zones.validateLayout`).
+- The five built-ins (`halves`, `thirds`, `focus`, `main-stack`, `quarters`) live in code and are never written to the file, so a later version can change them. A file layout reusing a built-in id is ignored.
+- `load()` returns built-ins first, then the user's valid layouts; invalid ones are logged and skipped. Unknown top-level keys survive a `save()`.
+- Corruption handling is the same as `settings.json`: moved aside to `layouts.corrupt-<ts>.json`, defaults used.
+
 ---
 
 ## 5. Layout engine (`lib/layout.js`)
@@ -163,6 +172,16 @@ Split of responsibility: anything the main process must know before a renderer e
 - Loose apps and collapsed islands are 1×1. Expanded islands are `w×h` (default 3×2; min 2×2, max 8×6).
 - `findFirstFreeCell` (reading order, 8 columns) for new items. `findNearestFreeCell` spirals outward for drops.
 - Every write path in `main.js` calls `findNearestFreeCell` against `siblingOccupiedFootprints(...)`, so overlaps are resolved on the main side.
+
+### 5.1 Window organizer (`lib/zones.js`, `lib/organizer.js`)
+Separate from the launcher grid above, but the same integer-cell idea: a layout divides a display's work area into `cols × rows` cells.
+- `zones.zoneRect(layout, zone, workArea, gap)` → DIP rect. Grid lines are rounded once and shared by neighbouring zones; the gap insets the outer edges by `gap` and is split ceil/floor across inner lines, so neighbours are exactly `gap` apart.
+- `organizer.snapWindow(handle, layoutId, zoneId)`:
+  1. Asks the helper which monitor the window is on (for a minimized window, the one it restores to).
+  2. Matches that monitor to an Electron display and computes the zone in DIP.
+  3. Converts it with `screen.dipToScreenRect`, then `place` and `focus` via the helper.
+  4. Maps helper failure codes to user-facing messages (`gone`, `denied` for elevated windows).
+- The plan and the Win32 findings behind it: `spikes/organizer/README.md`.
 
 ---
 
@@ -188,6 +207,18 @@ Each `.js` wrapper runs `powershell -NoProfile -NonInteractive -ExecutionPolicy 
 | `windows.js` | `windows.ps1` | `list` / `focus` (open top-level app windows; filters cloaked UWP host windows) |
 | `power.js` | `power.ps1` | `shutdown` / `restart` / `sleep` |
 | `foreground.js` | `foreground.ps1` | Long-running watcher; prints `app`/`none` on focus change |
+| `windowmgr.js` | `windowmgr.ps1` | Long-running request/response helper: `monitor` / `place` / `focus` (see below) |
+
+**`windowmgr` is different from the others.** Compiling its C# takes ~300 ms, so it is spawned once, on first use, and kept running.
+- **Protocol:** JSON lines both ways over stdin/stdout, matched by `id`. Replies are `{ ok: true, … }` or `{ ok: false, code }`.
+- **Lifetime:** it exits when its stdin closes, so it can't outlive Launchpad.
+- **Failures:** a request that gets no reply within 5 s kills it. If it dies, the next request starts a new one; there's no automatic restart.
+- **DPI:** it sets per-monitor DPI awareness on its thread and works in physical pixels.
+- **Placing:**
+  - It positions the visible frame (DWM extended frame bounds), not `GetWindowRect`, which includes ~7 px invisible borders.
+  - It restores maximized or minimized windows first.
+  - It makes a second pass if the move crossed a DPI change.
+- **Encoding:** it writes UTF-8 (`Console.OutputEncoding`).
 
 `lib/unpacked-path.js` rewrites `app.asar` → `app.asar.unpacked` so child PowerShell can read the scripts. `package.json` `asarUnpack: ["lib/*.ps1"]` makes this work in the packaged build.
 
@@ -215,6 +246,8 @@ Single page. Regions:
 7. External file drop from Explorer → `quickAddFromPath`.
 8. Taskbar: `renderPinned` (drag-reorder pins, insert line), `renderTrayOrder` and `placeTaskbarZones` (tray drag-reorder), `renderResultRows` and `selectSearchResult` (search/recent), `positionPopoutToFit`.
 9. Tray widgets, each with a `refreshX` poll and a popout: clock, network (`refreshNetworkList`), volume (`refreshVolumeState`, `refreshSessionMixer`, debounced set), USB (`refreshUsbList`), Bluetooth (`refreshBluetoothList`), power, fullscreen toggle, open windows (`refreshOpenWindows`).
+   - Right-clicking an open-window tile opens a "Snap to" menu: the window's title, then one thumbnail per layout whose zones are buttons (`buildSnapPicker` → `snapOpenWindow` → `placeWindow`).
+   - Layouts are fetched once into `snapLayouts`. `openContextMenu` accepts `{ node }` items for custom content like this.
 10. Context menus: `showItemContextMenu`, `showBulkContextMenu`, `showGridContextMenu`, `showTaskbarContextMenu`.
 11. Modals: new island and rename (`openNewIslandModal`, `openRenameModal`), move (`openMoveModal`, `openBulkMoveModal`), settings (opened by the `settingsBtn` click handler; update status via `renderUpdateStatus`/`checkForUpdates`, hotkey capture via `acceleratorFromEvent`, bar-style setters `setTaskbarPosition`/`setTaskbarEdge`/`setTaskbarAlign`/`setTrayAlign`), add/edit app (`openAddModal`, `openEditModal`, `pickAndFillTarget`).
 12. Escape handling (last section).
@@ -249,6 +282,7 @@ Rendering pattern: the renderer keeps a local `apps` cache. Each mutation calls 
 - Freeform grid with islands (folders): nested, collapsible, resizable, colorable, optional name labels. Multi-select with marquee, bulk move/pin/remove.
 - Auto icons (exe, favicon), custom icon picker, "Detect Missing Icons", "Restore Default Apps".
 - Taskbar: pins (drag-reorder), running-window buttons (focus), search across everything, recent items, tray widgets (volume + per-app mixer + output device, USB eject, Bluetooth disconnect, Wi-Fi connect, power, clock, fullscreen), reorderable tray.
+- Window snapping: right-click an open window on the taskbar to place it in a zone of one of five built-in layouts, on the monitor it's on.
 - Taskbar placement: bottom/top/left/right edge, left/center alignment, tray center/shared alignment, solid/translucent/transparent bar styles, light/dark theme, accent color, custom wallpaper.
 - Global hotkey (customisable; optional suspend while another app is focused). Tray icon, minimize-to-tray, start with Windows, start fullscreen.
 - Export/import JSON backup (with icons). Auto-update check with notification and in-app download/install.
@@ -266,7 +300,9 @@ Rendering pattern: the renderer keeps a local `apps` cache. Each mutation calls 
 
 ## 11. Known issues and open items
 
-1. **No UI tests.** `npm test` covers the pure/main-side modules (`store`, `settings`, `favicon`, `layout`) and runs in CI. The renderer, IPC handlers and PowerShell wrappers are verified manually (`npm start`).
+1. **No UI tests.** `npm test` covers the pure/main-side modules (`store`, `settings`, `favicon`, `layout`, `zones`, `layouts`) and runs in CI. The renderer, IPC handlers and PowerShell wrappers are verified manually (`npm start`).
+2. **Non-ASCII text from most PowerShell helpers is garbled.** They write in the console's OEM code page, so "Café — 日本" reaches Node as "Caf� - ??" (window titles, Wi-Fi/Bluetooth/device names). `windowmgr.ps1` already writes UTF-8; the others need `[Console]::OutputEncoding` set the same way.
+3. **Window organizer gaps:** moving a window between monitors with different scaling (the second `place` pass) and the "can't move an admin window" path are untested; see `spikes/organizer/README.md`.
 
 ---
 

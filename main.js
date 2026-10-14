@@ -27,6 +27,9 @@ const bluetooth = require('./lib/bluetooth');
 const power = require('./lib/power');
 const wifi = require('./lib/wifi');
 const foreground = require('./lib/foreground');
+const layouts = require('./lib/layouts');
+const organizer = require('./lib/organizer');
+const windowmgr = require('./lib/windowmgr');
 const { autoUpdater } = require('electron-updater');
 
 autoUpdater.autoDownload = false;
@@ -289,6 +292,7 @@ if (!gotLock) {
 
   app.on('will-quit', () => {
     foreground.stop();
+    windowmgr.stop();
     globalShortcut.unregisterAll();
   });
 
@@ -823,6 +827,16 @@ ipcMain.handle('system:listOpenWindows', async () => {
 ipcMain.handle('system:focusWindow', async (_e, handle) => {
   try {
     return await openWindows.focusWindow(handle);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('organizer:listLayouts', () => layouts.load().layouts);
+
+ipcMain.handle('organizer:placeWindow', async (_e, { handle, layoutId, zoneId }) => {
+  try {
+    return await organizer.snapWindow(handle, layoutId, zoneId);
   } catch (err) {
     return { ok: false, error: err.message };
   }

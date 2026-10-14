@@ -1980,7 +1980,83 @@ function windowTile(win) {
     el.appendChild(fallback);
   }
   el.addEventListener('click', () => window.launcherAPI.focusWindow(win.handle));
+  el.addEventListener('contextmenu', (e) => {
+    if (!snapLayouts.length) return; // nothing to offer - let the taskbar's own menu open
+    e.preventDefault();
+    e.stopPropagation();
+    closeAllTaskbarPopouts();
+    openContextMenu(e.clientX, e.clientY, [{ node: buildSnapPicker(win) }]);
+  });
   return el;
+}
+
+// ---------- window organizer: "Snap to" ----------
+// Right-clicking a running window offers every layout as a small thumbnail
+// whose zones are buttons; picking one moves that window into the zone on
+// the monitor it's already on. Layouts only change when the app does, so
+// they're fetched once.
+
+let snapLayouts = [];
+window.launcherAPI.listLayouts().then((list) => {
+  snapLayouts = list;
+});
+
+function buildSnapPicker(win) {
+  const picker = document.createElement('div');
+  picker.className = 'snap-picker';
+  // Names the window, since taskbar icons alone are easy to mix up (several
+  // windows of one app, or the row reordering as focus changes).
+  const title = document.createElement('div');
+  title.className = 'snap-picker-title';
+  title.textContent = win.title;
+  title.title = win.title;
+  const label = document.createElement('div');
+  label.className = 'snap-picker-label';
+  label.textContent = 'Snap to';
+  const row = document.createElement('div');
+  row.className = 'snap-layouts';
+
+  for (const layout of snapLayouts) {
+    const box = document.createElement('div');
+    box.className = 'snap-layout-box';
+    for (const zone of layout.zones) {
+      const zoneName = zone.name || zone.id;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'snap-zone';
+      btn.title = `${layout.name}: ${zoneName}`;
+      btn.setAttribute('aria-label', `Snap to ${layout.name}, ${zoneName}`);
+      // 1px in from each cell edge leaves a visible line between zones.
+      btn.style.left = `calc(${(zone.x / layout.cols) * 100}% + 1px)`;
+      btn.style.top = `calc(${(zone.y / layout.rows) * 100}% + 1px)`;
+      btn.style.width = `calc(${(zone.w / layout.cols) * 100}% - 2px)`;
+      btn.style.height = `calc(${(zone.h / layout.rows) * 100}% - 2px)`;
+      btn.addEventListener('click', () => {
+        closeContextMenu();
+        snapOpenWindow(win, layout, zone);
+      });
+      box.appendChild(btn);
+    }
+    const name = document.createElement('div');
+    name.className = 'snap-layout-name';
+    name.textContent = layout.name;
+    const item = document.createElement('div');
+    item.className = 'snap-layout';
+    item.append(box, name);
+    row.appendChild(item);
+  }
+
+  picker.append(title, label, row);
+  return picker;
+}
+
+async function snapOpenWindow(win, layout, zone) {
+  try {
+    const res = await window.launcherAPI.placeWindow(win.handle, layout.id, zone.id);
+    if (!res || !res.ok) showAlert((res && res.error) || "Launchpad couldn't move that window.");
+  } catch (err) {
+    showAlert(ipcErrorMessage(err));
+  }
 }
 
 async function refreshOpenWindows() {
@@ -2008,6 +2084,11 @@ const MENU_CHECK_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColo
 function openContextMenu(x, y, menuItems) {
   contextMenu.innerHTML = '';
   for (const it of menuItems) {
+    // `node` drops in custom content, e.g. the Snap to picker.
+    if (it.node) {
+      contextMenu.appendChild(it.node);
+      continue;
+    }
     if (it.sep) {
       const sep = document.createElement('div');
       sep.className = 'menu-sep';
