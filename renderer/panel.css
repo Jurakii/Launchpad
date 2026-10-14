@@ -1,6 +1,6 @@
 /* Organizer panel: a bar along the top of one display. Same palette as
-   styles.css (dark by default, light via data-theme), and the same Solid /
-   Translucent / Transparent looks as the other bars, via data-style. */
+   styles.css (dark by default, light via data-theme), and the top bar's
+   Solid / Translucent / Transparent look, via data-style. */
 :root {
   --panel: #1e2128;
   --border: #2b2f38;
@@ -30,7 +30,8 @@ html, body {
 .hidden { display: none !important; }
 
 /* Layouts on the left, the focused window's title centred, the clock on
-   the right. */
+   the right. On the panel carrying Launchpad's top bar (data-launchpad),
+   its breadcrumb leads on the left and its buttons on the right. */
 .bar {
   box-sizing: border-box;
   height: 100%; /* until main sends the panel's height */
@@ -55,19 +56,30 @@ html, body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
+:root:not([data-launchpad]) .launchpad-only { display: none; }
+
 /* Clipped rather than running under the title when there are a lot of
    layouts. */
-.layouts {
+.left {
   justify-self: start;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
 }
 
+.layouts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .thumb {
+  flex: none;
   display: grid;
   gap: 2px;
   height: 20px;
@@ -87,6 +99,31 @@ html, body {
    admin app, a fixed-size dialog), or the helper is still starting. */
 .layouts.idle .zone { opacity: 0.45; }
 .layouts.idle .zone:hover { background: color-mix(in srgb, var(--muted) 45%, var(--panel)); }
+
+/* Launchpad's breadcrumb. Kept whole ahead of the layouts, which give way
+   first; a very deep one is clipped at half the side. */
+.breadcrumb {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 50%;
+  overflow: hidden;
+  padding-right: 10px;
+  border-right: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.crumb {
+  all: unset;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--muted);
+}
+.crumb:hover { color: var(--text); }
+.crumb.current { color: var(--text); font-weight: 600; }
+.crumb.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.crumb-sep { color: var(--border); }
 
 .focused {
   display: flex;
@@ -114,19 +151,50 @@ html, body {
   display: flex;
   align-items: center;
   gap: 12px;
+  white-space: nowrap;
 }
 
-.grid-btn {
+/* Launchpad's toolbar buttons, smaller to fit the bar. */
+.launchpad-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 12px;
+  border-right: 1px solid var(--border);
+}
+
+:root[data-hide-add-buttons] #newIslandBtn,
+:root[data-hide-add-buttons] #addAppBtn {
+  display: none;
+}
+
+.text-btn {
+  all: unset;
+  height: 22px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+}
+.text-btn:hover { border-color: var(--accent); }
+.text-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+:root[data-style="transparent"] .text-btn { text-shadow: none; }
+
+.icon-btn {
   all: unset;
   display: flex;
   padding: 3px;
   border-radius: 4px;
   color: var(--muted);
 }
-.grid-btn svg { width: 16px; height: 16px; }
-.grid-btn:hover { color: var(--text); background: color-mix(in srgb, var(--text) 10%, transparent); }
-.grid-btn.idle { opacity: 0.45; }
-.grid-btn.idle:hover { color: var(--muted); background: none; }
+.icon-btn svg { width: 16px; height: 16px; }
+.icon-btn:hover { color: var(--text); background: color-mix(in srgb, var(--text) 10%, transparent); }
+#settingsBtn, #fullscreenBtn { color: var(--accent); }
+#gridBtn.idle { opacity: 0.45; }
+#gridBtn.idle:hover { color: var(--muted); background: none; }
 
 .clock {
   display: flex;
