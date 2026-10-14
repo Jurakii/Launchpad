@@ -5,7 +5,7 @@ A personal Windows desktop-replacement launcher (Electron 44). It runs as a full
 - **Version:** 1.0.4 (`package.json`)
 - **Repo:** `Jurakii/Launchpad` on GitHub, branch `main`
 - **Platform:** Windows only (PowerShell helpers, `Clear-RecycleBin`, `shutdown.exe`, `ms-settings:`, etc.)
-- **Size:** ~1,200 lines in `main.js`, ~3,050 in `renderer/renderer.js`, ~1,400 in `renderer/styles.css`. User-facing docs are in `README.md`.
+- **Size:** ~1,300 lines in `main.js`, ~3,400 in `renderer/renderer.js`, ~1,550 in `renderer/styles.css`. User-facing docs are in `README.md`.
 
 > Keep this file current. When you change architecture, IPC channels, storage keys or the release process, update the matching section below.
 
@@ -18,17 +18,18 @@ main.js              Electron main process: window, tray, hotkey, auto-updater, 
 preload.js           contextBridge → window.launcherAPI (the only renderer↔main surface)
 overlay-preload.js   contextBridge → window.overlayAPI for the drag overlay (listen only; listed in build.files)
 panel-preload.js     contextBridge → window.panelAPI for the organizer panel (listed in build.files)
+grid-preload.js      contextBridge → window.gridAPI for the grid placer (listed in build.files)
 lib/                 Main-process modules (store, layout, launcher, icons, favicon, settings, safe-file, window organizer, + system wrappers)
 lib/*.ps1            PowerShell helpers invoked by lib/*.js (asarUnpacked, see §6)
 spikes/organizer/    Throwaway Win32 experiments for the window organizer (not shipped, not tested; README has the findings)
-renderer/            index.html, renderer.js (all UI logic), styles.css, icons/*.svg; overlay.html/.js/.css (drag overlay) and panel.html/.js/.css (organizer panel), see §5.1
+renderer/            index.html, renderer.js (all UI logic), styles.css, icons/*.svg; overlay.html/.js/.css (drag overlay), panel.html/.js/.css (organizer panel), grid.html/.js/.css (grid placer) and cells.js (cell math shared by the grid and the Layouts editor), see §5.1
 scripts/build.js     Wraps electron-builder; re-embeds icon; renames installer to match latest.yml
 scripts/fix-exe-icon.js  Patches the exe icon post-build (safety net)
 build.bat            Local build helper for Windows (npm install → npm run dist)
 .github/workflows/release.yml  Manual "Release" workflow (windows-latest) → GitHub release
 .github/workflows/test.yml     "Test" workflow: npm test on push to main and on PRs (windows-latest)
 build/icon.ico       App/window/tray icon (electron-builder win icon)
-test/                node:test unit tests (store, settings, favicon, layout, zones, layouts, strip, autohide); helpers.js stubs `electron` with a temp userData
+test/                node:test unit tests (store, settings, favicon, layout, zones, layouts, strip, autohide, cells); helpers.js stubs `electron` with a temp userData
 Launchpad/           Icon sources (not used at runtime)
 ```
 
@@ -56,7 +57,7 @@ Dependencies: `electron-updater` (runtime); `electron`, `electron-builder` (dev)
   4. `applyHotkeyAppFocusSetting(settings.disableHotkeyInApps)`.
   5. `organizer.configure(settings.organizerOptions())` (panels, drag snapping; starts the window-manager helper only when the organizer is on).
   6. If packaged and `notifyUpdates` is on, a background `autoUpdater.checkForUpdates()`.
-- Closing the window hides it to the tray by default (`minimizeToTrayOnClose !== false`). `isQuitting` distinguishes a real quit.
+- Closing the window hides it to the tray by default (`minimizeToTrayOnClose !== false`). `isQuitting` distinguishes a real quit. With that setting off, the window's `closed` event calls `app.quit()`: the organizer's panel, overlay and grid windows would otherwise keep the app running.
 - `will-quit` stops the window-manager helper (which gives back the panels' AppBar space as it exits) and calls `globalShortcut.unregisterAll()`.
 - `activate` (macOS-style re-open) shows or recreates the window.
 
@@ -87,14 +88,16 @@ Renderer calls these through `launcherAPI` (preload method → channel):
 | Volume / audio | `system:getVolume`, `system:setVolume`, `system:setMuted`, `system:listAudioDevices`, `system:setAudioDevice`, `system:listAudioSessions`, `system:setSessionVolume`, `system:setSessionMuted` |
 | USB | `system:listUsbDrives`, `system:ejectDrive` |
 | Open windows | `system:listOpenWindows`, `system:focusWindow` |
-| Window organizer | `organizer:listLayouts`, `organizer:placeWindow` (handle, layoutId, zoneId → `{ ok, error }`); push `overlay:state` to the drag overlay windows (not the main window) |
-| Organizer panel (`panel-preload.js`, not the main window) | `panel:snap` (layoutId, zoneId → `{ ok, error }`; moves the focused window into that zone on the panel's display), `panel:hover` (`{ layoutId, zoneId }` or null; full-size preview on the overlay); push `panel:state` (`{ layouts, focused: { title, iconDataUrl, snappable } \| null, helperUp, aspect, height }`). Main maps the sender to its panel's display. |
+| Window organizer | `organizer:listLayouts` (the layouts that aren't hidden, for "Snap to"), `organizer:placeWindow` (handle, layoutId, zoneId → `{ ok, error }`); push `overlay:state` to the drag overlay windows (not the main window) |
+| Layouts editor | `organizer:listAllLayouts`, `organizer:saveLayout` (layout), `organizer:removeLayout` (id), `organizer:setLayoutHidden` ({ id, hidden }), `organizer:setGap` (gap). Each returns the library `{ layouts: [{ ...layout, builtIn, hidden }], gap }` and throws a ready-to-show message for an invalid change (`lib/layouts.js`). Changes call `organizer.layoutsChanged()` so the panels follow. |
+| Organizer panel (`panel-preload.js`, not the main window) | `panel:snap` (layoutId, zoneId → `{ ok, error }`; moves the focused window into that zone on the panel's display), `panel:hover` (`{ layoutId, zoneId }` or null; full-size preview on the overlay), `panel:openGrid` (→ `{ ok, error }`; opens the grid placer on the panel's display, or closes it if it's open there); push `panel:state` (`{ layouts, focused: { title, iconDataUrl, snappable } \| null, helperUp, gridHotkey, aspect, height }`). Main maps the sender to its panel's display. |
+| Grid placer (`grid-preload.js`, not the main window) | `grid:place` (`{ x, y, w, h }` in cells → `{ ok, error }`; the grid closes on success), `grid:cancel`; push `grid:state` (`{ cols, rows, gap, area, frame, title, iconDataUrl }` or null). Only the open grid's sender is accepted. |
 | Bluetooth | `system:listBluetoothDevices`, `system:disconnectBluetoothDevice` |
 | Power | `system:shutdown`, `system:restart`, `system:sleep` |
 | Wi-Fi | `system:listWifiNetworks`, `system:connectWifi`, `system:disconnectWifi`, `system:openNetworkSettings` |
 | Misc system | `system:emptyRecycleBin` |
 | Window | `window:isFullscreen`, `window:toggleFullscreen` (+ push `fullscreen-changed`) |
-| Settings | `settings:getAutoLaunch/setAutoLaunch`, `getStartFullscreen/setStartFullscreen`, `getHotkey/setHotkey`, `getDisableHotkeyInApps/setDisableHotkeyInApps`, `getNotifyUpdates/setNotifyUpdates`, `getGoogleFaviconFallback/setGoogleFaviconFallback`, `getMinimizeToTrayOnClose/setMinimizeToTrayOnClose`, `getOrganizerEnabled/setOrganizerEnabled`, `getOrganizerPanel/setOrganizerPanel`, `getOrganizerSnapOnDrag/setOrganizerSnapOnDrag` (the organizer setters call `organizer.configure`) |
+| Settings | `settings:getAutoLaunch/setAutoLaunch`, `getStartFullscreen/setStartFullscreen`, `getHotkey/setHotkey`, `getDisableHotkeyInApps/setDisableHotkeyInApps`, `getNotifyUpdates/setNotifyUpdates`, `getGoogleFaviconFallback/setGoogleFaviconFallback`, `getMinimizeToTrayOnClose/setMinimizeToTrayOnClose`, `getOrganizerEnabled/setOrganizerEnabled`, `getOrganizerPanel/setOrganizerPanel`, `getOrganizerSnapOnDrag/setOrganizerSnapOnDrag` (the organizer setters call `organizer.configure`), `getOrganizerHotkey/setOrganizerHotkey` (the grid placer; refuses the show/hide hotkey, and `setHotkey` refuses the grid's) |
 | Updates | `app:getVersion`, `update:check`, `update:install` (+ push `update:status`) |
 | Backup | `backup:export`, `backup:import` |
 
@@ -117,7 +120,7 @@ Pattern used throughout: `store.load()` → mutate → `store.save(apps)` → `r
   - Saved as `<userData>/icons/<id>.png`.
   - `iconIsCustom` protects a user-chosen icon from being overwritten by auto-detect.
 - **Open-window icons** (taskbar window list, organizer panel) are cached per exe path by `icons.exeIconDataUrl`.
-- **Backup format:** JSON array of entries, with each icon embedded as base64 `iconData` (stripped of `iconPath`). On import, icons are rewritten to `<userData>/icons/<id>.png`.
+- **Backup format:** `{ version: 2, apps, layouts }`. `apps` is the entries, each icon embedded as base64 `iconData` (stripped of `iconPath`); on import, icons are rewritten to `<userData>/icons/<id>.png`. `layouts` is what `layouts.json` holds (`layouts.exportData()`) and replaces it on import (`importData`, invalid layouts dropped); a failure there is reported as `layoutsError` without undoing the apps. Older backups are a bare array of entries: they still import and leave the layouts alone.
 
 ---
 
@@ -131,7 +134,7 @@ Stored under Electron's `app.getPath('userData')`:
 | `apps.json.bak` | `lib/store.js` | The previous `apps.json`, copied before every save (only if it still parses) |
 | `apps.corrupt-<ts>.json`, `settings.corrupt-<ts>.json`, `layouts.corrupt-<ts>.json` | store / settings / layouts | Unreadable files kept aside on load (see §4.1) |
 | `settings.json` | `lib/settings.js` | Main-process prefs (see below) |
-| `layouts.json` | `lib/layouts.js` | User window layouts and the organizer gap (see §4.4). Optional; nothing writes it yet |
+| `layouts.json` | `lib/layouts.js` | User window layouts, which layouts are hidden, and the organizer gap (see §4.4). Written by the Layouts editor; optional |
 | `icons/<id>.png` | `lib/icons.js` | Per-item icon |
 
 ### 4.1 Entry shape (`apps.json`)
@@ -155,7 +158,7 @@ Common: `id` (UUID), `kind` (`'app'` | `'island'`), `parentId` (null = Home, or 
 - **Backup import** gives a fresh UUID to any entry whose `id` isn't a UUID or is a duplicate (ids become icon filenames). Children are re-pointed to the new id. A `parentId` that isn't an island in the backup becomes `null`.
 
 ### 4.2 `settings.json` keys
-`hotkey` (default `CommandOrControl+Space`), `startFullscreen`, `minimizeToTrayOnClose` (default true), `notifyUpdates`, `disableHotkeyInApps`, `googleFaviconFallback` (default true; absent = on), `organizerEnabled` (window organizer master switch; default false), `organizerPanel` (`always` / `autoHide` / `off`; default `always`), `organizerSnapOnDrag` (default true). `settings.organizerOptions()` fills in the organizer defaults.
+`hotkey` (default `CommandOrControl+Space`), `startFullscreen`, `minimizeToTrayOnClose` (default true), `notifyUpdates`, `disableHotkeyInApps`, `googleFaviconFallback` (default true; absent = on), `organizerEnabled` (window organizer master switch; default false), `organizerPanel` (`always` / `autoHide` / `off`; default `always`), `organizerSnapOnDrag` (default true), `organizerHotkey` (grid placer; default `CommandOrControl+Alt+G`, registered only while the organizer is on). `settings.organizerOptions()` fills in the organizer defaults (the hotkey comes back as `gridHotkey`).
 
 ### 4.3 Renderer `localStorage` keys (UI-only prefs, read before first paint)
 `launchpad-theme` (`light`/`dark`), `launchpad-accent`, `launchpad-wallpaper`, `launchpad-taskbar-style`, `launchpad-topbar-style`, `launchpad-taskbar-edge`, `launchpad-taskbar-position` (`right` = pinned side), `launchpad-taskbar-align` (`center`), `launchpad-tray-align` (`center`/`shared`), `launchpad-tray-order` (JSON), `launchpad-hide-add-buttons` (`1`), `launchpad-hide-app-names` (`1`), `launchpad-panel-style` (`translucent`/`transparent`; absent = solid).
@@ -165,9 +168,10 @@ The overlay and panel windows load from `file://` like the main window, so they 
 Split of responsibility: anything the main process must know before a renderer exists lives in `settings.json`. Pure visual prefs live in `localStorage`.
 
 ### 4.4 `layouts.json` (window organizer)
-`{ version: 1, gap, layouts: [...] }`. `gap` is a whole number of DIP from 0 to 64 (default 8). A layout is `{ id, name, cols, rows, zones: [{ id, name, x, y, w, h }] }`, with zones in whole cells of its own grid (max 12×12, no overlaps; `zones.validateLayout`).
-- The five built-ins (`halves`, `thirds`, `focus`, `main-stack`, `quarters`) live in code and are never written to the file, so a later version can change them. A file layout reusing a built-in id is ignored.
+`{ version: 1, gap, hidden, layouts: [...] }`. `gap` is a whole number of DIP from 0 to 64 (default 8). `hidden` lists layout ids left out of the panel, the drag strip and "Snap to" (`layouts.visible()`; if every layout is hidden, all are shown). A layout is `{ id, name, cols, rows, zones: [{ id, name, x, y, w, h }] }`, with zones in whole cells of its own grid (max 12×12, no overlaps; `zones.validateLayout`). User layouts get a UUID from the editor; names are trimmed to 40 characters.
+- The five built-ins (`halves`, `thirds`, `focus`, `main-stack`, `quarters`) live in code and are never written to the file, so a later version can change them. They can be hidden, not changed or deleted. A file layout reusing a built-in id, or an id already used, is ignored; `hidden` ids that aren't layouts are dropped.
 - `load()` returns built-ins first, then the user's valid layouts; invalid ones are logged and skipped. Unknown top-level keys survive a `save()`.
+- The editor's changes (`saveLayout`, `removeLayout`, `setHidden`, `setGap`) go through `update()`, which reads with `read()` rather than `load()`: a file that's locked right now makes the change throw instead of being saved over with only the built-ins.
 - Corruption handling is the same as `settings.json`: moved aside to `layouts.corrupt-<ts>.json`, defaults used.
 
 ---
@@ -179,7 +183,7 @@ Split of responsibility: anything the main process must know before a renderer e
 - `findFirstFreeCell` (reading order, 8 columns) for new items. `findNearestFreeCell` spirals outward for drops.
 - Every write path in `main.js` calls `findNearestFreeCell` against `siblingOccupiedFootprints(...)`, so overlaps are resolved on the main side.
 
-### 5.1 Window organizer (`lib/zones.js`, `lib/strip.js`, `lib/organizer.js`, `lib/panel.js`, `lib/autohide.js`)
+### 5.1 Window organizer (`lib/zones.js`, `lib/strip.js`, `lib/organizer.js`, `lib/panel.js`, `lib/autohide.js`, `lib/grid.js`, `renderer/cells.js`)
 Separate from the launcher grid above, but the same integer-cell idea: a layout divides a display's work area into `cols × rows` cells.
 - `zones.zoneRect(layout, zone, workArea, gap)` → DIP rect. Grid lines are rounded once and shared by neighbouring zones; the gap insets the outer edges by `gap` and is split ceil/floor across inner lines, so neighbours are exactly `gap` apart.
 - `organizer.snapWindow(handle, layoutId, zoneId)`:
@@ -187,21 +191,29 @@ Separate from the launcher grid above, but the same integer-cell idea: a layout 
   2. Matches that monitor to an Electron display and computes the zone in DIP.
   3. Converts it with `screen.dipToScreenRect`, then `place` and `focus` via the helper.
   4. Maps helper failure codes to user-facing messages (`gone`, `denied` for elevated windows).
-- **`organizer.configure({ enabled, panel, snapOnDrag })`** applies the settings. `enabled` is the master switch: it keeps the helper running (`setKeepAlive('organizer')`), and while it's off only the taskbar's "Snap to" menu works. When turning off, the panels are removed before the helper is let go, so it's still there to give their space back.
+- **`organizer.configure({ enabled, panel, snapOnDrag, gridHotkey })`** applies the settings. `enabled` is the master switch: it keeps the helper running (`setKeepAlive('organizer')`) and registers the grid hotkey, and while it's off only the taskbar's "Snap to" menu works. When turning off, the panels are removed before the helper is let go, so it's still there to give their space back.
+- **Hidden layouts:** the panel, the drag strip and "Snap to" offer `layouts.visible()`. `organizer.layoutsChanged()` reloads the panel's copy after an edit; the strip and the grid read `layouts.json` each time they open.
 - **Drag to snap** (`organizerEnabled` and `organizerSnapOnDrag`):
   1. The helper's `dragStart` event starts a 10 ms poll of `screen.getCursorScreenPoint()`. The dragged window owns mouse capture, so nothing of ours gets mouse events during a drag. 16 ms would run at ~32 Hz, because Windows timers tick every 15.6 ms.
   2. `strip.shouldShow` shows the strip when the cursor is within 48 DIP of the work area's top, or over the strip itself (so a quick flick can't slip between polls). It stays while the cursor is within 48 DIP of the strip. `strip.zoneAt` finds the hovered zone.
   3. Main draws nothing itself. It sends the overlay for that display (a transparent, click-through, non-focusable, always-on-top window over its work area, created lazily per display and destroyed on any display change) the strip rects, the hovered zone and the full-size preview, all relative to the overlay. Messages go only when something changes.
   4. On `moveEnd`, if a zone is hovered and the drag wasn't cancelled, the window is placed in that zone on the cursor's display. Failures show a system notification, since Launchpad's own window is usually hidden.
 - `strip.computeStrip` lays out one thumbnail per layout, centred at the top of the work area, in the display's aspect ratio. Thumbnails shrink to fit narrow displays. With the panel docked, the work area starts below it, so the strip hangs from the panel's bottom edge.
-- **Panel** (`lib/panel.js`, `renderer/panel.*`): one 32 DIP bar per display. Left: every layout as a small thumbnail whose zones are buttons; clicking one moves the focused window there, on that display (`organizer.snapFromPanel`), and hovering previews the zone full size on the overlay. Centre: the focused window's icon and title. Right: date and clock. Zones are dimmed when the focused window can't be snapped. Errors show in the title spot for 3 s.
+- **Panel** (`lib/panel.js`, `renderer/panel.*`): one 32 DIP bar per display. Left: every visible layout as a small thumbnail whose zones are buttons; clicking one moves the focused window there, on that display (`organizer.snapFromPanel`), and hovering previews the zone full size on the overlay. Thumbnails that don't fit are clipped. Centre: the focused window's icon and title. Right: the grid placer button (its tooltip names the hotkey), date and clock. Zones and the grid button are dimmed when the focused window can't be snapped. Errors show in the title spot for 3 s.
   - The window is `focusable: false` (`WS_EX_NOACTIVATE`), so clicking it leaves the user's window in the foreground; that's the window that moves. Topmost is set with `setAlwaysOnTop(true, 'screen-saver')` after creation: the constructor's `alwaysOnTop` doesn't take for these windows.
   - It's transparent (for the looks), and Windows won't make a transparent Electron window shorter than its minimum window height (39 px at 100%). `setPanelBounds` cuts it to the panel's height with `setShape` (a window region), so the extra strip is neither drawn nor clickable.
   - **Always shown:** the helper registers the window as an AppBar on the top edge (`appbarSet`), so the work area shrinks and maximized windows stop below it. Explorer's notifications reach the window through `hookWindowMessage` (`WM_APP + 0x42`): `ABN_POSCHANGED` re-docks it (debounced), `ABN_FULLSCREENAPP` triggers a fullscreen check. The `TaskbarCreated` broadcast (Explorer restarted and forgot its AppBars) re-registers it. A panel is only re-docked when its display's bounds or scaling change, not on the work-area change docking itself causes.
   - **Auto-hide:** nothing is reserved. A 50 ms cursor poll feeds `autohide.step` (pure, tested): the panel comes down after the cursor rests 250 ms against the display's top edge (so a quick flick to a maximized window's close button doesn't trigger it), and goes 500 ms after the cursor leaves it (with a 16 DIP margin). Before coming down it runs a fresh fullscreen check, since no AppBar notification reaches it. It stays up during window drags.
   - **Fullscreen:** a panel hides while its display is covered by a fullscreen window (helper `fullscreen` command, matched to displays by physical bounds). Checked on focus changes (and again 600 ms later, as apps go fullscreen just after coming to the front), on `ABN_FULLSCREENAPP`, and every 2 s while a panel is hidden or Explorer says a display is fullscreen. Explorer's flag alone isn't trusted: a full-screen click-through overlay can set it.
-  - **Focused window:** from the helper's `foreground` events; only visible `app`/`own` windows are shown. The exe icon comes from `icons.exeIconDataUrl`.
-  - Grid and scenes buttons from the plan arrive with Phases 4 and 5. There's no "active layout per display" yet; the panel shows every layout.
+  - **Focused window:** from the helper's `foreground` events; only visible `app`/`own` windows are shown. The exe icon comes from `icons.exeIconDataUrl`. While the grid is open the panel shows (and its zones act on) the window the grid is moving, since the grid itself has the focus.
+  - The scenes button from the plan arrives with Phase 5. There's no "active layout per display" yet; the panel shows every visible layout.
+- **Grid placer** (`lib/grid.js` windows, `renderer/grid.*`, logic in `organizer.js`), gTile-style. Opened for the focused window by the grid hotkey (on the display that window is on) or a panel's grid button (on that panel's display); asking again where it's open closes it, and a panel on another display moves it there.
+  1. `openGrid` asks the helper for the window's monitor and frame, picks the display, and opens a 6 × 4 grid (4 × 6 on a portrait display) over its work area. The page starts the selection on the cells nearest the window's frame (`blockFromRect`), or in the middle if it's minimized or elsewhere (`defaultBlock`).
+  2. The page lays the cells out with CSS grid using the organizer's gap as gap and padding, so a block covers the rect the window will get. Drag across cells, or click one corner then the other; arrows move the selection, Shift+arrows resize it (right/down grow, left/up shrink, top-left fixed), Enter or Space places it, Esc or right-click cancels.
+  3. `grid:place` validates the block as a one-zone layout of the grid and places it with the same `placeInZone` as the panel. On success, and on Esc, `closeGrid(true)` gives the window the focus back through the helper *before* hiding the grid: Windows only lets the foreground process, or one it started like the helper, bring another window forward. Losing the focus (`blur`) closes it without moving anything; `placing` ignores the blur that restoring a maximized window causes.
+  - Unlike the panel and overlays, the grid window takes the focus (it needs the keyboard). It's `type: 'toolbar'` (WS_EX_TOOLWINDOW), which keeps it out of Alt+Tab and out of the helper's fullscreen check. One per display, created on first use and kept hidden; thrown away on display changes and when the organizer is turned off.
+- **Layouts editor** (main window, `renderer.js` "window layouts editor", `#layoutsModalOverlay`): lists every layout, built-ins first (read-only, can be hidden or duplicated), then the user's. A user layout is edited on a cols × rows grid (1–12 each) where every cell belongs to exactly one zone: drag to select (widened so it never cuts a zone), **Merge** joins the selected zones, **Split** breaks them back into cells, and a single selected zone can be named. Changing the grid size scales zones when the new count is a multiple of the old (or the reverse with every edge surviving) and cuts them otherwise. Zone ids survive edits (the top-left part keeps the id), for scenes. Unnamed zones are saved as "Zone 1", "Zone 2"… in reading order and treated as unnamed again on load. Every change is saved at once through a queue, so quick edits can't land out of order. The footer sets the gap.
+- `renderer/cells.js` holds the cell math for both pages (`cellSpan`, `moveBlock`, `resizeBlock`, `blockFromRect`, `defaultBlock`, `expandToZones`, `mergeZones`, `splitZones`, `resizeGrid`, `nameZones`/`unnameZones`). It's a plain script loaded before `renderer.js` and `grid.js`, so its functions are globals there, and it exports them for `test/cells.test.js` when `module` exists.
 - The plan and the Win32 findings behind it: `spikes/organizer/README.md`.
 
 ---
@@ -231,7 +243,7 @@ Each `.js` wrapper runs `powershell -NoProfile -NonInteractive -ExecutionPolicy 
 | (started by `windowmgr.ps1`) | `appbar-guard.ps1` | Removes the panels' AppBars if the helper dies without doing it (see below) |
 
 **`windowmgr` is different from the others.** Compiling its C# takes ~300 ms, so it is spawned once and kept running: from startup while something needs its events (`setKeepAlive(owner, on)`; owners are `organizer` and `hotkey`), otherwise on the first Snap to request.
-- **Protocol:** JSON lines both ways over stdin/stdout. Replies are matched by `id`: `{ ok: true, … }` or `{ ok: false, code }`. Events carry `ev` instead. `ready` (with the `TaskbarCreated` message id) comes first; `currentForeground()` returns the last `foreground` event.
+- **Protocol:** JSON lines both ways over stdin/stdout. Replies are matched by `id`: `{ ok: true, … }` or `{ ok: false, code }`. Events carry `ev` instead. `ready` (with the `TaskbarCreated` message id) comes first; `currentForeground()` returns the last `foreground` event. `monitor` replies with the monitor's `bounds` and `work` plus the window's visible `frame` and `minimized` (the grid placer starts on the window's own cells).
 - **Lifetime:** it exits when its stdin closes, so it can't outlive Launchpad.
 - **Failures:** a request that gets no reply within 5 s kills it. While any owner wants it, it's restarted 2 s after dying; otherwise the next request starts a new one. Listeners get `{ ev: 'helperExit' }` either way.
 - **Foreground events:** a `SetWinEventHook` for `EVENT_SYSTEM_FOREGROUND` (all processes), plus `EVENT_OBJECT_NAMECHANGE` scoped to the foreground window's process, so tab and document title changes come through. Each event carries `kind` (`app`, `own`, `shell`, `none`), `visible`, `title`, `exe` and `snappable`. One is sent at startup.
@@ -258,10 +270,11 @@ Other utilities: `lib/safe-file.js` (atomic writes, corrupt-copy naming), `lib/f
 
 ### 7.1 `index.html`
 Single page. Regions:
-- **Toolbar** (`.toolbar`): breadcrumb, settings, fullscreen, "+ New Island", "+ Add App".
+- **Toolbar** (`.toolbar`): breadcrumb, Layouts (window layouts editor, §5.1), settings, "+ New Island", "+ Add App", fullscreen.
 - **Grid** (`#grid` → `#canvas`): the launcher surface. `#empty` shows the empty state.
 - **Taskbar** (`#taskbar`): left = pinned row + divider + open-windows row; center = search (`#taskbarSearch`, `#searchResults`) + Recent (`#recentPopout`); right = tray widgets (volume, USB, Bluetooth, network, clock, power). Each tray widget has `data-tray-id` and is draggable to reorder.
-- **Modals:** add/edit app (`#modalOverlay`), name/color (`#nameModalOverlay`), move-to-island (`#moveModalOverlay`), settings (`#settingsModalOverlay`), generic confirm/alert (`#dialogOverlay`).
+- **Modals:** add/edit app (`#modalOverlay`), name/color (`#nameModalOverlay`), move-to-island (`#moveModalOverlay`), settings (`#settingsModalOverlay`), window layouts (`#layoutsModalOverlay`), generic confirm/alert (`#dialogOverlay`, last so it sits above the others).
+- `cells.js` is loaded before `renderer.js` (see §5.1).
 - **Context menu:** `#contextMenu` (item, bulk, grid, and taskbar variants).
 
 ### 7.2 `renderer.js` (plain top-level script, ~2,900 lines), by section
@@ -277,15 +290,17 @@ Single page. Regions:
    - Right-clicking an open-window tile opens a "Snap to" menu: the window's title, then one thumbnail per layout whose zones are buttons (`buildSnapPicker` → `snapOpenWindow` → `placeWindow`).
    - Layouts are fetched once into `snapLayouts`. `openContextMenu` accepts `{ node }` items for custom content like this.
 10. Context menus: `showItemContextMenu`, `showBulkContextMenu`, `showGridContextMenu`, `showTaskbarContextMenu`.
-11. Modals: new island and rename (`openNewIslandModal`, `openRenameModal`), move (`openMoveModal`, `openBulkMoveModal`), settings (opened by the `settingsBtn` click handler; update status via `renderUpdateStatus`/`checkForUpdates`, hotkey capture via `acceleratorFromEvent`, bar-style setters `setTaskbarPosition`/`setTaskbarEdge`/`setTaskbarAlign`/`setTrayAlign`), add/edit app (`openAddModal`, `openEditModal`, `pickAndFillTarget`).
+11. Modals: new island and rename (`openNewIslandModal`, `openRenameModal`), move (`openMoveModal`, `openBulkMoveModal`), settings (opened by the `settingsBtn` click handler; update status via `renderUpdateStatus`/`checkForUpdates`, hotkey capture for both hotkeys via `captureHotkey`/`acceleratorFromEvent`, bar-style setters `setTaskbarPosition`/`setTaskbarEdge`/`setTaskbarAlign`/`setTrayAlign`), window layouts editor (`openLayoutsModal`, `selectLayout`, `changeDraft`, `queueLayoutChange`), add/edit app (`openAddModal`, `openEditModal`, `pickAndFillTarget`).
+   - "Snap to" keeps its layouts in `snapLayouts`, fetched by `refreshSnapLayouts()` at startup and after every layout change or backup import.
 12. Escape handling (last section).
 
 Rendering pattern: the renderer keeps a local `apps` cache. Each mutation calls `refreshFromServer(window.launcherAPI.X(...))`, which replaces the cache with the `decorate()`d list returned by main, then re-renders. If main throws, `refreshFromServer` re-renders from the unchanged cache (undoing any optimistic drag) and shows the error via `showAlert`. `ipcErrorMessage()` strips Electron's "Error invoking remote method" prefix.
 
 ### 7.3 Organizer windows
 - `overlay.html/.js/.css`: one per display, over its work area, click-through. Draws the drag strip and the full-size zone preview from `overlay:state` (preview only, no strip, when hovering a panel zone).
-- `panel.html/.js/.css`: one per display. Builds the layout thumbnails with CSS grid on each layout's own cells (rebuilt only when the layouts or the display's shape change), shows the focused window and a clock, and follows `launchpad-panel-style` (`data-style` on `<html>`).
-- Settings (main window): "Window organizer", "Organizer panel" (Always shown / Auto-hide / Off), "Organizer panel look" and "Snap windows by dragging them to the top of the screen". The dependent rows are disabled while the organizer is off.
+- `panel.html/.js/.css`: one per display. Builds the layout thumbnails with CSS grid on each layout's own cells (rebuilt only when the layouts or the display's shape change), shows the focused window, the grid button and a clock, and follows `launchpad-panel-style` (`data-style` on `<html>`).
+- `grid.html/.js/.css`: one per display, over its work area, focusable. Draws the cells, the selection and a card naming the window (moved to the bottom when the selection touches the top row), and handles the mouse and keyboard (§5.1). Follows theme and accent from `localStorage`.
+- Settings (main window): "Window organizer", "Organizer panel" (Always shown / Auto-hide / Off), "Organizer panel look", "Snap windows by dragging them to the top of the screen" and "Grid placer hotkey". The dependent rows are disabled while the organizer is off.
 
 ### 7.4 Styling
 `styles.css` uses CSS custom properties with dark as default and light via `[data-theme="light"]`. The accent is `--accent`. The wallpaper is `--wallpaper`. Taskbar and topbar styles are `data-style` attributes. On `#taskbar`: `data-pinned-side` (right), `data-align` (center), `data-tray-align`. On `<html>`: `data-theme`, `data-taskbar-edge` (top/left/right; absent = bottom), `data-taskbar-vertical` (left/right), `data-hide-add-buttons`, `data-hide-app-names`.
@@ -315,7 +330,9 @@ Rendering pattern: the renderer keeps a local `apps` cache. Each mutation calls 
 - Freeform grid with islands (folders): nested, collapsible, resizable, colorable, optional name labels. Multi-select with marquee, bulk move/pin/remove.
 - Auto icons (exe, favicon), custom icon picker, "Detect Missing Icons", "Restore Default Apps".
 - Taskbar: pins (drag-reorder), running-window buttons (focus), search across everything, recent items, tray widgets (volume + per-app mixer + output device, USB eject, Bluetooth disconnect, Wi-Fi connect, power, clock, fullscreen), reorderable tray.
-- Window snapping: right-click an open window on the taskbar to place it in a zone of one of five built-in layouts, on the monitor it's on. With the window organizer on (Settings), every display gets a panel along the top (always shown or auto-hiding; maximized windows stop below it, fullscreen apps cover it) whose layout zones move the focused window there, plus the focused window's title and a clock. Dragging any window to the top of a display shows a strip of the layouts below the panel; dropping on a zone places it there. Esc or moving away cancels.
+- Window snapping: right-click an open window on the taskbar to place it in a zone of a layout, on the monitor it's on. With the window organizer on (Settings), every display gets a panel along the top (always shown or auto-hiding; maximized windows stop below it, fullscreen apps cover it) whose layout zones move the focused window there, plus the focused window's title, a grid button and a clock. Dragging any window to the top of a display shows a strip of the layouts below the panel; dropping on a zone places it there. Esc or moving away cancels.
+- Grid placer: Ctrl+Alt+G (rebindable) or the panel's grid button lays a 6 × 4 grid over the screen; drag across cells or use the arrow keys, Shift+arrows and Enter to size the focused window to them.
+- Layouts editor (toolbar → Layouts): make layouts by merging and splitting cells, name zones, duplicate or delete layouts, hide any layout (built-ins included) from the panel, strip and "Snap to", and set the gap between snapped windows. Layouts are included in backups.
 - Taskbar placement: bottom/top/left/right edge, left/center alignment, tray center/shared alignment, solid/translucent/transparent bar styles, light/dark theme, accent color, custom wallpaper.
 - Global hotkey (customisable; optional suspend while another app is focused). Tray icon, minimize-to-tray, start with Windows, start fullscreen.
 - Export/import JSON backup (with icons). Auto-update check with notification and in-app download/install.
@@ -328,15 +345,18 @@ Rendering pattern: the renderer keeps a local `apps` cache. Each mutation calls 
 - **Mutations:** `store.load()` → modify → `store.save(apps)` → `return decorate(apps)`. Position-changing writes must go through `layout.findNearestFreeCell` with `siblingOccupiedFootprints`.
 - **System calls** return `{ ok, error }` on failure (or `[]` for list calls), so the renderer never throws.
 - **PowerShell wrappers:** new actions go in the `.ps1` `switch ($Action)` and a matching exported function in the `.js`. Output must be JSON on stdout.
+- **Pure logic shared with a page** goes in a plain script under `renderer/` that ends with `if (typeof module !== 'undefined') module.exports = …`, so the page gets globals and `test/` can require it (`renderer/cells.js`). Main-side pure logic stays in `lib/`.
 - **Comments** explain *why* (e.g. Windows quirks, Node EINVAL, asar paths). Match that density.
 - **Windows-only:** don't add cross-platform branches unless asked.
 
 ## 11. Known issues and open items
 
-1. **No UI tests.** `npm test` covers the pure/main-side modules (`store`, `settings`, `favicon`, `layout`, `zones`, `layouts`, `strip`, `autohide`) and runs in CI. The renderer, IPC handlers and PowerShell wrappers are verified manually (`npm start`).
+1. **No UI tests.** `npm test` covers the pure/main-side modules (`store`, `settings`, `favicon`, `layout`, `zones`, `layouts`, `strip`, `autohide`) and the shared `renderer/cells.js`, and runs in CI. The renderer, IPC handlers and PowerShell wrappers are verified manually (`npm start`).
 2. **Non-ASCII text from most PowerShell helpers is garbled.** They write in the console's OEM code page, so "Café — 日本" reaches Node as "Caf� - ??" (window titles, Wi-Fi/Bluetooth/device names). `windowmgr.ps1` already writes UTF-8; the others need `[Console]::OutputEncoding` set the same way.
 3. **Window organizer gaps:**
-   - Untested so far: moving a window between monitors with different scaling (the second `place` pass), panels on a monitor above 100%, the "can't move an admin window" path, how drag-to-snap and the panel sit alongside Windows 11's own Snap Layouts flyout at the top edge, a Windows taskbar docked at the top, an Explorer restart (`TaskbarCreated`), and a packaged build. See `spikes/organizer/README.md`.
+   - Untested so far: moving a window between monitors with different scaling (the second `place` pass), panels and the grid on a monitor above 100%, the "can't move an admin window" path, how drag-to-snap and the panel sit alongside Windows 11's own Snap Layouts flyout at the top edge, a Windows taskbar docked at the top, an Explorer restart (`TaskbarCreated`), and a packaged build. See `spikes/organizer/README.md`.
+   - The grid placer was tested by a script driving the app, not yet with a real key press. Opened from a script, Windows doesn't really give the grid the foreground (Electron still reports it focused), so the focus handback after placing can't be seen there; a test window that genuinely had the foreground handed it back every time.
+   - No keyboard shortcuts yet for moving the focused window to the next or previous zone (plan Q3); they need an active layout per display (Q4).
    - A release at the very top edge with no zone hovered leaves Windows' own maximize alone, by design.
    - Launchpad's own main window counts as a fullscreen app when it's fullscreen and in front, so it covers the panel on that display like any other.
    - Tested: a force-killed Launchpad gives the reserved space back (`appbar-guard.ps1`).

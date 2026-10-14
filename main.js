@@ -249,6 +249,11 @@ function createWindow() {
       mainWindow.hide();
     }
   });
+  // Closed for real: quit. The organizer's panels, overlays and grids are
+  // windows too, and would otherwise keep Launchpad running in the background.
+  mainWindow.on('closed', () => {
+    if (!isQuitting) app.quit();
+  });
 
   // The fullscreen toolbar button needs to reflect reality even when
   // fullscreen is toggled some other way (F11, Esc, OS window snap), so push
@@ -820,7 +825,25 @@ ipcMain.handle('system:focusWindow', async (_e, handle) => {
   }
 });
 
-ipcMain.handle('organizer:listLayouts', () => layouts.load().layouts);
+// The layouts the taskbar's "Snap to" menu offers (hidden ones left out).
+ipcMain.handle('organizer:listLayouts', () => layouts.visible(layouts.load()));
+
+// The Layouts editor. Every change returns the whole library again; invalid
+// changes throw a message ready to show.
+ipcMain.handle('organizer:listAllLayouts', () => layouts.library(layouts.load()));
+
+function afterLayoutChange(data) {
+  organizer.layoutsChanged();
+  return layouts.library(data);
+}
+
+ipcMain.handle('organizer:saveLayout', (_e, layout) => afterLayoutChange(layouts.saveLayout(layout)));
+
+ipcMain.handle('organizer:removeLayout', (_e, id) => afterLayoutChange(layouts.removeLayout(id)));
+
+ipcMain.handle('organizer:setLayoutHidden', (_e, { id, hidden }) => afterLayoutChange(layouts.setHidden(id, !!hidden)));
+
+ipcMain.handle('organizer:setGap', (_e, gap) => afterLayoutChange(layouts.setGap(gap)));
 
 ipcMain.handle('organizer:placeWindow', async (_e, { handle, layoutId, zoneId }) => {
   try {
@@ -842,6 +865,27 @@ ipcMain.handle('panel:snap', async (e, { layoutId, zoneId }) => {
 
 ipcMain.handle('panel:hover', (e, zone) => {
   organizer.previewFromPanel(e.sender, zone);
+});
+
+ipcMain.handle('panel:openGrid', async (e) => {
+  try {
+    return await organizer.openGridFromPanel(e.sender);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// From the grid placer (grid-preload.js).
+ipcMain.handle('grid:place', async (e, block) => {
+  try {
+    return await organizer.placeFromGrid(e.sender, block);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('grid:cancel', (e) => {
+  organizer.cancelGrid(e.sender);
 });
 
 ipcMain.handle('system:listBluetoothDevices', async () => {
@@ -1117,6 +1161,7 @@ ipcMain.handle('settings:setGoogleFaviconFallback', (_e, enable) => {
 
 ipcMain.handle('settings:setHotkey', (_e, accel) => {
   if (!accel) return { ok: false, error: 'No keys given.' };
+  if (accel === organizer.currentGridHotkey()) return { ok: false, error: "That's already the grid placer's hotkey." };
   const ok = registerHotkey(accel);
   if (ok) settings.save({ hotkey: accel });
   return ok ? { ok: true } : { ok: false, error: `"${accel}" is already in use by another app.` };
@@ -1154,8 +1199,23 @@ ipcMain.handle('settings:setOrganizerSnapOnDrag', (_e, enable) => {
   return { ok: true };
 });
 
+// Opens the grid placer for the focused window. Only registered while the
+// organizer is on.
+ipcMain.handle('settings:getOrganizerHotkey', () => settings.organizerOptions().gridHotkey);
+
+ipcMain.handle('settings:setOrganizerHotkey', (_e, accel) => {
+  if (!accel) return { ok: false, error: 'No keys given.' };
+  if (accel === currentHotkey) return { ok: false, error: "That's already Launchpad's show/hide hotkey." };
+  const result = organizer.setGridHotkey(accel);
+  if (result.ok) settings.save({ organizerHotkey: accel });
+  return result;
+});
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// A backup is { version: 2, apps, layouts }: the apps.json entries with
+// their icons embedded, and layouts.json (the user's window layouts). Older
+// backups are just the array of entries, and still import.
 ipcMain.handle('backup:export', async () => {
   const res = await dialog.showSaveDialog(mainWindow, {
     defaultPath: `launchpad-backup-${new Date().toISOString().slice(0, 10)}.json`,
@@ -1163,8 +1223,7 @@ ipcMain.handle('backup:export', async () => {
   });
   if (res.canceled || !res.filePath) return { ok: false };
 
-  const apps = store.load();
-  const bundle = apps.map((a) => {
+  const apps = store.load().map((a) => {
     const entry = { ...a };
     if (a.iconPath && fs.existsSync(a.iconPath)) {
       entry.iconData = fs.readFileSync(a.iconPath).toString('base64');
@@ -1172,6 +1231,7 @@ ipcMain.handle('backup:export', async () => {
     delete entry.iconPath;
     return entry;
   });
+  const bundle = { version: 2, apps, layouts: layouts.exportData() };
   fs.writeFileSync(res.filePath, JSON.stringify(bundle, null, 2), 'utf-8');
   return { ok: true, path: res.filePath };
 });
@@ -1187,8 +1247,9 @@ ipcMain.handle('backup:import', async () => {
   try {
     bundle = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf-8'));
   } catch {}
-  if (!Array.isArray(bundle)) throw new Error('That file is not a valid Launchpad backup.');
-  const rawEntries = bundle.filter((e) => e && typeof e === 'object');
+  const appList = Array.isArray(bundle) ? bundle : bundle && Array.isArray(bundle.apps) ? bundle.apps : null;
+  if (!appList) throw new Error('That file is not a valid Launchpad backup.');
+  const rawEntries = appList.filter((e) => e && typeof e === 'object');
 
   // Ids become icon file names (icons/<id>.png), so anything that isn't a
   // plain UUID - or repeats one - gets a fresh id; a crafted backup could
@@ -1223,5 +1284,16 @@ ipcMain.handle('backup:import', async () => {
   });
 
   store.replaceAll(restored);
-  return { ok: true, apps: decorate(restored) };
+
+  // A backup from before layouts were included leaves the current ones alone.
+  let layoutsError = null;
+  if (!Array.isArray(bundle) && bundle.layouts) {
+    try {
+      layouts.importData(bundle.layouts);
+      organizer.layoutsChanged();
+    } catch (err) {
+      layoutsError = err.message;
+    }
+  }
+  return { ok: true, apps: decorate(restored), layoutsError };
 });

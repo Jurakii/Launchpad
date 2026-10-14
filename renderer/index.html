@@ -10,6 +10,7 @@
   <div class="toolbar">
     <div id="breadcrumb" class="breadcrumb"></div>
     <div class="toolbar-spacer"></div>
+    <button id="layoutsBtn" title="Window layouts for snapping windows">Layouts</button>
     <button id="settingsBtn" title="Settings"></button>
     <button id="newFolderBtn">+ New Island</button>
     <button id="addBtn" class="primary">+ Add App</button>
@@ -312,7 +313,8 @@
       </div>
       <div class="settings-row settings-hint">
         Adds a panel along the top of each screen. Click a zone in one of its layouts to move the window
-        you're using there. Right-click an open window on the taskbar for the same layouts, organizer on or off.
+        you're using there, or its grid button to size the window to any block of cells. Right-click an open
+        window on the taskbar for the same layouts, organizer on or off. Make your own with <strong>Layouts</strong>.
       </div>
       <div class="settings-row settings-accent-row">
         <span>Organizer panel</span>
@@ -337,6 +339,14 @@
         Drag a window by its title bar to the top of a screen, then drop it on a zone in the layouts that
         appear. Press Esc or move away to cancel. Auto-hide brings the panel down when the pointer rests
         against the top edge; fullscreen apps always cover it.
+      </div>
+      <div class="settings-row settings-hotkey-row">
+        <span>Grid placer hotkey</span>
+        <button type="button" id="gridHotkeyBtn">Ctrl+Alt+G</button>
+      </div>
+      <div class="settings-row settings-hint">
+        Opens a grid over the screen for the window you're using. Drag across cells, or use the arrow keys
+        (Shift+arrows to resize) and Enter, to size the window to them.
       </div>
       <div class="settings-row">
         <label class="switch-row"><input type="checkbox" id="notifyUpdatesToggle" /> Notify me when an update is available</label>
@@ -370,6 +380,48 @@
     </div>
   </div>
 
+  <div id="layoutsModalOverlay" class="modal-overlay hidden">
+    <div class="modal layouts-modal">
+      <h2>Window layouts</h2>
+      <div class="layouts-editor">
+        <div class="layouts-sidebar">
+          <div id="layoutsList" class="layouts-list"></div>
+          <button type="button" id="newLayoutBtn">+ New Layout</button>
+        </div>
+        <div class="layout-detail">
+          <label>Name
+            <input id="layoutNameInput" type="text" maxlength="40" />
+          </label>
+          <div class="layout-size-row">
+            <label>Columns <select id="layoutColsSelect"></select></label>
+            <label>Rows <select id="layoutRowsSelect"></select></label>
+          </div>
+          <div class="layout-zone-row">
+            <button type="button" id="mergeZonesBtn">Merge</button>
+            <button type="button" id="splitZonesBtn">Split</button>
+            <label class="layout-zone-name">Zone name
+              <input id="zoneNameInput" type="text" maxlength="40" />
+            </label>
+          </div>
+          <div id="layoutCanvas" class="layout-canvas"></div>
+          <p id="layoutHint" class="settings-hint layout-hint"></p>
+          <label class="switch-row"><input type="checkbox" id="layoutShownToggle" /> Show in the panel, the drag strip and the taskbar's Snap to menu</label>
+          <div class="layout-actions">
+            <button type="button" id="duplicateLayoutBtn">Duplicate</button>
+            <button type="button" id="deleteLayoutBtn" class="danger">Delete</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <label class="layout-gap">Gap between snapped windows
+          <input id="layoutGapInput" type="number" min="0" max="64" step="1" /> px
+        </label>
+        <div class="spacer"></div>
+        <button type="button" id="layoutsCloseBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div id="dialogOverlay" class="modal-overlay hidden">
     <div class="modal small">
       <p id="dialogMessage" class="dialog-message"></p>
@@ -381,6 +433,7 @@
     </div>
   </div>
 
+  <script src="cells.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

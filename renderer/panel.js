@@ -1,8 +1,9 @@
 // Draws the organizer panel for one display: every layout as a small
 // thumbnail whose zones move the focused window when clicked, that window's
-// title, and a clock. Main (lib/organizer.js) sends what to show. The panel
-// window never takes focus, so the user's own window stays in front while
-// they click here, and that's the window that moves.
+// title, a button for the grid placer, and a clock. Main (lib/organizer.js)
+// sends what to show. The panel window never takes focus, so the user's own
+// window stays in front while they click here, and that's the window that
+// moves.
 
 // Loaded from file:// like the main window, so it shares its localStorage
 // and follows theme, accent and look changes made there as they happen.
@@ -25,16 +26,21 @@ const barEl = document.getElementById('bar');
 const layoutsEl = document.getElementById('layouts');
 const iconEl = document.getElementById('focusedIcon');
 const titleEl = document.getElementById('focusedTitle');
+const gridBtn = document.getElementById('gridBtn');
 const clockEl = document.getElementById('clock');
 
 const THUMB_HEIGHT = 20; // px; the width follows the shape of the display's work area
 const MESSAGE_MS = 3000;
 
-let state = null; // { layouts, focused: { title, iconDataUrl, snappable } | null, helperUp, aspect, height }
+// { layouts, focused: { title, iconDataUrl, snappable } | null, helperUp, gridHotkey, aspect, height }
+let state = null;
 let layoutsKey = '';
 let messageTimer = null;
 
 const canSnap = () => !!(state && state.helperUp && state.focused && state.focused.snappable);
+
+// Why nothing happened, when there's nothing to move.
+const cantSnapMessage = () => (state && !state.helperUp ? 'The organizer is starting…' : 'Click the window you want to move first.');
 
 // Zones sit on the layout's own grid, so CSS grid lays them out exactly as
 // lib/zones.js does on screen, just without the gaps.
@@ -52,7 +58,7 @@ function buildLayouts(layouts, aspect) {
         const zone = document.createElement('button');
         zone.type = 'button';
         zone.className = 'zone';
-        zone.title = `${layout.name}: ${z.name}`;
+        zone.title = `${layout.name}: ${z.name || z.id}`;
         zone.style.gridColumn = `${z.x + 1} / span ${z.w}`;
         zone.style.gridRow = `${z.y + 1} / span ${z.h}`;
         zone.addEventListener('mouseenter', () => {
@@ -69,13 +75,24 @@ function buildLayouts(layouts, aspect) {
 
 async function snap(target) {
   if (!canSnap()) {
-    showMessage(state && !state.helperUp ? 'The organizer is starting…' : 'Click the window you want to move first.');
+    showMessage(cantSnapMessage());
     return;
   }
   window.panelAPI.hover(null); // the window is about to fill the preview
   const result = await window.panelAPI.snap(target.layoutId, target.zoneId);
   if (!result.ok) showMessage(result.error);
 }
+
+// Opens the grid placer on this display for the focused window, or closes
+// it if it's already open here.
+gridBtn.addEventListener('click', async () => {
+  if (!canSnap()) {
+    showMessage(cantSnapMessage());
+    return;
+  }
+  const result = await window.panelAPI.openGrid();
+  if (!result.ok) showMessage(result.error);
+});
 
 function showFocused() {
   const f = state && state.focused;
@@ -112,6 +129,9 @@ function render(next) {
     buildLayouts(next.layouts, next.aspect);
   }
   layoutsEl.classList.toggle('idle', !canSnap());
+  gridBtn.classList.toggle('idle', !canSnap());
+  const keys = next.gridHotkey ? ` (${next.gridHotkey.replace('CommandOrControl', 'Ctrl')})` : '';
+  gridBtn.title = `Grid placer${keys}: size the window to any block of cells`;
   if (!messageTimer) showFocused();
 }
 
