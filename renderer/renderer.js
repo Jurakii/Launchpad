@@ -112,6 +112,7 @@ const taskbarEdgeSelect = document.getElementById('taskbarEdgeSelect');
 const notifyUpdatesToggle = document.getElementById('notifyUpdatesToggle');
 const googleFaviconToggle = document.getElementById('googleFaviconToggle');
 const disableHotkeyInAppsToggle = document.getElementById('disableHotkeyInAppsToggle');
+const snapOnDragToggle = document.getElementById('snapOnDragToggle');
 const updateStatusLabel = document.getElementById('updateStatusLabel');
 const updateActionBtn = document.getElementById('updateActionBtn');
 const wallpaperPickBtn = document.getElementById('wallpaperPickBtn');
@@ -2430,6 +2431,7 @@ settingsBtn.addEventListener('click', async () => {
   googleFaviconToggle.checked = await window.launcherAPI.getGoogleFaviconFallback();
   hotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getHotkey());
   disableHotkeyInAppsToggle.checked = await window.launcherAPI.getDisableHotkeyInApps();
+  snapOnDragToggle.checked = await window.launcherAPI.getOrganizerEnabled();
   settingsModalOverlay.classList.remove('hidden');
   // A download in progress or already finished shouldn't be interrupted by
   // re-opening Settings and kicking off a fresh check - just re-show where
@@ -2736,6 +2738,10 @@ taskbarEl.addEventListener('contextmenu', (e) => {
 
 disableHotkeyInAppsToggle.addEventListener('change', () => {
   window.launcherAPI.setDisableHotkeyInApps(disableHotkeyInAppsToggle.checked);
+});
+
+snapOnDragToggle.addEventListener('change', () => {
+  window.launcherAPI.setOrganizerEnabled(snapOnDragToggle.checked);
 });
 
 notifyUpdatesToggle.addEventListener('change', () => {
