@@ -45,6 +45,7 @@ const breadcrumbEl = document.getElementById('breadcrumb');
 const addBtn = document.getElementById('addBtn');
 const newFolderBtn = document.getElementById('newFolderBtn');
 const settingsBtn = document.getElementById('settingsBtn');
+const layoutsBtn = document.getElementById('layoutsBtn');
 
 const modalOverlay = document.getElementById('modalOverlay');
 const modalTitle = document.getElementById('modalTitle');
@@ -116,6 +117,7 @@ const organizerToggle = document.getElementById('organizerToggle');
 const organizerPanelSelect = document.getElementById('organizerPanelSelect');
 const panelStyleSelect = document.getElementById('panelStyleSelect');
 const snapOnDragToggle = document.getElementById('snapOnDragToggle');
+const gridHotkeyBtn = document.getElementById('gridHotkeyBtn');
 const updateStatusLabel = document.getElementById('updateStatusLabel');
 const updateActionBtn = document.getElementById('updateActionBtn');
 const wallpaperPickBtn = document.getElementById('wallpaperPickBtn');
@@ -128,6 +130,23 @@ const versionLabel = document.getElementById('versionLabel');
 const detectIconsBtn = document.getElementById('detectIconsBtn');
 const exportBtn = document.getElementById('exportBtn');
 const importBtn = document.getElementById('importBtn');
+
+const layoutsModalOverlay = document.getElementById('layoutsModalOverlay');
+const layoutsList = document.getElementById('layoutsList');
+const newLayoutBtn = document.getElementById('newLayoutBtn');
+const layoutNameInput = document.getElementById('layoutNameInput');
+const layoutColsSelect = document.getElementById('layoutColsSelect');
+const layoutRowsSelect = document.getElementById('layoutRowsSelect');
+const layoutCanvas = document.getElementById('layoutCanvas');
+const mergeZonesBtn = document.getElementById('mergeZonesBtn');
+const splitZonesBtn = document.getElementById('splitZonesBtn');
+const zoneNameInput = document.getElementById('zoneNameInput');
+const layoutHint = document.getElementById('layoutHint');
+const layoutShownToggle = document.getElementById('layoutShownToggle');
+const duplicateLayoutBtn = document.getElementById('duplicateLayoutBtn');
+const deleteLayoutBtn = document.getElementById('deleteLayoutBtn');
+const layoutGapInput = document.getElementById('layoutGapInput');
+const layoutsCloseBtn = document.getElementById('layoutsCloseBtn');
 
 const pinnedRow = document.getElementById('pinnedRow');
 const pinnedEmpty = document.getElementById('pinnedEmpty');
@@ -983,6 +1002,7 @@ function anyModalOpen() {
     !nameModalOverlay.classList.contains('hidden') ||
     !moveModalOverlay.classList.contains('hidden') ||
     !settingsModalOverlay.classList.contains('hidden') ||
+    !layoutsModalOverlay.classList.contains('hidden') ||
     !dialogOverlay.classList.contains('hidden') ||
     !contextMenu.classList.contains('hidden')
   );
@@ -1995,15 +2015,19 @@ function windowTile(win) {
 }
 
 // ---------- window organizer: "Snap to" ----------
-// Right-clicking a running window offers every layout as a small thumbnail
-// whose zones are buttons; picking one moves that window into the zone on
-// the monitor it's already on. Layouts only change when the app does, so
-// they're fetched once.
+// Right-clicking a running window offers every layout that isn't hidden as a
+// small thumbnail whose zones are buttons; picking one moves that window
+// into the zone on the monitor it's already on. Layouts only change in the
+// Layouts editor (or a backup import), which fetches them again.
 
 let snapLayouts = [];
-window.launcherAPI.listLayouts().then((list) => {
-  snapLayouts = list;
-});
+
+function refreshSnapLayouts() {
+  return window.launcherAPI.listLayouts().then((list) => {
+    snapLayouts = list;
+  });
+}
+refreshSnapLayouts();
 
 function buildSnapPicker(win) {
   const picker = document.createElement('div');
@@ -2438,6 +2462,7 @@ settingsBtn.addEventListener('click', async () => {
   organizerPanelSelect.value = await window.launcherAPI.getOrganizerPanel();
   panelStyleSelect.value = localStorage.getItem('launchpad-panel-style') || 'solid';
   snapOnDragToggle.checked = await window.launcherAPI.getOrganizerSnapOnDrag();
+  gridHotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getOrganizerHotkey());
   updateOrganizerRows();
   settingsModalOverlay.classList.remove('hidden');
   // A download in progress or already finished shouldn't be interrupted by
@@ -2572,16 +2597,18 @@ function acceleratorFromEvent(e) {
   return parts.join('+');
 }
 
-hotkeyBtn.addEventListener('click', () => {
+// Shows "Press keys…" on btn and hands the next key combination to
+// save(accelerator), which resolves to { ok } or { ok: false, error }.
+function captureHotkey(btn, save) {
   if (capturingHotkey) return;
   capturingHotkey = true;
-  const previousLabel = hotkeyBtn.textContent;
-  hotkeyBtn.textContent = 'Press keys… (Esc to cancel)';
-  hotkeyBtn.classList.add('capturing');
+  const previousLabel = btn.textContent;
+  btn.textContent = 'Press keys… (Esc to cancel)';
+  btn.classList.add('capturing');
 
   function cleanup() {
     document.removeEventListener('keydown', onKey, true);
-    hotkeyBtn.classList.remove('capturing');
+    btn.classList.remove('capturing');
     capturingHotkey = false;
   }
 
@@ -2590,18 +2617,18 @@ hotkeyBtn.addEventListener('click', () => {
     e.stopPropagation();
     if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
       cleanup();
-      hotkeyBtn.textContent = previousLabel;
+      btn.textContent = previousLabel;
       return;
     }
     const accel = acceleratorFromEvent(e);
     if (!accel) return; // still just a modifier - keep listening for the real key
     cleanup();
-    window.launcherAPI.setHotkey(accel).then((res) => {
+    save(accel).then((res) => {
       if (res && res.ok) {
-        hotkeyBtn.textContent = formatAccelerator(accel);
+        btn.textContent = formatAccelerator(accel);
       } else {
         showAlert((res && res.error) || "Couldn't set that hotkey.");
-        hotkeyBtn.textContent = previousLabel;
+        btn.textContent = previousLabel;
       }
     });
   }
@@ -2609,7 +2636,10 @@ hotkeyBtn.addEventListener('click', () => {
   // Capture phase so this intercepts the keystroke before the global
   // type-to-search / arrow-nav listeners can react to it too.
   document.addEventListener('keydown', onKey, true);
-});
+}
+
+hotkeyBtn.addEventListener('click', () => captureHotkey(hotkeyBtn, (accel) => window.launcherAPI.setHotkey(accel)));
+gridHotkeyBtn.addEventListener('click', () => captureHotkey(gridHotkeyBtn, (accel) => window.launcherAPI.setOrganizerHotkey(accel)));
 
 themeToggle.addEventListener('change', () => {
   const light = themeToggle.checked;
@@ -2753,6 +2783,7 @@ function updateOrganizerRows() {
   organizerPanelSelect.disabled = off;
   panelStyleSelect.disabled = off || organizerPanelSelect.value === 'off';
   snapOnDragToggle.disabled = off;
+  gridHotkeyBtn.disabled = off;
 }
 
 organizerToggle.addEventListener('change', () => {
@@ -2853,7 +2884,14 @@ ${ipcErrorMessage(err)}`);
 });
 
 exportBtn.addEventListener('click', async () => {
-  const res = await window.launcherAPI.exportBackup();
+  let res;
+  try {
+    res = await window.launcherAPI.exportBackup();
+  } catch (err) {
+    await showAlert(`Couldn't export a backup:
+${ipcErrorMessage(err)}`);
+    return;
+  }
   if (res && res.ok) await showAlert(`Exported to:\n${res.path}`);
 });
 
@@ -2872,8 +2910,307 @@ ${ipcErrorMessage(err)}`);
     currentFolderId = null;
     render();
     renderPinned();
+    refreshSnapLayouts();
     settingsModalOverlay.classList.add('hidden');
+    if (res.layoutsError) {
+      await showAlert(`Your apps were imported, but the window layouts in the backup couldn't be:
+${res.layoutsError}`);
+    }
   }
+});
+
+// ---------- window layouts editor ----------
+// The Layouts button lists every layout the organizer offers: the built-ins,
+// which can be hidden but not changed, and the user's own, which are edited
+// on a grid of cells. Every cell belongs to exactly one zone: merging the
+// selected zones makes one bigger zone, and splitting breaks zones back into
+// cells (see cells.js). Each change is saved at once, so the panel, the drag
+// strip and the taskbar's Snap to menu follow along.
+
+const MAX_LAYOUT_CELLS = 12; // lib/zones.js MAX_CELLS
+const MAX_LAYOUT_NAME = 40; // lib/layouts.js MAX_NAME_LENGTH
+
+let layoutLibrary = { layouts: [], gap: 8 }; // as main last returned it
+let editingLayoutId = null;
+let layoutDraft = null; // the selected user layout as edited here, unnamed zones blank
+let layoutSelection = null; // a block of cells, widened so it cuts through no zone
+let layoutDragAnchor = null;
+let layoutChanges = Promise.resolve(true);
+
+for (let n = 1; n <= MAX_LAYOUT_CELLS; n++) {
+  layoutColsSelect.add(new Option(String(n), String(n)));
+  layoutRowsSelect.add(new Option(String(n), String(n)));
+}
+// Shaped like the screen, so zones look like the windows they'll make.
+layoutCanvas.style.aspectRatio = `${window.screen.width} / ${window.screen.height}`;
+
+const editingLayout = () => layoutLibrary.layouts.find((l) => l.id === editingLayoutId) || null;
+const withoutFlags = ({ builtIn, hidden, ...layout }) => layout;
+const zonesSelected = () => (layoutDraft && layoutSelection ? zonesIn(layoutDraft.zones, layoutSelection) : []);
+
+async function openLayoutsModal() {
+  try {
+    layoutLibrary = await window.launcherAPI.listAllLayouts();
+  } catch (err) {
+    await showAlert(`Couldn't load the layouts:
+${ipcErrorMessage(err)}`);
+    return;
+  }
+  const first = layoutLibrary.layouts.find((l) => !l.builtIn) || layoutLibrary.layouts[0];
+  selectLayout(editingLayout() ? editingLayoutId : first.id);
+  layoutGapInput.value = layoutLibrary.gap;
+  layoutsModalOverlay.classList.remove('hidden');
+}
+
+function closeLayoutsModal() {
+  layoutsModalOverlay.classList.add('hidden');
+}
+
+function selectLayout(id) {
+  editingLayoutId = id;
+  const layout = editingLayout();
+  layoutDraft = layout && !layout.builtIn ? unnameZones(structuredClone(withoutFlags(layout))) : null;
+  layoutSelection = null;
+  layoutDragAnchor = null;
+  renderLayoutsList();
+  renderLayoutDetail();
+}
+
+function layoutThumb(layout) {
+  const box = document.createElement('div');
+  box.className = 'layout-thumb';
+  for (const z of layout.zones) {
+    const el = document.createElement('div');
+    el.className = 'layout-thumb-zone';
+    el.style.left = `calc(${(z.x / layout.cols) * 100}% + 1px)`;
+    el.style.top = `calc(${(z.y / layout.rows) * 100}% + 1px)`;
+    el.style.width = `calc(${(z.w / layout.cols) * 100}% - 2px)`;
+    el.style.height = `calc(${(z.h / layout.rows) * 100}% - 2px)`;
+    box.appendChild(el);
+  }
+  return box;
+}
+
+function renderLayoutsList() {
+  const rows = [];
+  let afterBuiltIn = false;
+  for (const layout of layoutLibrary.layouts) {
+    if (afterBuiltIn && !layout.builtIn) {
+      const sep = document.createElement('div'); // between the built-ins and the user's own
+      sep.className = 'layouts-list-sep';
+      rows.push(sep);
+    }
+    afterBuiltIn = layout.builtIn;
+    // The one being edited shows the edits, even before main has them back.
+    const shown = layout.id === editingLayoutId && layoutDraft ? layoutDraft : layout;
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'layouts-list-row';
+    row.classList.toggle('selected', layout.id === editingLayoutId);
+    row.classList.toggle('is-hidden', layout.hidden);
+    const name = document.createElement('span');
+    name.className = 'layouts-list-name';
+    name.textContent = shown.name;
+    const tags = document.createElement('span');
+    tags.className = 'layouts-list-tags';
+    tags.textContent = [layout.builtIn && 'Built-in', layout.hidden && 'Hidden'].filter(Boolean).join(' · ');
+    const text = document.createElement('span');
+    text.className = 'layouts-list-text';
+    text.append(name, tags);
+    row.append(layoutThumb(shown), text);
+    row.addEventListener('click', () => selectLayout(layout.id));
+    rows.push(row);
+  }
+  layoutsList.replaceChildren(...rows);
+}
+
+function renderLayoutDetail() {
+  const layout = editingLayout();
+  if (!layout) return;
+  const editable = !!layoutDraft;
+  const shown = layoutDraft || layout;
+  layoutNameInput.value = shown.name;
+  layoutColsSelect.value = String(shown.cols);
+  layoutRowsSelect.value = String(shown.rows);
+  layoutNameInput.disabled = !editable;
+  layoutColsSelect.disabled = !editable;
+  layoutRowsSelect.disabled = !editable;
+  mergeZonesBtn.parentElement.classList.toggle('hidden', !editable);
+  deleteLayoutBtn.classList.toggle('hidden', !editable);
+  layoutShownToggle.checked = !layout.hidden;
+  layoutHint.textContent = editable
+    ? 'Drag across cells to select zones. Merge makes them one zone; Split breaks them back into cells.'
+    : "Built-in layouts can't be changed. Duplicate one to make your own version.";
+  renderLayoutCanvas();
+  updateZoneTools();
+}
+
+function renderLayoutCanvas() {
+  const layout = layoutDraft ? nameZones(layoutDraft) : editingLayout(); // labels for unnamed zones
+  const selected = new Set(zonesSelected().map((z) => z.id));
+  layoutCanvas.style.gridTemplateColumns = `repeat(${layout.cols}, 1fr)`;
+  layoutCanvas.style.gridTemplateRows = `repeat(${layout.rows}, 1fr)`;
+  layoutCanvas.classList.toggle('editable', !!layoutDraft);
+  layoutCanvas.replaceChildren(
+    ...layout.zones.map((z) => {
+      const el = document.createElement('div');
+      el.className = 'layout-zone';
+      el.classList.toggle('selected', selected.has(z.id));
+      el.style.gridColumn = `${z.x + 1} / span ${z.w}`;
+      el.style.gridRow = `${z.y + 1} / span ${z.h}`;
+      el.textContent = z.name;
+      return el;
+    })
+  );
+}
+
+function updateZoneTools() {
+  const selected = zonesSelected();
+  mergeZonesBtn.disabled = selected.length < 2;
+  splitZonesBtn.disabled = !selected.some((z) => z.w * z.h > 1);
+  const single = selected.length === 1 ? selected[0] : null;
+  zoneNameInput.disabled = !single;
+  zoneNameInput.value = single ? single.name : '';
+  zoneNameInput.placeholder = single ? nameZones(layoutDraft).zones.find((z) => z.id === single.id).name : 'Select one zone';
+}
+
+// Main's answer to a change: the whole library. On failure it says why and
+// goes back to what's saved. Changes run one after another, so a quick run
+// of merges can't arrive out of order. Resolves to whether it worked.
+function queueLayoutChange(call) {
+  layoutChanges = layoutChanges.then(async () => {
+    try {
+      layoutLibrary = await call();
+    } catch (err) {
+      await showAlert(`Launchpad couldn't save that:
+${ipcErrorMessage(err)}`);
+      selectLayout(editingLayout() ? editingLayoutId : layoutLibrary.layouts[0].id);
+      return false;
+    }
+    renderLayoutsList();
+    refreshSnapLayouts();
+    return true;
+  });
+  return layoutChanges;
+}
+
+function changeDraft(next, selection = layoutSelection) {
+  layoutDraft = next;
+  layoutSelection = selection;
+  renderLayoutCanvas();
+  updateZoneTools();
+  renderLayoutsList();
+  const layout = nameZones({ ...layoutDraft, id: editingLayoutId });
+  return queueLayoutChange(() => window.launcherAPI.saveLayout(layout));
+}
+
+function layoutCellAt(e) {
+  const r = layoutCanvas.getBoundingClientRect();
+  const x = Math.floor(((e.clientX - r.left) / r.width) * layoutDraft.cols);
+  const y = Math.floor(((e.clientY - r.top) / r.height) * layoutDraft.rows);
+  return { x: Math.min(layoutDraft.cols - 1, Math.max(0, x)), y: Math.min(layoutDraft.rows - 1, Math.max(0, y)) };
+}
+
+function selectLayoutCells(a, b) {
+  const next = expandToZones(layoutDraft.zones, cellSpan(a, b));
+  const same = layoutSelection && ['x', 'y', 'w', 'h'].every((k) => layoutSelection[k] === next[k]);
+  if (same) return;
+  layoutSelection = next;
+  renderLayoutCanvas();
+  updateZoneTools();
+}
+
+layoutCanvas.addEventListener('pointerdown', (e) => {
+  if (!layoutDraft || e.button !== 0) return;
+  e.preventDefault();
+  layoutDragAnchor = layoutCellAt(e);
+  layoutCanvas.setPointerCapture(e.pointerId);
+  selectLayoutCells(layoutDragAnchor, layoutDragAnchor);
+});
+
+layoutCanvas.addEventListener('pointermove', (e) => {
+  if (layoutDragAnchor && layoutDraft) selectLayoutCells(layoutDragAnchor, layoutCellAt(e));
+});
+
+layoutCanvas.addEventListener('pointerup', () => {
+  layoutDragAnchor = null;
+});
+
+mergeZonesBtn.addEventListener('click', () => {
+  if (!layoutDraft || !layoutSelection) return;
+  const next = mergeZones(layoutDraft, layoutSelection);
+  changeDraft(next, expandToZones(next.zones, layoutSelection));
+});
+
+splitZonesBtn.addEventListener('click', () => {
+  if (layoutDraft && layoutSelection) changeDraft(splitZones(layoutDraft, layoutSelection));
+});
+
+zoneNameInput.addEventListener('change', () => {
+  const [zone] = zonesSelected();
+  if (!zone) return;
+  const name = zoneNameInput.value.trim();
+  changeDraft({ ...layoutDraft, zones: layoutDraft.zones.map((z) => (z.id === zone.id ? { ...z, name } : z)) });
+});
+
+layoutNameInput.addEventListener('change', () => {
+  const name = layoutNameInput.value.trim();
+  if (!layoutDraft) return;
+  if (!name) {
+    layoutNameInput.value = layoutDraft.name; // a layout needs a name
+    return;
+  }
+  changeDraft({ ...layoutDraft, name });
+});
+
+function changeLayoutGridSize() {
+  if (!layoutDraft) return;
+  changeDraft(resizeGrid(layoutDraft, Number(layoutColsSelect.value), Number(layoutRowsSelect.value)), null);
+}
+layoutColsSelect.addEventListener('change', changeLayoutGridSize);
+layoutRowsSelect.addEventListener('change', changeLayoutGridSize);
+
+layoutShownToggle.addEventListener('change', () => {
+  const id = editingLayoutId;
+  const hidden = !layoutShownToggle.checked;
+  queueLayoutChange(() => window.launcherAPI.setLayoutHidden(id, hidden));
+});
+
+newLayoutBtn.addEventListener('click', async () => {
+  const id = crypto.randomUUID();
+  const layout = nameZones({ id, ...blankLayout('New layout', 4, 2) });
+  if (!(await queueLayoutChange(() => window.launcherAPI.saveLayout(layout)))) return;
+  selectLayout(id);
+  layoutNameInput.focus();
+  layoutNameInput.select();
+});
+
+duplicateLayoutBtn.addEventListener('click', async () => {
+  const source = layoutDraft ? nameZones(layoutDraft) : withoutFlags(editingLayout());
+  const id = crypto.randomUUID();
+  const copy = { ...structuredClone(source), id, name: `${source.name} copy`.slice(0, MAX_LAYOUT_NAME) };
+  if (await queueLayoutChange(() => window.launcherAPI.saveLayout(copy))) selectLayout(id);
+});
+
+deleteLayoutBtn.addEventListener('click', async () => {
+  const layout = editingLayout();
+  if (!layout || layout.builtIn) return;
+  if (!(await showConfirm(`Delete the layout "${layout.name}"? Windows already snapped with it stay where they are.`))) return;
+  const index = layoutLibrary.layouts.indexOf(layout);
+  if (!(await queueLayoutChange(() => window.launcherAPI.removeLayout(layout.id)))) return;
+  selectLayout(layoutLibrary.layouts[Math.min(index, layoutLibrary.layouts.length - 1)].id);
+});
+
+layoutGapInput.addEventListener('change', async () => {
+  const gap = layoutGapInput.value === '' ? layoutLibrary.gap : Number(layoutGapInput.value);
+  if (gap !== layoutLibrary.gap) await queueLayoutChange(() => window.launcherAPI.setLayoutGap(gap));
+  layoutGapInput.value = layoutLibrary.gap;
+});
+
+layoutsBtn.addEventListener('click', openLayoutsModal);
+layoutsCloseBtn.addEventListener('click', closeLayoutsModal);
+layoutsModalOverlay.addEventListener('click', (e) => {
+  if (e.target === layoutsModalOverlay) closeLayoutsModal();
 });
 
 // ---------- add / edit app modal ----------
@@ -3042,6 +3379,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!dialogOverlay.classList.contains('hidden')) closeDialog(false);
   if (!modalOverlay.classList.contains('hidden')) closeModal();
+  if (!layoutsModalOverlay.classList.contains('hidden')) closeLayoutsModal();
   if (!nameModalOverlay.classList.contains('hidden')) nameModalOverlay.classList.add('hidden');
   if (!moveModalOverlay.classList.contains('hidden')) moveModalOverlay.classList.add('hidden');
   if (!settingsModalOverlay.classList.contains('hidden')) settingsModalOverlay.classList.add('hidden');

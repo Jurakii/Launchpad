@@ -84,3 +84,89 @@ test('load hands out copies, so changing one does not change the built-ins', () 
   layouts.load().layouts[0].zones[0].w = 99;
   assert.strictEqual(layouts.load().layouts[0].zones[0].w, 1);
 });
+
+test('a second layout with an id already in use is skipped', () => {
+  const { layouts } = setup({ layouts: [custom('wide'), custom('wide', 'Another')] });
+  const wide = layouts.load().layouts.filter((l) => l.id === 'wide');
+  assert.deepStrictEqual(wide.map((l) => l.name), ['Wide center']);
+});
+
+test('saveLayout adds a layout, replaces it by id, and refuses built-ins and broken ones', () => {
+  const { file, layouts } = setup();
+  layouts.saveLayout(custom('wide'));
+  layouts.saveLayout({ ...custom('wide'), name: '  Renamed  ' });
+  const data = layouts.load();
+  assert.deepStrictEqual(data.layouts.map((l) => l.id), [...BUILT_IN_IDS, 'wide']);
+  assert.strictEqual(data.layouts.at(-1).name, 'Renamed');
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(file, 'utf-8')).layouts.map((l) => l.id), ['wide']);
+
+  assert.throws(() => layouts.saveLayout({ ...custom('halves') }), /Built-in/);
+  assert.throws(() => layouts.saveLayout({ ...custom('bad'), zones: [{ id: 'a', x: 0, y: 0, w: 2, h: 1 }, { id: 'b', x: 1, y: 0, w: 1, h: 1 }] }), /overlap/);
+  assert.throws(() => layouts.saveLayout({ ...custom('bad'), name: '   ' }), /missing name/);
+  assert.strictEqual(layouts.load().layouts.length, BUILT_IN_IDS.length + 1, 'nothing was saved by the failures');
+});
+
+test('saveLayout throws rather than overwriting a file it cannot read', (t) => {
+  const { file, layouts } = setup({ layouts: [custom('wide')] });
+  const readFileSync = fs.readFileSync;
+  t.mock.method(fs, 'readFileSync', (p, ...rest) => {
+    if (p === file) throw Object.assign(new Error('locked'), { code: 'EBUSY' });
+    return readFileSync.call(fs, p, ...rest);
+  });
+  assert.throws(() => layouts.saveLayout(custom('other')), /locked/);
+  t.mock.restoreAll();
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(file, 'utf-8')).layouts.map((l) => l.id), ['wide']);
+});
+
+test('removeLayout deletes only user layouts, and forgets that they were hidden', () => {
+  const { layouts } = setup({ layouts: [custom('wide')], hidden: ['wide', 'thirds'] });
+  assert.throws(() => layouts.removeLayout('halves'), /only hidden/);
+  const data = layouts.removeLayout('wide');
+  assert.deepStrictEqual(data.layouts.map((l) => l.id), BUILT_IN_IDS);
+  assert.deepStrictEqual(data.hidden, ['thirds']);
+});
+
+test('hidden layouts are left out of visible(), but one always stays shown', () => {
+  const { layouts } = setup({ layouts: [custom('wide')] });
+  layouts.setHidden('thirds', true);
+  layouts.setHidden('wide', true);
+  let data = layouts.load();
+  assert.deepStrictEqual(layouts.visible(data).map((l) => l.id), ['halves', 'focus', 'main-stack', 'quarters']);
+  assert.deepStrictEqual(layouts.library(data).layouts.filter((l) => l.hidden).map((l) => l.id), ['thirds', 'wide']);
+  assert.deepStrictEqual(layouts.library(data).layouts.filter((l) => l.builtIn).map((l) => l.id), BUILT_IN_IDS);
+
+  layouts.setHidden('wide', false);
+  for (const id of ['halves', 'focus', 'main-stack', 'quarters']) layouts.setHidden(id, true);
+  assert.throws(() => layouts.setHidden('wide', true), /stay shown/);
+  assert.throws(() => layouts.setHidden('nope', true), /no longer exists/);
+
+  data = layouts.load();
+  assert.deepStrictEqual(layouts.visible(data).map((l) => l.id), ['wide']);
+  assert.strictEqual(layouts.visible({ ...data, hidden: data.layouts.map((l) => l.id) }).length, data.layouts.length, 'all hidden by hand: all shown');
+});
+
+test('hidden ids that are not layouts are dropped', () => {
+  const { layouts } = setup({ hidden: ['thirds', 'gone', 42, 'thirds'] });
+  assert.deepStrictEqual(layouts.load().hidden, ['thirds']);
+});
+
+test('setGap accepts whole numbers from 0 to 64', () => {
+  const { layouts } = setup();
+  assert.strictEqual(layouts.setGap(0).gap, 0);
+  assert.strictEqual(layouts.load().gap, 0);
+  for (const bad of [-1, 65, 2.5, '8']) assert.throws(() => layouts.setGap(bad), /whole number/);
+});
+
+test('exportData and importData round-trip the user layouts, hidden list and gap', (t) => {
+  t.mock.method(console, 'error', () => {});
+  const first = setup({ layouts: [custom('wide')], hidden: ['thirds'], gap: 4 });
+  const backup = JSON.parse(JSON.stringify(first.layouts.exportData()));
+  assert.deepStrictEqual(backup.layouts.map((l) => l.id), ['wide'], 'no built-ins in the backup');
+
+  const second = setup({ layouts: [custom('other')] });
+  const data = second.layouts.importData({ ...backup, layouts: [...backup.layouts, { id: 'broken' }] });
+  assert.deepStrictEqual(data.layouts.map((l) => l.id), [...BUILT_IN_IDS, 'wide'], 'replaced, and the broken one dropped');
+  assert.deepStrictEqual(data.hidden, ['thirds']);
+  assert.strictEqual(data.gap, 4);
+  assert.deepStrictEqual(second.layouts.importData(null).layouts.map((l) => l.id), BUILT_IN_IDS);
+});
