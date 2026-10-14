@@ -1,8 +1,9 @@
 // Draws the drag overlay for one display: the layout strip along the top
 // and, when a zone is hovered, a full-size preview of where the window will
-// go. Main sends every rect already worked out (lib/strip.js) and relative
-// to this window, so this file only draws. It never gets input: the window
-// ignores the mouse, and the dragged window has it captured anyway.
+// go. Hovering a zone in the organizer panel shows the preview alone (no
+// strip). Main sends every rect already worked out (lib/strip.js) and
+// relative to this window, so this file only draws. It never gets input: the
+// window ignores the mouse, and a dragged window has it captured anyway.
 
 // Loaded from file:// like the main window, so it shares its localStorage
 // and follows theme and accent changes made there.
@@ -38,14 +39,14 @@ function box(className, r, inset = 0) {
 
 function render(state) {
   previewEl.classList.toggle('hidden', !(state && state.preview));
-  stripEl.classList.toggle('hidden', !state);
-  if (!state) {
-    stripEl.replaceChildren();
-    return;
-  }
-  if (state.preview) {
+  stripEl.classList.toggle('hidden', !(state && state.strip));
+  if (state && state.preview) {
     const p = state.preview;
     Object.assign(previewEl.style, { left: `${p.x}px`, top: `${p.y}px`, width: `${p.width}px`, height: `${p.height}px` });
+  }
+  if (!state || !state.strip) {
+    stripEl.replaceChildren();
+    return;
   }
 
   const hovered = state.hovered;

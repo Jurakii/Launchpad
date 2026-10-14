@@ -308,11 +308,35 @@
         (games, editors) the keys go to that app instead.
       </div>
       <div class="settings-row">
+        <label class="switch-row"><input type="checkbox" id="organizerToggle" /> Window organizer</label>
+      </div>
+      <div class="settings-row settings-hint">
+        Adds a panel along the top of each screen. Click a zone in one of its layouts to move the window
+        you're using there. Right-click an open window on the taskbar for the same layouts, organizer on or off.
+      </div>
+      <div class="settings-row settings-accent-row">
+        <span>Organizer panel</span>
+        <select id="organizerPanelSelect">
+          <option value="always">Always shown</option>
+          <option value="autoHide">Auto-hide</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
+      <div class="settings-row settings-accent-row">
+        <span>Organizer panel look</span>
+        <select id="panelStyleSelect">
+          <option value="solid">Solid</option>
+          <option value="translucent">Translucent</option>
+          <option value="transparent">Transparent</option>
+        </select>
+      </div>
+      <div class="settings-row">
         <label class="switch-row"><input type="checkbox" id="snapOnDragToggle" /> Snap windows by dragging them to the top of the screen</label>
       </div>
       <div class="settings-row settings-hint">
         Drag a window by its title bar to the top of a screen, then drop it on a zone in the layouts that
-        appear. Press Esc or move away to cancel. Right-click an open window on the taskbar for the same layouts.
+        appear. Press Esc or move away to cancel. Auto-hide brings the panel down when the pointer rests
+        against the top edge; fullscreen apps always cover it.
       </div>
       <div class="settings-row">
         <label class="switch-row"><input type="checkbox" id="notifyUpdatesToggle" /> Notify me when an update is available</label>
