@@ -15,6 +15,7 @@ It runs as its own window (or full screen). The window has a grid of your apps g
   - Wi-Fi
   - clock
   - power
+- **Window snapping:** right-click an open window on the taskbar to snap it into a half, third, two thirds, main + stack or quarter of its screen.
 - **Layout and look:** dock the taskbar to any screen edge. Align it to the edge or center (Windows 10 or 11 style), and reorder the tray icons. Choose light or dark, an accent color, solid, translucent or transparent bars, and a wallpaper.
 - **Icons:** Launchpad picks icons automatically from the program or website. You can also choose your own.
 - **Backups and updates:** export and import your whole setup, icons included. Updates install from inside the app.
@@ -44,6 +45,7 @@ Everything is stored in `%APPDATA%\launchpad`:
 | `apps.json` | Your items, islands, pins and layout |
 | `apps.json.bak` | The previous version of `apps.json`, kept as a safety net |
 | `settings.json` | App settings (hotkey, startup, update notifications, …) |
+| `layouts.json` | Your own window layouts and the gap between snapped windows. Optional: the built-in layouts don't need it. |
 | `icons\` | One PNG per item |
 
 Visual preferences (theme, accent color, wallpaper, taskbar layout) are stored inside the app itself.

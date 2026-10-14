@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('launcherAPI', {
   ejectDrive: (driveLetter) => ipcRenderer.invoke('system:ejectDrive', driveLetter),
   listOpenWindows: () => ipcRenderer.invoke('system:listOpenWindows'),
   focusWindow: (handle) => ipcRenderer.invoke('system:focusWindow', handle),
+  listLayouts: () => ipcRenderer.invoke('organizer:listLayouts'),
+  placeWindow: (handle, layoutId, zoneId) => ipcRenderer.invoke('organizer:placeWindow', { handle, layoutId, zoneId }),
   listBluetoothDevices: () => ipcRenderer.invoke('system:listBluetoothDevices'),
   disconnectBluetoothDevice: (instanceId) => ipcRenderer.invoke('system:disconnectBluetoothDevice', instanceId),
   shutdown: () => ipcRenderer.invoke('system:shutdown'),

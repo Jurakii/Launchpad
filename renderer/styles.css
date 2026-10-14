@@ -1054,6 +1054,38 @@ button.danger { background: transparent; border-color: var(--danger); color: var
 .context-menu button.danger { color: var(--danger); }
 .context-menu .menu-sep { height: 1px; background: var(--border); margin: 4px 2px; }
 
+/* "Snap to" picker in a running window's menu: one thumbnail per layout,
+   each zone a button. The .context-menu prefix is needed to beat the
+   generic .context-menu button rule above. */
+.snap-picker { padding: 2px 4px 4px; }
+.snap-picker-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 2px 2px 0;
+  max-width: 340px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.snap-picker-label { font-size: 12px; color: var(--muted); margin: 2px 2px 8px; }
+.snap-layouts { display: flex; gap: 10px; }
+.snap-layout { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.snap-layout-box { position: relative; width: 60px; height: 38px; }
+.snap-layout-name { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.context-menu .snap-zone {
+  position: absolute;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--muted) 30%, var(--panel));
+}
+.context-menu .snap-zone:hover,
+.context-menu .snap-zone:focus-visible {
+  background: var(--accent);
+  border-color: var(--accent);
+  outline: none;
+}
+
 /* ---------- Move-to-folder list ---------- */
 
 .move-list {
