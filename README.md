@@ -18,9 +18,10 @@ It runs as its own window (or full screen). The window has a grid of your apps g
 - **Window snapping:** right-click an open window on the taskbar to snap it into a half, third, two thirds, main + stack or quarter of its screen. Turn on **Window organizer** in Settings for a panel along the top of each screen: click a zone in it to move the window you're using there, or drag any window to the top of a screen and drop it on a zone. The panel shows the window's title and a clock, can auto-hide, and stays out of the way of fullscreen apps. Maximized windows stop below it. It also becomes Launchpad's top bar: on the screen Launchpad is on, the breadcrumb and the Layouts, Settings, New Island, Add App and fullscreen buttons move into it, and it follows the top bar look.
   - **Grid placer:** press **Ctrl+Alt+G** (or the grid button on the panel) to lay a grid over the screen, then drag across cells, or use the arrow keys and Enter, to size the window to them.
   - **Your own layouts:** **Layouts** in the toolbar lets you make layouts by merging and splitting cells, hide the ones you don't use, and set the gap between snapped windows.
+  - **Scenes:** the scenes button on the panel saves where all your windows are, on every screen, and puts them back later with one click. Right-click an island and choose **Save arrangement for this island**; then **Open as scene** starts whichever of its apps aren't running and puts each window in its place.
 - **Layout and look:** dock the taskbar to any screen edge. Align it to the edge or center (Windows 10 or 11 style), and reorder the tray icons. Choose light or dark, an accent color, solid, translucent or transparent bars, and a wallpaper.
 - **Icons:** Launchpad picks icons automatically from the program or website. You can also choose your own.
-- **Backups and updates:** export and import your whole setup, icons and window layouts included. Updates install from inside the app.
+- **Backups and updates:** export and import your whole setup, icons, window layouts and scenes included. Updates install from inside the app.
 
 ## Install
 

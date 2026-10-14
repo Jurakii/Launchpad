@@ -28,6 +28,8 @@ const bluetooth = require('./lib/bluetooth');
 const power = require('./lib/power');
 const wifi = require('./lib/wifi');
 const layouts = require('./lib/layouts');
+const scenes = require('./lib/scenes');
+const sceneRunner = require('./lib/scene-runner');
 const organizer = require('./lib/organizer');
 const panel = require('./lib/panel');
 const windowmgr = require('./lib/windowmgr');
@@ -334,6 +336,7 @@ if (!gotLock) {
     createTray();
     registerHotkey(settings.load().hotkey || DEFAULT_HOTKEY);
     applyHotkeyAppFocusSetting(!!settings.load().disableHotkeyInApps);
+    panel.releaseLeftovers(); // panels a killed run left docked, before any dock again
     organizer.configure(settings.organizerOptions());
 
     // Background check only - Settings always checks fresh on its own when
@@ -346,6 +349,7 @@ if (!gotLock) {
   });
 
   app.on('will-quit', () => {
+    panel.forgetDocked();
     windowmgr.stop(); // the helper gives back the panels' space as it exits
     globalShortcut.unregisterAll();
   });
@@ -887,6 +891,106 @@ ipcMain.handle('organizer:setLayoutHidden', (_e, { id, hidden }) => afterLayoutC
 
 ipcMain.handle('organizer:setGap', (_e, gap) => afterLayoutChange(layouts.setGap(gap)));
 
+// ---------- scenes ----------
+// Saved window arrangements (lib/scenes.js, lib/scene-runner.js), kept in
+// layouts.json. Saved and applied from a panel's scenes menu, from the
+// Scenes dialog in the main window, and from an island's right-click menu.
+
+// Names an app for messages: the user's name for it if it's one of theirs.
+const appNamer = () => {
+  const apps = store.load();
+  return (exe) => scenes.appName(exe, apps);
+};
+
+// The exes of an island's apps, which its scene holds.
+const islandExes = (islandId) =>
+  store
+    .load()
+    .filter((a) => a.parentId === islandId)
+    .map(scenes.appExe)
+    .filter(Boolean);
+
+const sceneList = () => layouts.load().scenes;
+
+// The main window keeps a copy (its Scenes dialog, its islands' menus).
+function scenesChanged() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('scenes:changed');
+}
+
+// Saving over a scene saved from an island again holds only that island's apps.
+async function saveSceneOver(id) {
+  const scene = sceneList().find((s) => s.id === id);
+  if (!scene) throw new Error('That scene no longer exists.');
+  const island = scene.islandId && store.load().find((a) => a.id === scene.islandId && a.kind === 'island');
+  return sceneRunner.save(island ? { id, islandId: island.id, exes: islandExes(island.id) } : { id });
+}
+
+ipcMain.handle('organizer:listScenes', () => sceneList());
+
+// id: save over that scene; otherwise a new one.
+ipcMain.handle('organizer:saveScene', async (_e, id) => {
+  if (typeof id === 'string') await saveSceneOver(id);
+  else await sceneRunner.save();
+  return sceneList();
+});
+
+ipcMain.handle('organizer:renameScene', (_e, { id, name }) => layouts.renameScene(id, name).scenes);
+ipcMain.handle('organizer:removeScene', (_e, id) => layouts.removeScene(id).scenes);
+
+// Resolves to a message saying what was placed and what wasn't open.
+ipcMain.handle('organizer:applyScene', async (_e, id) => sceneRunner.describe(await sceneRunner.apply(id, appNamer())));
+
+ipcMain.handle('organizer:saveIslandScene', async (_e, islandId) => {
+  const island = store.load().find((a) => a.id === islandId && a.kind === 'island');
+  if (!island) throw new Error('That island no longer exists.');
+  const exes = islandExes(islandId);
+  if (!exes.length) throw new Error("None of this island's apps is a program Launchpad can find windows for (websites, scripts and commands can't be placed).");
+  const scene = await sceneRunner.save({ islandId, name: island.name, exes });
+  const count = scene.windows.length === 1 ? '1 window' : `${scene.windows.length} windows`;
+  return {
+    scenes: sceneList(),
+    message: `Saved the arrangement for "${island.name}" (${count}). Right-click the island and choose "Open as scene" to bring it back.`,
+  };
+});
+
+ipcMain.handle('organizer:openIslandScene', async (_e, islandId) => {
+  const result = await sceneRunner.openIsland(islandId, store.load(), launchAndRecord, appNamer());
+  return sceneRunner.describe(result);
+});
+
+// From a panel's scenes button and the scenes menu (scenes-menu-preload.js).
+ipcMain.handle('panel:openScenes', (e, anchor) => organizer.openScenesFromPanel(e.sender, anchor));
+ipcMain.handle('scenesMenu:resize', (e, height) => organizer.resizeScenesMenu(e.sender, height));
+ipcMain.handle('scenesMenu:close', (e) => organizer.closeScenesMenuFrom(e.sender));
+
+ipcMain.handle('scenesMenu:apply', async (e, id) => {
+  const display = await organizer.takeScenesMenu(e.sender, true);
+  if (!display) return;
+  try {
+    panel.showMessage(display.id, sceneRunner.describe(await sceneRunner.apply(id, appNamer())));
+  } catch (err) {
+    panel.showMessage(display.id, err.message);
+  }
+});
+
+ipcMain.handle('scenesMenu:save', async (e) => {
+  const display = await organizer.takeScenesMenu(e.sender, true);
+  if (!display) return;
+  try {
+    const scene = await sceneRunner.save();
+    scenesChanged();
+    panel.showMessage(display.id, `Saved "${scene.name}" with ${scene.windows.length} window${scene.windows.length === 1 ? '' : 's'}. Rename it under Manage scenes.`);
+  } catch (err) {
+    panel.showMessage(display.id, err.message);
+  }
+});
+
+ipcMain.handle('scenesMenu:manage', async (e) => {
+  if (!(await organizer.takeScenesMenu(e.sender, false))) return;
+  showWindow();
+  mainWindow.webContents.send('scenes:open');
+});
+
 ipcMain.handle('organizer:placeWindow', async (_e, { handle, layoutId, zoneId }) => {
   try {
     return await organizer.snapWindow(handle, layoutId, zoneId);
@@ -1110,15 +1214,22 @@ ipcMain.handle('item:setPositions', (_e, updates) => {
   return decorate(apps);
 });
 
-ipcMain.handle('apps:launch', async (_e, id) => {
+// Launches an app entry and counts it for Recent.
+async function launchAndRecord(entry) {
+  await launcher.launch(entry);
   const apps = store.load();
-  const entry = apps.find((a) => a.id === id);
+  const saved = apps.find((a) => a.id === entry.id);
+  if (!saved) return;
+  saved.lastLaunched = Date.now();
+  saved.launchCount = (saved.launchCount || 0) + 1;
+  store.save(apps);
+}
+
+ipcMain.handle('apps:launch', async (_e, id) => {
+  const entry = store.load().find((a) => a.id === id);
   if (!entry) throw new Error('App not found');
   if (entry.kind === 'island') throw new Error('That is an island, not an app');
-  await launcher.launch(entry);
-  entry.lastLaunched = Date.now();
-  entry.launchCount = (entry.launchCount || 0) + 1;
-  store.save(apps);
+  await launchAndRecord(entry);
   return { ok: true };
 });
 
