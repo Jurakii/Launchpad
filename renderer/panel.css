@@ -1,0 +1,114 @@
+/* Organizer panel: a bar along the top of one display. Same palette as
+   styles.css (dark by default, light via data-theme), and the same Solid /
+   Translucent / Transparent looks as the other bars, via data-style. */
+:root {
+  --panel: #1e2128;
+  --border: #2b2f38;
+  --text: #e8e9ec;
+  --muted: #9aa0ac;
+  --accent: #5b8cff;
+}
+
+:root[data-theme="light"] {
+  --panel: #ffffff;
+  --border: #dde1e8;
+  --text: #1b1d22;
+  --muted: #6b7280;
+  --accent: #3b6fe0;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+  cursor: default;
+}
+
+.hidden { display: none !important; }
+
+/* Layouts on the left, the focused window's title centred, the clock on
+   the right. */
+.bar {
+  box-sizing: border-box;
+  height: 100%; /* until main sends the panel's height */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 0 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+}
+
+:root[data-style="translucent"] .bar {
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+}
+
+:root[data-style="transparent"] .bar {
+  background: transparent;
+  border-color: transparent;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.layouts {
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thumb {
+  display: grid;
+  gap: 2px;
+  height: 20px;
+  padding: 2px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.zone {
+  all: unset;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--muted) 45%, var(--panel));
+}
+.zone:hover { background: var(--accent); }
+
+/* Nothing to move: the focused window can't be snapped (the desktop, an
+   admin app, a fixed-size dialog), or the helper is still starting. */
+.layouts.idle .zone { opacity: 0.45; }
+.layouts.idle .zone:hover { background: color-mix(in srgb, var(--muted) 45%, var(--panel)); }
+
+.focused {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 40vw;
+}
+
+.focused-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.focused-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.focused-title.message { color: var(--muted); }
+
+.clock {
+  justify-self: end;
+  display: flex;
+  gap: 8px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.clock-date { color: var(--muted); }

@@ -17,17 +17,18 @@ A personal Windows desktop-replacement launcher (Electron 44). It runs as a full
 main.js              Electron main process: window, tray, hotkey, auto-updater, ALL ipcMain handlers
 preload.js           contextBridge → window.launcherAPI (the only renderer↔main surface)
 overlay-preload.js   contextBridge → window.overlayAPI for the drag overlay (listen only; listed in build.files)
+panel-preload.js     contextBridge → window.panelAPI for the organizer panel (listed in build.files)
 lib/                 Main-process modules (store, layout, launcher, icons, favicon, settings, safe-file, window organizer, + system wrappers)
 lib/*.ps1            PowerShell helpers invoked by lib/*.js (asarUnpacked, see §6)
 spikes/organizer/    Throwaway Win32 experiments for the window organizer (not shipped, not tested; README has the findings)
-renderer/            index.html, renderer.js (all UI logic), styles.css, icons/*.svg; overlay.html/.js/.css (drag overlay, see §5.1)
+renderer/            index.html, renderer.js (all UI logic), styles.css, icons/*.svg; overlay.html/.js/.css (drag overlay) and panel.html/.js/.css (organizer panel), see §5.1
 scripts/build.js     Wraps electron-builder; re-embeds icon; renames installer to match latest.yml
 scripts/fix-exe-icon.js  Patches the exe icon post-build (safety net)
 build.bat            Local build helper for Windows (npm install → npm run dist)
 .github/workflows/release.yml  Manual "Release" workflow (windows-latest) → GitHub release
 .github/workflows/test.yml     "Test" workflow: npm test on push to main and on PRs (windows-latest)
 build/icon.ico       App/window/tray icon (electron-builder win icon)
-test/                node:test unit tests (store, settings, favicon, layout, zones, layouts); helpers.js stubs `electron` with a temp userData
+test/                node:test unit tests (store, settings, favicon, layout, zones, layouts, strip, autohide); helpers.js stubs `electron` with a temp userData
 Launchpad/           Icon sources (not used at runtime)
 ```
 
@@ -53,10 +54,10 @@ Dependencies: `electron-updater` (runtime); `electron`, `electron-builder` (dev)
   2. `createWindow()`, `createTray()`.
   3. `registerHotkey(settings.hotkey || 'CommandOrControl+Space')`.
   4. `applyHotkeyAppFocusSetting(settings.disableHotkeyInApps)`.
-  5. `organizer.setDragSnapping(settings.organizerEnabled)` (starts the window-manager helper only when on).
+  5. `organizer.configure(settings.organizerOptions())` (panels, drag snapping; starts the window-manager helper only when the organizer is on).
   6. If packaged and `notifyUpdates` is on, a background `autoUpdater.checkForUpdates()`.
 - Closing the window hides it to the tray by default (`minimizeToTrayOnClose !== false`). `isQuitting` distinguishes a real quit.
-- `will-quit` stops the foreground watcher and the window-manager helper, and calls `globalShortcut.unregisterAll()`.
+- `will-quit` stops the window-manager helper (which gives back the panels' AppBar space as it exits) and calls `globalShortcut.unregisterAll()`.
 - `activate` (macOS-style re-open) shows or recreates the window.
 
 ### 3.2 Window, tray, hotkey
@@ -64,7 +65,7 @@ Dependencies: `electron-updater` (runtime); `electron`, `electron-builder` (dev)
 - `createTray()`: tray icon. Left-click toggles the window. Context menu: Show / Start with Windows (checkbox) / Quit.
 - `toggleWindow()`: hide if visible and focused, otherwise show and focus.
 - **Global hotkey:** `registerHotkey(accel)` swaps the old accelerator for the new one. If the new one is claimed by another app it keeps the old one and returns false.
-- **"Disable hotkey while another app is focused":** `lib/foreground.js` runs `lib/foreground.ps1` as a long-lived process. It prints `app` / `none` on focus change. `setHotkeySuspended()` unregisters or re-registers the hotkey on each change. Launchpad's own PID is excluded so the hotkey can still hide it. The watcher restarts after 2 s if it dies.
+- **"Disable hotkey while another app is focused":** keeps the window-manager helper running (`windowmgr.setKeepAlive('hotkey')`) and follows its `foreground` events: `setHotkeySuspended(kind === 'app')` unregisters or re-registers the hotkey. Launchpad's own windows (`own`), the desktop and the taskbar/Start/search shell (`shell`) don't count, so the hotkey can still show and hide Launchpad from them. `helperExit` un-suspends it until the helper is back. (This replaced `lib/foreground.ps1`, which polled every 200 ms.)
 - **Auto-launch:** `app.setLoginItemSettings`. In dev it points at `electron.exe` + project path (`loginItemOptions`).
 
 ### 3.3 Auto-update
@@ -87,12 +88,13 @@ Renderer calls these through `launcherAPI` (preload method → channel):
 | USB | `system:listUsbDrives`, `system:ejectDrive` |
 | Open windows | `system:listOpenWindows`, `system:focusWindow` |
 | Window organizer | `organizer:listLayouts`, `organizer:placeWindow` (handle, layoutId, zoneId → `{ ok, error }`); push `overlay:state` to the drag overlay windows (not the main window) |
+| Organizer panel (`panel-preload.js`, not the main window) | `panel:snap` (layoutId, zoneId → `{ ok, error }`; moves the focused window into that zone on the panel's display), `panel:hover` (`{ layoutId, zoneId }` or null; full-size preview on the overlay); push `panel:state` (`{ layouts, focused: { title, iconDataUrl, snappable } \| null, helperUp, aspect, height }`). Main maps the sender to its panel's display. |
 | Bluetooth | `system:listBluetoothDevices`, `system:disconnectBluetoothDevice` |
 | Power | `system:shutdown`, `system:restart`, `system:sleep` |
 | Wi-Fi | `system:listWifiNetworks`, `system:connectWifi`, `system:disconnectWifi`, `system:openNetworkSettings` |
 | Misc system | `system:emptyRecycleBin` |
 | Window | `window:isFullscreen`, `window:toggleFullscreen` (+ push `fullscreen-changed`) |
-| Settings | `settings:getAutoLaunch/setAutoLaunch`, `getStartFullscreen/setStartFullscreen`, `getHotkey/setHotkey`, `getDisableHotkeyInApps/setDisableHotkeyInApps`, `getNotifyUpdates/setNotifyUpdates`, `getGoogleFaviconFallback/setGoogleFaviconFallback`, `getMinimizeToTrayOnClose/setMinimizeToTrayOnClose`, `getOrganizerEnabled/setOrganizerEnabled` |
+| Settings | `settings:getAutoLaunch/setAutoLaunch`, `getStartFullscreen/setStartFullscreen`, `getHotkey/setHotkey`, `getDisableHotkeyInApps/setDisableHotkeyInApps`, `getNotifyUpdates/setNotifyUpdates`, `getGoogleFaviconFallback/setGoogleFaviconFallback`, `getMinimizeToTrayOnClose/setMinimizeToTrayOnClose`, `getOrganizerEnabled/setOrganizerEnabled`, `getOrganizerPanel/setOrganizerPanel`, `getOrganizerSnapOnDrag/setOrganizerSnapOnDrag` (the organizer setters call `organizer.configure`) |
 | Updates | `app:getVersion`, `update:check`, `update:install` (+ push `update:status`) |
 | Backup | `backup:export`, `backup:import` |
 
@@ -114,7 +116,7 @@ Pattern used throughout: `store.load()` → mutate → `store.save(apps)` → `r
   - Custom icons are resized to 128×128 PNG.
   - Saved as `<userData>/icons/<id>.png`.
   - `iconIsCustom` protects a user-chosen icon from being overwritten by auto-detect.
-- **Open-window icons** are cached per exe path in `windowIconCache`.
+- **Open-window icons** (taskbar window list, organizer panel) are cached per exe path by `icons.exeIconDataUrl`.
 - **Backup format:** JSON array of entries, with each icon embedded as base64 `iconData` (stripped of `iconPath`). On import, icons are rewritten to `<userData>/icons/<id>.png`.
 
 ---
@@ -153,10 +155,12 @@ Common: `id` (UUID), `kind` (`'app'` | `'island'`), `parentId` (null = Home, or 
 - **Backup import** gives a fresh UUID to any entry whose `id` isn't a UUID or is a duplicate (ids become icon filenames). Children are re-pointed to the new id. A `parentId` that isn't an island in the backup becomes `null`.
 
 ### 4.2 `settings.json` keys
-`hotkey` (default `CommandOrControl+Space`), `startFullscreen`, `minimizeToTrayOnClose` (default true), `notifyUpdates`, `disableHotkeyInApps`, `googleFaviconFallback` (default true; absent = on), `organizerEnabled` (drag-to-snap; default false).
+`hotkey` (default `CommandOrControl+Space`), `startFullscreen`, `minimizeToTrayOnClose` (default true), `notifyUpdates`, `disableHotkeyInApps`, `googleFaviconFallback` (default true; absent = on), `organizerEnabled` (window organizer master switch; default false), `organizerPanel` (`always` / `autoHide` / `off`; default `always`), `organizerSnapOnDrag` (default true). `settings.organizerOptions()` fills in the organizer defaults.
 
 ### 4.3 Renderer `localStorage` keys (UI-only prefs, read before first paint)
-`launchpad-theme` (`light`/`dark`), `launchpad-accent`, `launchpad-wallpaper`, `launchpad-taskbar-style`, `launchpad-topbar-style`, `launchpad-taskbar-edge`, `launchpad-taskbar-position` (`right` = pinned side), `launchpad-taskbar-align` (`center`), `launchpad-tray-align` (`center`/`shared`), `launchpad-tray-order` (JSON), `launchpad-hide-add-buttons` (`1`), `launchpad-hide-app-names` (`1`).
+`launchpad-theme` (`light`/`dark`), `launchpad-accent`, `launchpad-wallpaper`, `launchpad-taskbar-style`, `launchpad-topbar-style`, `launchpad-taskbar-edge`, `launchpad-taskbar-position` (`right` = pinned side), `launchpad-taskbar-align` (`center`), `launchpad-tray-align` (`center`/`shared`), `launchpad-tray-order` (JSON), `launchpad-hide-add-buttons` (`1`), `launchpad-hide-app-names` (`1`), `launchpad-panel-style` (`translucent`/`transparent`; absent = solid).
+
+The overlay and panel windows load from `file://` like the main window, so they share this `localStorage`: they read `launchpad-theme`, `launchpad-accent` (and the panel `launchpad-panel-style`) and restyle on the `storage` event when Settings changes them.
 
 Split of responsibility: anything the main process must know before a renderer exists lives in `settings.json`. Pure visual prefs live in `localStorage`.
 
@@ -175,7 +179,7 @@ Split of responsibility: anything the main process must know before a renderer e
 - `findFirstFreeCell` (reading order, 8 columns) for new items. `findNearestFreeCell` spirals outward for drops.
 - Every write path in `main.js` calls `findNearestFreeCell` against `siblingOccupiedFootprints(...)`, so overlaps are resolved on the main side.
 
-### 5.1 Window organizer (`lib/zones.js`, `lib/strip.js`, `lib/organizer.js`)
+### 5.1 Window organizer (`lib/zones.js`, `lib/strip.js`, `lib/organizer.js`, `lib/panel.js`, `lib/autohide.js`)
 Separate from the launcher grid above, but the same integer-cell idea: a layout divides a display's work area into `cols × rows` cells.
 - `zones.zoneRect(layout, zone, workArea, gap)` → DIP rect. Grid lines are rounded once and shared by neighbouring zones; the gap insets the outer edges by `gap` and is split ceil/floor across inner lines, so neighbours are exactly `gap` apart.
 - `organizer.snapWindow(handle, layoutId, zoneId)`:
@@ -183,12 +187,21 @@ Separate from the launcher grid above, but the same integer-cell idea: a layout 
   2. Matches that monitor to an Electron display and computes the zone in DIP.
   3. Converts it with `screen.dipToScreenRect`, then `place` and `focus` via the helper.
   4. Maps helper failure codes to user-facing messages (`gone`, `denied` for elevated windows).
-- **Drag to snap** (`organizer.setDragSnapping`, setting `organizerEnabled`):
+- **`organizer.configure({ enabled, panel, snapOnDrag })`** applies the settings. `enabled` is the master switch: it keeps the helper running (`setKeepAlive('organizer')`), and while it's off only the taskbar's "Snap to" menu works. When turning off, the panels are removed before the helper is let go, so it's still there to give their space back.
+- **Drag to snap** (`organizerEnabled` and `organizerSnapOnDrag`):
   1. The helper's `dragStart` event starts a 10 ms poll of `screen.getCursorScreenPoint()`. The dragged window owns mouse capture, so nothing of ours gets mouse events during a drag. 16 ms would run at ~32 Hz, because Windows timers tick every 15.6 ms.
   2. `strip.shouldShow` shows the strip when the cursor is within 48 DIP of the work area's top, or over the strip itself (so a quick flick can't slip between polls). It stays while the cursor is within 48 DIP of the strip. `strip.zoneAt` finds the hovered zone.
   3. Main draws nothing itself. It sends the overlay for that display (a transparent, click-through, non-focusable, always-on-top window over its work area, created lazily per display and destroyed on any display change) the strip rects, the hovered zone and the full-size preview, all relative to the overlay. Messages go only when something changes.
   4. On `moveEnd`, if a zone is hovered and the drag wasn't cancelled, the window is placed in that zone on the cursor's display. Failures show a system notification, since Launchpad's own window is usually hidden.
-- `strip.computeStrip` lays out one thumbnail per layout, centred at the top of the work area, in the display's aspect ratio. Thumbnails shrink to fit narrow displays.
+- `strip.computeStrip` lays out one thumbnail per layout, centred at the top of the work area, in the display's aspect ratio. Thumbnails shrink to fit narrow displays. With the panel docked, the work area starts below it, so the strip hangs from the panel's bottom edge.
+- **Panel** (`lib/panel.js`, `renderer/panel.*`): one 32 DIP bar per display. Left: every layout as a small thumbnail whose zones are buttons; clicking one moves the focused window there, on that display (`organizer.snapFromPanel`), and hovering previews the zone full size on the overlay. Centre: the focused window's icon and title. Right: date and clock. Zones are dimmed when the focused window can't be snapped. Errors show in the title spot for 3 s.
+  - The window is `focusable: false` (`WS_EX_NOACTIVATE`), so clicking it leaves the user's window in the foreground; that's the window that moves. Topmost is set with `setAlwaysOnTop(true, 'screen-saver')` after creation: the constructor's `alwaysOnTop` doesn't take for these windows.
+  - It's transparent (for the looks), and Windows won't make a transparent Electron window shorter than its minimum window height (39 px at 100%). `setPanelBounds` cuts it to the panel's height with `setShape` (a window region), so the extra strip is neither drawn nor clickable.
+  - **Always shown:** the helper registers the window as an AppBar on the top edge (`appbarSet`), so the work area shrinks and maximized windows stop below it. Explorer's notifications reach the window through `hookWindowMessage` (`WM_APP + 0x42`): `ABN_POSCHANGED` re-docks it (debounced), `ABN_FULLSCREENAPP` triggers a fullscreen check. The `TaskbarCreated` broadcast (Explorer restarted and forgot its AppBars) re-registers it. A panel is only re-docked when its display's bounds or scaling change, not on the work-area change docking itself causes.
+  - **Auto-hide:** nothing is reserved. A 50 ms cursor poll feeds `autohide.step` (pure, tested): the panel comes down after the cursor rests 250 ms against the display's top edge (so a quick flick to a maximized window's close button doesn't trigger it), and goes 500 ms after the cursor leaves it (with a 16 DIP margin). Before coming down it runs a fresh fullscreen check, since no AppBar notification reaches it. It stays up during window drags.
+  - **Fullscreen:** a panel hides while its display is covered by a fullscreen window (helper `fullscreen` command, matched to displays by physical bounds). Checked on focus changes (and again 600 ms later, as apps go fullscreen just after coming to the front), on `ABN_FULLSCREENAPP`, and every 2 s while a panel is hidden or Explorer says a display is fullscreen. Explorer's flag alone isn't trusted: a full-screen click-through overlay can set it.
+  - **Focused window:** from the helper's `foreground` events; only visible `app`/`own` windows are shown. The exe icon comes from `icons.exeIconDataUrl`.
+  - Grid and scenes buttons from the plan arrive with Phases 4 and 5. There's no "active layout per display" yet; the panel shows every layout.
 - The plan and the Win32 findings behind it: `spikes/organizer/README.md`.
 
 ---
@@ -214,14 +227,18 @@ Each `.js` wrapper runs `powershell -NoProfile -NonInteractive -ExecutionPolicy 
 | `wifi.js` | `wifi.ps1` | `list` / `connect` / `disconnect` |
 | `windows.js` | `windows.ps1` | `list` / `focus` (open top-level app windows; filters cloaked UWP host windows) |
 | `power.js` | `power.ps1` | `shutdown` / `restart` / `sleep` |
-| `foreground.js` | `foreground.ps1` | Long-running watcher; prints `app`/`none` on focus change |
-| `windowmgr.js` | `windowmgr.ps1` | Long-running helper: `monitor` / `place` / `focus` requests, plus `dragStart` / `moveEnd` events (see below) |
+| `windowmgr.js` | `windowmgr.ps1` | Long-running helper: `monitor` / `place` / `focus` / `appbarSet` / `appbarRemove` / `fullscreen` requests, plus `ready` / `foreground` / `dragStart` / `moveEnd` events (see below) |
+| (started by `windowmgr.ps1`) | `appbar-guard.ps1` | Removes the panels' AppBars if the helper dies without doing it (see below) |
 
-**`windowmgr` is different from the others.** Compiling its C# takes ~300 ms, so it is spawned once and kept running: at startup while drag-to-snap is on, otherwise on the first Snap to request.
-- **Protocol:** JSON lines both ways over stdin/stdout. Replies are matched by `id`: `{ ok: true, … }` or `{ ok: false, code }`. Events carry `ev` instead.
+**`windowmgr` is different from the others.** Compiling its C# takes ~300 ms, so it is spawned once and kept running: from startup while something needs its events (`setKeepAlive(owner, on)`; owners are `organizer` and `hotkey`), otherwise on the first Snap to request.
+- **Protocol:** JSON lines both ways over stdin/stdout. Replies are matched by `id`: `{ ok: true, … }` or `{ ok: false, code }`. Events carry `ev` instead. `ready` (with the `TaskbarCreated` message id) comes first; `currentForeground()` returns the last `foreground` event.
 - **Lifetime:** it exits when its stdin closes, so it can't outlive Launchpad.
-- **Failures:** a request that gets no reply within 5 s kills it. While drag-to-snap is on (`setKeepAlive`), it's restarted 2 s after dying, like `foreground.js`; otherwise the next request starts a new one. Listeners get `{ ev: 'helperExit' }` either way.
-- **Drag events:** a `SetWinEventHook` for move/size start and end runs on its own message-loop thread and skips Launchpad's process (`-ExcludePid`).
+- **Failures:** a request that gets no reply within 5 s kills it. While any owner wants it, it's restarted 2 s after dying; otherwise the next request starts a new one. Listeners get `{ ev: 'helperExit' }` either way.
+- **Foreground events:** a `SetWinEventHook` for `EVENT_SYSTEM_FOREGROUND` (all processes), plus `EVENT_OBJECT_NAMECHANGE` scoped to the foreground window's process, so tab and document title changes come through. Each event carries `kind` (`app`, `own`, `shell`, `none`), `visible`, `title`, `exe` and `snappable`. One is sent at startup.
+- **AppBars:** `appbarSet` registers the window (`ABM_NEW`; if that fails because a dead helper registered it, `ABM_REMOVE` and again), then `ABM_QUERYPOS`/`ABM_SETPOS` on the top edge. It skips `ABM_SETPOS` when the rect hasn't changed, because every `SETPOS` notifies the other AppBars (the other panels included), which would answer by re-docking. On stdin EOF it removes every AppBar it registered.
+- **Crash cleanup (`appbar-guard.ps1`):** Node puts every child process in a job object that Windows kills along with Launchpad, so after a crash the helper never sees EOF and Explorer keeps the space reserved. The helper therefore starts `appbar-guard.ps1` itself (Node's job lets its processes' children leave it), tells it `add <hwnd>` / `remove <hwnd>` on stdin, and when that pipe closes (the helper exited, however) the guard removes whatever is left. Explorer accepts `ABM_REMOVE` for a window that's already gone. A detached spawn from Node doesn't work: PowerShell 5.1 exits immediately without a console.
+- **Fullscreen check:** for each monitor, walks the z-order from the top: the first window on it that covers it entirely (and isn't maximized) makes it fullscreen. Skipped on the way: shell windows, `WS_EX_NOACTIVATE`/tool/click-through windows (Launchpad's panels and overlays among them), and smaller always-on-top windows.
+- **Drag events:** a `SetWinEventHook` for move/size start and end runs on the same message-loop thread and skips Launchpad's process (`-ExcludePid`).
   - `dragStart` is only sent for a window being *moved*, not resized, and only for one worth snapping: one the taskbar would show, resizable, and not elevated. Asking the window what's under the cursor proved unreliable, because events arrive a moment late and a fast hand has already left the title bar or border. So the helper watches the window's own location changes (a hook scoped to that process) until it moves without resizing. Size-only changes are ignored, which also covers a snapped window restoring its size as the drag starts. Maximized windows count as moved straight away.
   - `moveEnd.cancelled` is true when the primary mouse button is still down as the loop ends, which is how Esc shows up.
 - **DPI:** it sets per-monitor DPI awareness on its threads and works in physical pixels.
@@ -265,7 +282,12 @@ Single page. Regions:
 
 Rendering pattern: the renderer keeps a local `apps` cache. Each mutation calls `refreshFromServer(window.launcherAPI.X(...))`, which replaces the cache with the `decorate()`d list returned by main, then re-renders. If main throws, `refreshFromServer` re-renders from the unchanged cache (undoing any optimistic drag) and shows the error via `showAlert`. `ipcErrorMessage()` strips Electron's "Error invoking remote method" prefix.
 
-### 7.3 Styling
+### 7.3 Organizer windows
+- `overlay.html/.js/.css`: one per display, over its work area, click-through. Draws the drag strip and the full-size zone preview from `overlay:state` (preview only, no strip, when hovering a panel zone).
+- `panel.html/.js/.css`: one per display. Builds the layout thumbnails with CSS grid on each layout's own cells (rebuilt only when the layouts or the display's shape change), shows the focused window and a clock, and follows `launchpad-panel-style` (`data-style` on `<html>`).
+- Settings (main window): "Window organizer", "Organizer panel" (Always shown / Auto-hide / Off), "Organizer panel look" and "Snap windows by dragging them to the top of the screen". The dependent rows are disabled while the organizer is off.
+
+### 7.4 Styling
 `styles.css` uses CSS custom properties with dark as default and light via `[data-theme="light"]`. The accent is `--accent`. The wallpaper is `--wallpaper`. Taskbar and topbar styles are `data-style` attributes. On `#taskbar`: `data-pinned-side` (right), `data-align` (center), `data-tray-align`. On `<html>`: `data-theme`, `data-taskbar-edge` (top/left/right; absent = bottom), `data-taskbar-vertical` (left/right), `data-hide-add-buttons`, `data-hide-app-names`.
 
 ---
@@ -293,7 +315,7 @@ Rendering pattern: the renderer keeps a local `apps` cache. Each mutation calls 
 - Freeform grid with islands (folders): nested, collapsible, resizable, colorable, optional name labels. Multi-select with marquee, bulk move/pin/remove.
 - Auto icons (exe, favicon), custom icon picker, "Detect Missing Icons", "Restore Default Apps".
 - Taskbar: pins (drag-reorder), running-window buttons (focus), search across everything, recent items, tray widgets (volume + per-app mixer + output device, USB eject, Bluetooth disconnect, Wi-Fi connect, power, clock, fullscreen), reorderable tray.
-- Window snapping: right-click an open window on the taskbar to place it in a zone of one of five built-in layouts, on the monitor it's on. With "Snap windows by dragging them to the top of the screen" on (Settings), dragging any window to the top of a display shows a strip of those layouts; dropping on a zone places it there. Esc or moving away cancels.
+- Window snapping: right-click an open window on the taskbar to place it in a zone of one of five built-in layouts, on the monitor it's on. With the window organizer on (Settings), every display gets a panel along the top (always shown or auto-hiding; maximized windows stop below it, fullscreen apps cover it) whose layout zones move the focused window there, plus the focused window's title and a clock. Dragging any window to the top of a display shows a strip of the layouts below the panel; dropping on a zone places it there. Esc or moving away cancels.
 - Taskbar placement: bottom/top/left/right edge, left/center alignment, tray center/shared alignment, solid/translucent/transparent bar styles, light/dark theme, accent color, custom wallpaper.
 - Global hotkey (customisable; optional suspend while another app is focused). Tray icon, minimize-to-tray, start with Windows, start fullscreen.
 - Export/import JSON backup (with icons). Auto-update check with notification and in-app download/install.
@@ -311,11 +333,13 @@ Rendering pattern: the renderer keeps a local `apps` cache. Each mutation calls 
 
 ## 11. Known issues and open items
 
-1. **No UI tests.** `npm test` covers the pure/main-side modules (`store`, `settings`, `favicon`, `layout`, `zones`, `layouts`) and runs in CI. The renderer, IPC handlers and PowerShell wrappers are verified manually (`npm start`).
+1. **No UI tests.** `npm test` covers the pure/main-side modules (`store`, `settings`, `favicon`, `layout`, `zones`, `layouts`, `strip`, `autohide`) and runs in CI. The renderer, IPC handlers and PowerShell wrappers are verified manually (`npm start`).
 2. **Non-ASCII text from most PowerShell helpers is garbled.** They write in the console's OEM code page, so "Café — 日本" reaches Node as "Caf� - ??" (window titles, Wi-Fi/Bluetooth/device names). `windowmgr.ps1` already writes UTF-8; the others need `[Console]::OutputEncoding` set the same way.
 3. **Window organizer gaps:**
-   - Untested so far: moving a window between monitors with different scaling (the second `place` pass), the "can't move an admin window" path, and how drag-to-snap sits alongside Windows 11's own Snap Layouts flyout at the top edge. See `spikes/organizer/README.md`.
+   - Untested so far: moving a window between monitors with different scaling (the second `place` pass), panels on a monitor above 100%, the "can't move an admin window" path, how drag-to-snap and the panel sit alongside Windows 11's own Snap Layouts flyout at the top edge, a Windows taskbar docked at the top, an Explorer restart (`TaskbarCreated`), and a packaged build. See `spikes/organizer/README.md`.
    - A release at the very top edge with no zone hovered leaves Windows' own maximize alone, by design.
+   - Launchpad's own main window counts as a fullscreen app when it's fullscreen and in front, so it covers the panel on that display like any other.
+   - Tested: a force-killed Launchpad gives the reserved space back (`appbar-guard.ps1`).
 
 ---
 

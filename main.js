@@ -26,7 +26,6 @@ const openWindows = require('./lib/windows');
 const bluetooth = require('./lib/bluetooth');
 const power = require('./lib/power');
 const wifi = require('./lib/wifi');
-const foreground = require('./lib/foreground');
 const layouts = require('./lib/layouts');
 const organizer = require('./lib/organizer');
 const windowmgr = require('./lib/windowmgr');
@@ -125,16 +124,24 @@ function setHotkeySuspended(suspend) {
   }
 }
 
-// Starts/stops watching the foreground window for the "disable hotkey while
-// another app is focused" setting. Launchpad's own window doesn't count as
-// "another app", so the hotkey can still hide it.
+// The "disable hotkey while another app is focused" setting. The window
+// helper reports every foreground change; Launchpad's own windows, the
+// desktop and the taskbar/Start/search shell don't count as "another app",
+// so the hotkey can still show and hide Launchpad from them.
+let hotkeyFollowsFocus = false;
+
+windowmgr.onEvent((ev) => {
+  if (!hotkeyFollowsFocus) return;
+  if (ev.ev === 'foreground') setHotkeySuspended(ev.kind === 'app');
+  // Never left stuck disabled while the helper restarts.
+  else if (ev.ev === 'helperExit') setHotkeySuspended(false);
+});
+
 function applyHotkeyAppFocusSetting(enable) {
-  if (enable && process.platform === 'win32') {
-    foreground.start(process.pid, setHotkeySuspended);
-  } else {
-    foreground.stop();
-    setHotkeySuspended(false);
-  }
+  hotkeyFollowsFocus = !!enable && process.platform === 'win32';
+  windowmgr.setKeepAlive('hotkey', hotkeyFollowsFocus);
+  const current = windowmgr.currentForeground();
+  setHotkeySuspended(hotkeyFollowsFocus && !!current && current.kind === 'app');
 }
 
 function decorate(apps) {
@@ -280,7 +287,7 @@ if (!gotLock) {
     createTray();
     registerHotkey(settings.load().hotkey || DEFAULT_HOTKEY);
     applyHotkeyAppFocusSetting(!!settings.load().disableHotkeyInApps);
-    organizer.setDragSnapping(!!settings.load().organizerEnabled);
+    organizer.configure(settings.organizerOptions());
 
     // Background check only - Settings always checks fresh on its own when
     // opened, so this is purely for the opt-in native notification. Update
@@ -292,8 +299,7 @@ if (!gotLock) {
   });
 
   app.on('will-quit', () => {
-    foreground.stop();
-    windowmgr.stop();
+    windowmgr.stop(); // the helper gives back the panels' space as it exits
     globalShortcut.unregisterAll();
   });
 
@@ -794,30 +800,11 @@ ipcMain.handle('system:ejectDrive', async (_e, driveLetter) => {
   }
 });
 
-// Icon extraction is a slow shell call, and the same exe gets asked about
-// on every poll while the window list is open - cache per path so it only
-// happens once per unique running app.
-const windowIconCache = new Map();
-
-async function iconDataUrlForExe(exePath) {
-  if (!exePath) return null;
-  if (windowIconCache.has(exePath)) return windowIconCache.get(exePath);
-  let dataUrl = null;
-  try {
-    const img = await icons.extractIcon(exePath);
-    dataUrl = img ? img.toDataURL() : null;
-  } catch {
-    dataUrl = null;
-  }
-  windowIconCache.set(exePath, dataUrl);
-  return dataUrl;
-}
-
 ipcMain.handle('system:listOpenWindows', async () => {
   try {
     const list = await openWindows.listWindows(process.pid);
     for (const w of list) {
-      w.iconDataUrl = await iconDataUrlForExe(w.path);
+      w.iconDataUrl = await icons.exeIconDataUrl(w.path);
     }
     return list;
   } catch {
@@ -841,6 +828,20 @@ ipcMain.handle('organizer:placeWindow', async (_e, { handle, layoutId, zoneId })
   } catch (err) {
     return { ok: false, error: err.message };
   }
+});
+
+// From the organizer panel (panel-preload.js). The organizer works out which
+// panel, and so which display, each message came from.
+ipcMain.handle('panel:snap', async (e, { layoutId, zoneId }) => {
+  try {
+    return await organizer.snapFromPanel(e.sender, layoutId, zoneId);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('panel:hover', (e, zone) => {
+  organizer.previewFromPanel(e.sender, zone);
 });
 
 ipcMain.handle('system:listBluetoothDevices', async () => {
@@ -1129,13 +1130,27 @@ ipcMain.handle('settings:setDisableHotkeyInApps', (_e, enable) => {
   return { ok: true };
 });
 
-// Drag-to-snap. Off by default: while on, a helper process watches every
-// window drag on the system.
-ipcMain.handle('settings:getOrganizerEnabled', () => !!settings.load().organizerEnabled);
+// The window organizer. Off by default: while on, a helper process watches
+// focus changes and window drags across the system.
+ipcMain.handle('settings:getOrganizerEnabled', () => settings.organizerOptions().enabled);
 
 ipcMain.handle('settings:setOrganizerEnabled', (_e, enable) => {
-  settings.save({ organizerEnabled: !!enable });
-  organizer.setDragSnapping(!!enable);
+  organizer.configure(settings.organizerOptions(settings.save({ organizerEnabled: !!enable })));
+  return { ok: true };
+});
+
+ipcMain.handle('settings:getOrganizerPanel', () => settings.organizerOptions().panel);
+
+ipcMain.handle('settings:setOrganizerPanel', (_e, mode) => {
+  if (!settings.PANEL_MODES.includes(mode)) return { ok: false, error: 'Unknown panel mode.' };
+  organizer.configure(settings.organizerOptions(settings.save({ organizerPanel: mode })));
+  return { ok: true };
+});
+
+ipcMain.handle('settings:getOrganizerSnapOnDrag', () => settings.organizerOptions().snapOnDrag);
+
+ipcMain.handle('settings:setOrganizerSnapOnDrag', (_e, enable) => {
+  organizer.configure(settings.organizerOptions(settings.save({ organizerSnapOnDrag: !!enable })));
   return { ok: true };
 });
 
