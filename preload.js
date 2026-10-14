@@ -47,6 +47,12 @@ contextBridge.exposeInMainWorld('launcherAPI', {
   isFullscreen: () => ipcRenderer.invoke('window:isFullscreen'),
   toggleFullscreen: () => ipcRenderer.invoke('window:toggleFullscreen'),
   onFullscreenChanged: (callback) => ipcRenderer.on('fullscreen-changed', (_e, isFullscreen) => callback(isFullscreen)),
+  // The organizer's panel as the top bar: { hosted, inset } pushes, the
+  // panel's toolbar clicks ({ action, id, ids, x, y }), and the breadcrumb
+  // to show there ([{ id, name }]).
+  onTopbarState: (callback) => ipcRenderer.on('topbar:state', (_e, state) => callback(state)),
+  onTopbarAction: (callback) => ipcRenderer.on('topbar:action', (_e, action) => callback(action)),
+  setTopbarCrumbs: (crumbs) => ipcRenderer.invoke('topbar:setCrumbs', crumbs),
   addIsland: (name, parentId, color) => ipcRenderer.invoke('folder:add', { name, parentId, color }),
   renameItem: (id, name) => ipcRenderer.invoke('item:rename', { id, name }),
   setColor: (id, color) => ipcRenderer.invoke('item:setColor', { id, color }),

@@ -4,9 +4,15 @@
 // sends what to show. The panel window never takes focus, so the user's own
 // window stays in front while they click here, and that's the window that
 // moves.
+//
+// The panel on the display Launchpad's main window is on is also its top
+// bar: main adds `launchpad` to the state, and the window's breadcrumb and
+// toolbar buttons show here instead of in the window. Clicks on them go
+// back to the main window (lib/panel.js, main.js).
 
 // Loaded from file:// like the main window, so it shares its localStorage
-// and follows theme, accent and look changes made there as they happen.
+// and follows theme, accent, top bar look and the add-button setting as
+// they change there.
 function applyLook() {
   try {
     const root = document.documentElement;
@@ -14,27 +20,47 @@ function applyLook() {
     const accent = localStorage.getItem('launchpad-accent');
     if (accent) root.style.setProperty('--accent', accent);
     else root.style.removeProperty('--accent');
-    const look = localStorage.getItem('launchpad-panel-style');
+    const look = localStorage.getItem('launchpad-topbar-style');
     if (look === 'translucent' || look === 'transparent') root.setAttribute('data-style', look);
     else root.removeAttribute('data-style');
+    root.toggleAttribute('data-hide-add-buttons', localStorage.getItem('launchpad-hide-add-buttons') === '1');
   } catch {}
 }
 applyLook();
 window.addEventListener('storage', applyLook);
 
+// The same icon files as the main window's toolbar, inline so they take the
+// button's colour (see ICON_FILES in renderer.js).
+function loadIcon(name) {
+  try {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', `icons/${name}.svg`, false); // synchronous - tiny local files
+    xhr.send(null);
+    if (xhr.status === 200 || xhr.status === 0) return xhr.responseText;
+  } catch {}
+  return '';
+}
+const ICONS = { settings: loadIcon('settings'), fullscreenEnter: loadIcon('fullscreen-enter'), fullscreenExit: loadIcon('fullscreen-exit') };
+
 const barEl = document.getElementById('bar');
 const layoutsEl = document.getElementById('layouts');
+const breadcrumbEl = document.getElementById('breadcrumb');
 const iconEl = document.getElementById('focusedIcon');
 const titleEl = document.getElementById('focusedTitle');
 const gridBtn = document.getElementById('gridBtn');
+const fullscreenBtn = document.getElementById('fullscreenBtn');
 const clockEl = document.getElementById('clock');
+
+document.getElementById('settingsBtn').innerHTML = ICONS.settings;
 
 const THUMB_HEIGHT = 20; // px; the width follows the shape of the display's work area
 const MESSAGE_MS = 3000;
 
-// { layouts, focused: { title, iconDataUrl, snappable } | null, helperUp, gridHotkey, aspect, height }
+// { layouts, focused: { title, iconDataUrl, snappable } | null, helperUp, gridHotkey, aspect, height,
+//   launchpad: { crumbs: [{ id, name }], fullscreen } | null }
 let state = null;
 let layoutsKey = '';
+let crumbsKey = '';
 let messageTimer = null;
 
 const canSnap = () => !!(state && state.helperUp && state.focused && state.focused.snappable);
@@ -94,6 +120,79 @@ gridBtn.addEventListener('click', async () => {
   if (!result.ok) showMessage(result.error);
 });
 
+// ---------- Launchpad's toolbar ----------
+
+const toolbarAction = (action, detail = {}) => window.panelAPI.launchpad(action, detail);
+
+for (const [id, action] of [
+  ['layoutsBtn', 'layouts'],
+  ['settingsBtn', 'settings'],
+  ['newIslandBtn', 'newIsland'],
+  ['addAppBtn', 'addApp'],
+  ['fullscreenBtn', 'fullscreen'],
+]) {
+  document.getElementById(id).addEventListener('click', () => toolbarAction(action));
+}
+
+const isLaunchpadDrag = (e) => e.dataTransfer.types.includes('application/x-launchpad-id');
+
+// The same breadcrumb as the main window's. Dropping apps or islands
+// dragged from the window onto a crumb moves them there, and the current
+// island's crumb has the island's menu, both as in the window.
+function buildCrumbs(crumbs) {
+  breadcrumbEl.replaceChildren();
+  crumbs.forEach((c, i) => {
+    if (i > 0) {
+      const sep = document.createElement('span');
+      sep.className = 'crumb-sep';
+      sep.textContent = '›';
+      breadcrumbEl.appendChild(sep);
+    }
+    const last = i === crumbs.length - 1;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'crumb' + (last ? ' current' : '');
+    btn.textContent = c.name;
+    btn.addEventListener('click', () => toolbarAction('crumb', { id: c.id }));
+    if (last && c.id) {
+      btn.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        toolbarAction('crumbMenu', { id: c.id, x: e.screenX, y: e.screenY });
+      });
+    }
+    btn.addEventListener('dragover', (e) => {
+      if (!isLaunchpadDrag(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      btn.classList.add('drag-over');
+    });
+    btn.addEventListener('dragleave', () => btn.classList.remove('drag-over'));
+    btn.addEventListener('drop', (e) => {
+      if (!isLaunchpadDrag(e)) return;
+      e.preventDefault();
+      btn.classList.remove('drag-over');
+      const group = e.dataTransfer.getData('application/x-launchpad-ids');
+      const ids = group ? JSON.parse(group) : [e.dataTransfer.getData('application/x-launchpad-id')];
+      toolbarAction('drop', { id: c.id, ids });
+    });
+    breadcrumbEl.appendChild(btn);
+  });
+}
+
+function renderLaunchpad(launchpad) {
+  document.documentElement.toggleAttribute('data-launchpad', !!launchpad);
+  if (!launchpad) return;
+  const key = JSON.stringify(launchpad.crumbs);
+  if (key !== crumbsKey) {
+    crumbsKey = key;
+    buildCrumbs(launchpad.crumbs);
+  }
+  fullscreenBtn.innerHTML = launchpad.fullscreen ? ICONS.fullscreenExit : ICONS.fullscreenEnter;
+  fullscreenBtn.title = launchpad.fullscreen ? 'Exit fullscreen' : 'Enter fullscreen';
+}
+
+// ---------- the focused window ----------
+
 function showFocused() {
   const f = state && state.focused;
   titleEl.classList.remove('message');
@@ -132,6 +231,7 @@ function render(next) {
   gridBtn.classList.toggle('idle', !canSnap());
   const keys = next.gridHotkey ? ` (${next.gridHotkey.replace('CommandOrControl', 'Ctrl')})` : '';
   gridBtn.title = `Grid placer${keys}: size the window to any block of cells`;
+  renderLaunchpad(next.launchpad);
   if (!messageTimer) showFocused();
 }
 

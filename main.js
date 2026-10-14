@@ -12,6 +12,7 @@ const {
   globalShortcut,
   shell,
   Notification,
+  screen,
 } = require('electron');
 
 const store = require('./lib/store');
@@ -28,6 +29,7 @@ const power = require('./lib/power');
 const wifi = require('./lib/wifi');
 const layouts = require('./lib/layouts');
 const organizer = require('./lib/organizer');
+const panel = require('./lib/panel');
 const windowmgr = require('./lib/windowmgr');
 const { autoUpdater } = require('electron-updater');
 
@@ -260,7 +262,47 @@ function createWindow() {
   // state changes to the renderer instead of only answering on request.
   mainWindow.on('enter-full-screen', () => mainWindow.webContents.send('fullscreen-changed', true));
   mainWindow.on('leave-full-screen', () => mainWindow.webContents.send('fullscreen-changed', false));
+
+  // With the organizer's panel on, the panel on this window's display is its
+  // top bar (lib/panel.js), so the panel follows the window around.
+  for (const event of ['show', 'hide', 'minimize', 'restore', 'move', 'resize', 'enter-full-screen', 'leave-full-screen']) {
+    mainWindow.on(event, updateTopbarHost);
+  }
+  mainWindow.on('closed', () => {
+    lastTopbarHost = '';
+    panel.setLaunchpad(null);
+  });
+  mainWindow.webContents.on('did-finish-load', () => mainWindow.webContents.send('topbar:state', panel.hostState()));
+  updateTopbarHost();
 }
+
+// ---------- the panel as Launchpad's top bar ----------
+
+let lastTopbarHost = '';
+
+function updateTopbarHost() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const info = {
+    hwnd: Number(mainWindow.getNativeWindowHandle().readBigUInt64LE(0)),
+    displayId: screen.getDisplayMatching(mainWindow.getBounds()).id,
+    shown: mainWindow.isVisible() && !mainWindow.isMinimized(),
+    fullscreen: mainWindow.isFullScreen(),
+  };
+  const key = JSON.stringify(info);
+  if (key === lastTopbarHost) return; // 'move' fires all through a drag
+  lastTopbarHost = key;
+  panel.setLaunchpad(info);
+}
+
+app.whenReady().then(() => {
+  for (const event of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(event, updateTopbarHost);
+});
+
+// Whether the toolbar is on a panel (the window hides its own) and how far
+// down its fullscreen content has to start.
+panel.onHostChange((state) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('topbar:state', state);
+});
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -865,6 +907,42 @@ ipcMain.handle('panel:snap', async (e, { layoutId, zoneId }) => {
 
 ipcMain.handle('panel:hover', (e, zone) => {
   organizer.previewFromPanel(e.sender, zone);
+});
+
+// The toolbar buttons on the panel carrying Launchpad's top bar. Everything
+// but fullscreen is done by the main window, which comes to the front for it:
+// the click went to Launchpad, so Windows lets it take the foreground.
+const TOPBAR_ACTIONS = ['crumb', 'crumbMenu', 'drop', 'layouts', 'settings', 'newIsland', 'addApp', 'fullscreen'];
+
+ipcMain.handle('panel:launchpad', (e, request) => {
+  if (!mainWindow || !panel.isHostSender(e.sender)) return { ok: false };
+  const { action, id = null, ids = [], x = 0, y = 0 } = request || {};
+  if (!TOPBAR_ACTIONS.includes(action)) return { ok: false };
+  if (action === 'fullscreen') {
+    mainWindow.setFullScreen(!mainWindow.isFullScreen());
+    return { ok: true };
+  }
+  showWindow();
+  const message = { action, id: typeof id === 'string' ? id : null };
+  if (action === 'drop') message.ids = Array.isArray(ids) ? ids.filter((v) => typeof v === 'string') : [];
+  if (action === 'crumbMenu') {
+    // The menu opens in the window, under where the crumb was right-clicked.
+    const content = mainWindow.getContentBounds();
+    message.x = Math.max(0, Math.min(content.width - 1, Math.round(x - content.x)));
+    message.y = Math.max(0, Math.min(content.height - 1, Math.round(y - content.y)));
+  }
+  mainWindow.webContents.send('topbar:action', message);
+  return { ok: true };
+});
+
+// The breadcrumb the main window shows, for the panel carrying its top bar.
+ipcMain.handle('topbar:setCrumbs', (_e, crumbs) => {
+  if (!Array.isArray(crumbs)) return;
+  panel.setCrumbs(
+    crumbs
+      .slice(0, 32)
+      .map((c) => ({ id: c && typeof c.id === 'string' ? c.id : null, name: String((c && c.name) || '') }))
+  );
 });
 
 ipcMain.handle('panel:openGrid', async (e) => {
