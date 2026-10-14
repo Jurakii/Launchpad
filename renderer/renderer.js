@@ -112,6 +112,9 @@ const taskbarEdgeSelect = document.getElementById('taskbarEdgeSelect');
 const notifyUpdatesToggle = document.getElementById('notifyUpdatesToggle');
 const googleFaviconToggle = document.getElementById('googleFaviconToggle');
 const disableHotkeyInAppsToggle = document.getElementById('disableHotkeyInAppsToggle');
+const organizerToggle = document.getElementById('organizerToggle');
+const organizerPanelSelect = document.getElementById('organizerPanelSelect');
+const panelStyleSelect = document.getElementById('panelStyleSelect');
 const snapOnDragToggle = document.getElementById('snapOnDragToggle');
 const updateStatusLabel = document.getElementById('updateStatusLabel');
 const updateActionBtn = document.getElementById('updateActionBtn');
@@ -2431,7 +2434,11 @@ settingsBtn.addEventListener('click', async () => {
   googleFaviconToggle.checked = await window.launcherAPI.getGoogleFaviconFallback();
   hotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getHotkey());
   disableHotkeyInAppsToggle.checked = await window.launcherAPI.getDisableHotkeyInApps();
-  snapOnDragToggle.checked = await window.launcherAPI.getOrganizerEnabled();
+  organizerToggle.checked = await window.launcherAPI.getOrganizerEnabled();
+  organizerPanelSelect.value = await window.launcherAPI.getOrganizerPanel();
+  panelStyleSelect.value = localStorage.getItem('launchpad-panel-style') || 'solid';
+  snapOnDragToggle.checked = await window.launcherAPI.getOrganizerSnapOnDrag();
+  updateOrganizerRows();
   settingsModalOverlay.classList.remove('hidden');
   // A download in progress or already finished shouldn't be interrupted by
   // re-opening Settings and kicking off a fresh check - just re-show where
@@ -2740,8 +2747,35 @@ disableHotkeyInAppsToggle.addEventListener('change', () => {
   window.launcherAPI.setDisableHotkeyInApps(disableHotkeyInAppsToggle.checked);
 });
 
+// The organizer's own options only mean something while it's on.
+function updateOrganizerRows() {
+  const off = !organizerToggle.checked;
+  organizerPanelSelect.disabled = off;
+  panelStyleSelect.disabled = off || organizerPanelSelect.value === 'off';
+  snapOnDragToggle.disabled = off;
+}
+
+organizerToggle.addEventListener('change', () => {
+  updateOrganizerRows();
+  window.launcherAPI.setOrganizerEnabled(organizerToggle.checked);
+});
+
+organizerPanelSelect.addEventListener('change', () => {
+  updateOrganizerRows();
+  window.launcherAPI.setOrganizerPanel(organizerPanelSelect.value);
+});
+
+// The panel windows read this from the shared localStorage and restyle
+// themselves when it changes (see renderer/panel.js).
+panelStyleSelect.addEventListener('change', () => {
+  try {
+    if (panelStyleSelect.value === 'solid') localStorage.removeItem('launchpad-panel-style');
+    else localStorage.setItem('launchpad-panel-style', panelStyleSelect.value);
+  } catch {}
+});
+
 snapOnDragToggle.addEventListener('change', () => {
-  window.launcherAPI.setOrganizerEnabled(snapOnDragToggle.checked);
+  window.launcherAPI.setOrganizerSnapOnDrag(snapOnDragToggle.checked);
 });
 
 notifyUpdatesToggle.addEventListener('change', () => {

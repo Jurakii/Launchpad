@@ -29,6 +29,7 @@
       "main.js",
       "preload.js",
       "overlay-preload.js",
+      "panel-preload.js",
       "lib/**/*",
       "renderer/**/*",
       "build/icon.ico"
