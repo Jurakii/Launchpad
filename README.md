@@ -15,7 +15,7 @@ It runs as its own window (or full screen). The window has a grid of your apps g
   - Wi-Fi
   - clock
   - power
-- **Window snapping:** right-click an open window on the taskbar to snap it into a half, third, two thirds, main + stack or quarter of its screen. Turn on **Snap windows by dragging them to the top of the screen** in Settings to do the same by dragging any window to the top of a screen and dropping it on a zone.
+- **Window snapping:** right-click an open window on the taskbar to snap it into a half, third, two thirds, main + stack or quarter of its screen. Turn on **Window organizer** in Settings for a panel along the top of each screen: click a zone in it to move the window you're using there, or drag any window to the top of a screen and drop it on a zone. The panel shows the window's title and a clock, can auto-hide, and stays out of the way of fullscreen apps. Maximized windows stop below it.
 - **Layout and look:** dock the taskbar to any screen edge. Align it to the edge or center (Windows 10 or 11 style), and reorder the tray icons. Choose light or dark, an accent color, solid, translucent or transparent bars, and a wallpaper.
 - **Icons:** Launchpad picks icons automatically from the program or website. You can also choose your own.
 - **Backups and updates:** export and import your whole setup, icons included. Updates install from inside the app.
