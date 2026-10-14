@@ -77,9 +77,12 @@ The full numbers for the last run are in `last-run.json`.
 3. **Dragging onto the second monitor by hand.** Placement there is proven
    programmatically, but no drag onto it was recorded. Run with `--watch 60`
    and drag Notepad to the left monitor.
-4. **Crash without `ABM_REMOVE`.** Not tested on purpose: if Explorer doesn't
-   reclaim the space when the bar's window dies, the work area stays shrunk
-   until Explorer restarts. Worth testing once in a VM or on a spare session.
+4. **Crash without `ABM_REMOVE`.** Answered in Phase 3: Explorer does *not*
+   reclaim the space when the bar's window dies, and the helper can't clean
+   up either, because Node's job object kills it along with Launchpad. An
+   `ABM_REMOVE` for the dead window handle does work, so `lib/appbar-guard.ps1`
+   (started by the helper, outside that job) sends it. Tested by force-killing
+   a dev build: both monitors got their space back.
 
 ## Found along the way
 

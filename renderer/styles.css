@@ -1129,6 +1129,9 @@ body.file-drag-over::after {
 /* ---------- Settings modal ---------- */
 
 .settings-row { padding: 6px 0; }
+/* Options that depend on another setting being on. */
+.settings-row:has(> select:disabled),
+.settings-row:has(.switch-row > input:disabled) { opacity: 0.5; }
 .switch-row {
   display: flex;
   flex-direction: row !important;
