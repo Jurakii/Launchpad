@@ -170,3 +170,51 @@ test('exportData and importData round-trip the user layouts, hidden list and gap
   assert.strictEqual(data.gap, 4);
   assert.deepStrictEqual(second.layouts.importData(null).layouts.map((l) => l.id), BUILT_IN_IDS);
 });
+
+const savedScene = (id, name = 'Coding', islandId = null) => ({
+  id,
+  name,
+  islandId,
+  savedAt: 1,
+  windows: [
+    {
+      exe: 'C:\Apps\Code.exe',
+      title: 'main.js',
+      display: { id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 } },
+      rect: { x: 0, y: 0, w: 0.5, h: 1 },
+      maximized: false,
+    },
+  ],
+});
+
+test('scenes: saveScene adds and replaces by id, renameScene and removeScene change the file', () => {
+  const { file, layouts } = setup();
+  layouts.saveScene(savedScene('a'));
+  layouts.saveScene(savedScene('b', 'Writing', 'island-1'));
+  layouts.saveScene({ ...savedScene('a'), name: '  Coding 2  ' });
+  assert.deepStrictEqual(layouts.load().scenes.map((s) => [s.id, s.name]), [['a', 'Coding 2'], ['b', 'Writing']]);
+
+  layouts.renameScene('b', 'Reading');
+  layouts.removeScene('a');
+  const onDisk = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  assert.deepStrictEqual(onDisk.scenes.map((s) => [s.id, s.name, s.islandId]), [['b', 'Reading', 'island-1']]);
+});
+
+test('scenes: broken ones are refused when saved and skipped when read', (t) => {
+  t.mock.method(console, 'error', () => {});
+  const { layouts } = setup({ scenes: [savedScene('ok'), { id: 'broken', windows: [] }] });
+  assert.deepStrictEqual(layouts.load().scenes.map((s) => s.id), ['ok']);
+  assert.throws(() => layouts.saveScene({ ...savedScene('x'), windows: [] }), /can't be saved: it has no windows/);
+  assert.throws(() => layouts.renameScene('ok', '   '), /needs a name/);
+  assert.throws(() => layouts.renameScene('gone', 'Name'), /no longer exists/);
+});
+
+test('scenes: saving layouts keeps the scenes, and backups carry them', () => {
+  const first = setup({ scenes: [savedScene('a')] });
+  first.layouts.setGap(12);
+  assert.deepStrictEqual(first.layouts.load().scenes.map((s) => s.id), ['a']);
+  const backup = JSON.parse(JSON.stringify(first.layouts.exportData()));
+
+  const second = setup();
+  assert.deepStrictEqual(second.layouts.importData(backup).scenes.map((s) => s.id), ['a']);
+});

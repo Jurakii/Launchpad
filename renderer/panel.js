@@ -109,6 +109,18 @@ async function snap(target) {
   if (!result.ok) showMessage(result.error);
 }
 
+// Opens the scenes menu under this button, or closes it if it's open here.
+// It works whatever window is in front: applying a scene moves windows of
+// its own choosing.
+const scenesBtn = document.getElementById('scenesBtn');
+scenesBtn.addEventListener('click', () => {
+  const r = scenesBtn.getBoundingClientRect();
+  window.panelAPI.openScenes({ x: window.screenX + r.left, y: window.screenY, width: r.width, height: barEl.offsetHeight });
+});
+
+// From main, e.g. what applying a scene did. Long ones stay up longer.
+window.panelAPI.onMessage((text) => showMessage(text, Math.min(8000, Math.max(MESSAGE_MS, text.length * 60))));
+
 // Opens the grid placer on this display for the focused window, or closes
 // it if it's already open here.
 gridBtn.addEventListener('click', async () => {
@@ -204,15 +216,17 @@ function showFocused() {
 
 // Shown where the title goes for a few seconds: Launchpad's own window is
 // usually hidden, so a dialog there wouldn't be seen.
-function showMessage(text) {
+function showMessage(text, ms = MESSAGE_MS) {
   clearTimeout(messageTimer);
   titleEl.textContent = text;
+  titleEl.title = text; // the whole of it, should it not fit
   titleEl.classList.add('message');
   iconEl.classList.add('hidden');
   messageTimer = setTimeout(() => {
     messageTimer = null;
+    titleEl.title = '';
     showFocused();
-  }, MESSAGE_MS);
+  }, ms);
 }
 
 function render(next) {
