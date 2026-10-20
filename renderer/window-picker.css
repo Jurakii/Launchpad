@@ -1,0 +1,115 @@
+/* Window picker: a drop-down under a panel's zone or grid button, copied
+   from scenes-menu.css. Same palette as
+   styles.css (dark by default, light via data-theme). The window is exactly
+   the menu's size (it reports its height to main). */
+:root {
+  --panel: #1e2128;
+  --border: #2b2f38;
+  --text: #e8e9ec;
+  --muted: #9aa0ac;
+  --accent: #5b8cff;
+}
+
+:root[data-theme="light"] {
+  --panel: #ffffff;
+  --border: #dde1e8;
+  --text: #1b1d22;
+  --muted: #6b7280;
+  --accent: #3b6fe0;
+}
+
+html, body {
+  margin: 0;
+  background: transparent;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  user-select: none;
+  cursor: default;
+  overflow: hidden;
+}
+
+.hidden { display: none !important; }
+
+.menu {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-top: none; /* it hangs from the panel's bottom edge */
+  border-radius: 0 0 8px 8px;
+  color: var(--text);
+}
+
+.menu-label {
+  padding: 4px 8px 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Long lists scroll; main caps the window at the display's height. */
+.list {
+  display: flex;
+  flex-direction: column;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.item {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 5px;
+}
+.item:hover, .item:focus-visible { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+.win-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.win-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tag {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.empty {
+  margin: 0;
+  padding: 2px 8px 6px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.sep {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--border);
+}
+
+.note {
+  margin: 0;
+  padding: 0 8px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}

@@ -1,6 +1,8 @@
 // Draws the organizer panel for one display: every layout as a small
 // thumbnail whose zones move the focused window when clicked, that window's
-// title, a button for the grid placer, and a clock. Main (lib/organizer.js)
+// title, a button for the grid placer, and a clock. With no window to move
+// (Launchpad itself or the desktop is in front), a zone or the grid button
+// opens the window picker under it to choose one instead. Main (lib/organizer.js)
 // sends what to show. The panel window never takes focus, so the user's own
 // window stays in front while they click here, and that's the window that
 // moves.
@@ -64,9 +66,17 @@ let crumbsKey = '';
 let messageTimer = null;
 
 const canSnap = () => !!(state && state.helperUp && state.focused && state.focused.snappable);
+// Nothing to move, so clicks open the window picker instead.
+const willPick = () => !!(state && state.helperUp) && !canSnap();
 
-// Why nothing happened, when there's nothing to move.
-const cantSnapMessage = () => (state && !state.helperUp ? 'The organizer is starting…' : 'Click the window you want to move first.');
+const STARTING_MESSAGE = 'The organizer is starting…';
+const PICK_HINT = 'Click a zone to pick a window to put there';
+
+// The clicked element's rect in screen DIP, for the picker to open under.
+function anchorOf(el) {
+  const r = el.getBoundingClientRect();
+  return { x: window.screenX + r.left, y: window.screenY, width: r.width, height: barEl.offsetHeight };
+}
 
 // Zones sit on the layout's own grid, so CSS grid lays them out exactly as
 // lib/zones.js does on screen, just without the gaps.
@@ -84,14 +94,15 @@ function buildLayouts(layouts, aspect) {
         const zone = document.createElement('button');
         zone.type = 'button';
         zone.className = 'zone';
-        zone.title = `${layout.name}: ${z.name || z.id}`;
+        zone.dataset.name = `${layout.name}: ${z.name || z.id}`;
+        zone.title = zone.dataset.name;
         zone.style.gridColumn = `${z.x + 1} / span ${z.w}`;
         zone.style.gridRow = `${z.y + 1} / span ${z.h}`;
         zone.addEventListener('mouseenter', () => {
           if (canSnap()) window.panelAPI.hover(target);
         });
         zone.addEventListener('mouseleave', () => window.panelAPI.hover(null));
-        zone.addEventListener('click', () => snap(target));
+        zone.addEventListener('click', () => snap(target, thumb));
         thumb.appendChild(zone);
       }
       return thumb;
@@ -99,13 +110,22 @@ function buildLayouts(layouts, aspect) {
   );
 }
 
-async function snap(target) {
-  if (!canSnap()) {
-    showMessage(cantSnapMessage());
+// Each zone's tooltip says what a click will do.
+function updateZoneHints() {
+  const pick = willPick();
+  for (const zone of layoutsEl.querySelectorAll('.zone')) {
+    zone.title = pick ? `${zone.dataset.name}: pick a window to put here` : zone.dataset.name;
+  }
+}
+
+// thumb: the layout clicked in, which the picker opens under.
+async function snap(target, thumb) {
+  if (!state || !state.helperUp) {
+    showMessage(STARTING_MESSAGE);
     return;
   }
   window.panelAPI.hover(null); // the window is about to fill the preview
-  const result = await window.panelAPI.snap(target.layoutId, target.zoneId);
+  const result = await window.panelAPI.snap(target.layoutId, target.zoneId, anchorOf(thumb));
   if (!result.ok) showMessage(result.error);
 }
 
@@ -122,13 +142,14 @@ scenesBtn.addEventListener('click', () => {
 window.panelAPI.onMessage((text) => showMessage(text, Math.min(8000, Math.max(MESSAGE_MS, text.length * 60))));
 
 // Opens the grid placer on this display for the focused window, or closes
-// it if it's already open here.
+// it if it's already open here. With no window to move, the picker opens
+// first.
 gridBtn.addEventListener('click', async () => {
-  if (!canSnap()) {
-    showMessage(cantSnapMessage());
+  if (!state || !state.helperUp) {
+    showMessage(STARTING_MESSAGE);
     return;
   }
-  const result = await window.panelAPI.openGrid();
+  const result = await window.panelAPI.openGrid(anchorOf(gridBtn));
   if (!result.ok) showMessage(result.error);
 });
 
@@ -207,8 +228,9 @@ function renderLaunchpad(launchpad) {
 
 function showFocused() {
   const f = state && state.focused;
-  titleEl.classList.remove('message');
-  titleEl.textContent = f ? f.title : '';
+  const hint = !f && willPick();
+  titleEl.classList.toggle('message', hint);
+  titleEl.textContent = f ? f.title : hint ? PICK_HINT : '';
   const icon = f && f.iconDataUrl;
   iconEl.classList.toggle('hidden', !icon);
   if (icon) iconEl.src = icon;
@@ -241,10 +263,16 @@ function render(next) {
     layoutsKey = key;
     buildLayouts(next.layouts, next.aspect);
   }
-  layoutsEl.classList.toggle('idle', !canSnap());
-  gridBtn.classList.toggle('idle', !canSnap());
+  // Idle only while the helper starts: with no window to move, clicks open
+  // the picker, so the zones stay live.
+  layoutsEl.classList.toggle('idle', !next.helperUp);
+  gridBtn.classList.toggle('idle', !next.helperUp);
+  layoutsEl.classList.toggle('pick', willPick());
+  updateZoneHints();
   const keys = next.gridHotkey ? ` (${next.gridHotkey.replace('CommandOrControl', 'Ctrl')})` : '';
-  gridBtn.title = `Grid placer${keys}: size the window to any block of cells`;
+  gridBtn.title = willPick()
+    ? `Grid placer${keys}: pick a window, then size it to any block of cells`
+    : `Grid placer${keys}: size the window to any block of cells`;
   renderLaunchpad(next.launchpad);
   if (!messageTimer) showFocused();
 }

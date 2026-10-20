@@ -1001,13 +1001,20 @@ ipcMain.handle('organizer:placeWindow', async (_e, { handle, layoutId, zoneId })
 
 // From the organizer panel (panel-preload.js). The organizer works out which
 // panel, and so which display, each message came from.
-ipcMain.handle('panel:snap', async (e, { layoutId, zoneId }) => {
+// anchor: where the clicked layout is, for the window picker.
+ipcMain.handle('panel:snap', async (e, { layoutId, zoneId, anchor }) => {
   try {
-    return await organizer.snapFromPanel(e.sender, layoutId, zoneId);
+    return await organizer.snapFromPanel(e.sender, layoutId, zoneId, anchor);
   } catch (err) {
     return { ok: false, error: err.message };
   }
 });
+
+// From the window picker (window-picker-preload.js), opened by a panel
+// click when there was no window to move.
+ipcMain.handle('picker:resize', (e, height) => organizer.resizePicker(e.sender, height));
+ipcMain.handle('picker:close', (e) => organizer.closePickerFrom(e.sender));
+ipcMain.handle('picker:pick', (e, hwnd) => organizer.pickFromPicker(e.sender, hwnd));
 
 ipcMain.handle('panel:hover', (e, zone) => {
   organizer.previewFromPanel(e.sender, zone);
@@ -1049,9 +1056,9 @@ ipcMain.handle('topbar:setCrumbs', (_e, crumbs) => {
   );
 });
 
-ipcMain.handle('panel:openGrid', async (e) => {
+ipcMain.handle('panel:openGrid', async (e, anchor) => {
   try {
-    return await organizer.openGridFromPanel(e.sender);
+    return await organizer.openGridFromPanel(e.sender, anchor);
   } catch (err) {
     return { ok: false, error: err.message };
   }
