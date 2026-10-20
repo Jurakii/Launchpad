@@ -95,9 +95,15 @@ html, body {
 }
 .zone:hover { background: var(--accent); }
 
-/* Nothing to move: the focused window can't be snapped (the desktop, an
-   admin app, a fixed-size dialog), or the helper is still starting. */
+/* The helper is still starting, so clicks can't do anything yet. */
 .layouts.idle .zone { opacity: 0.45; }
+/* Nothing to move (Launchpad, the desktop, an admin app or a fixed-size
+   dialog is in front): a click opens the window picker, so the zones stay
+   live, just outlined rather than filled until hovered. */
+.layouts.pick .zone:not(:hover) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 70%, var(--panel));
+}
 .layouts.idle .zone:hover { background: color-mix(in srgb, var(--muted) 45%, var(--panel)); }
 
 /* Launchpad's breadcrumb. Kept whole ahead of the layouts, which give way
@@ -193,7 +199,7 @@ html, body {
 .icon-btn svg { width: 16px; height: 16px; }
 .icon-btn:hover { color: var(--text); background: color-mix(in srgb, var(--text) 10%, transparent); }
 #settingsBtn, #fullscreenBtn { color: var(--accent); }
-#gridBtn.idle { opacity: 0.45; }
+#gridBtn.idle { opacity: 0.45; } /* the helper is still starting */
 #gridBtn.idle:hover { color: var(--muted); background: none; }
 
 .clock {

@@ -6,9 +6,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 // and drops onto the toolbar's breadcrumb and buttons.
 contextBridge.exposeInMainWorld('panelAPI', {
   onState: (callback) => ipcRenderer.on('panel:state', (_e, state) => callback(state)),
-  snap: (layoutId, zoneId) => ipcRenderer.invoke('panel:snap', { layoutId, zoneId }),
+  // anchor (both): the clicked thing's rect in screen DIP, so the window
+  // picker opens under it when there's no window to move.
+  snap: (layoutId, zoneId, anchor) => ipcRenderer.invoke('panel:snap', { layoutId, zoneId, anchor }),
   hover: (zone) => ipcRenderer.invoke('panel:hover', zone), // { layoutId, zoneId } or null
-  openGrid: () => ipcRenderer.invoke('panel:openGrid'),
+  openGrid: (anchor) => ipcRenderer.invoke('panel:openGrid', anchor),
   // The scenes button's rect in screen DIP, so the menu opens under it.
   openScenes: (anchor) => ipcRenderer.invoke('panel:openScenes', anchor),
   onMessage: (callback) => ipcRenderer.on('panel:message', (_e, text) => callback(text)),

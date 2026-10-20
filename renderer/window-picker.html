@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';" />
+<title>Launchpad window picker</title>
+<link rel="stylesheet" href="window-picker.css" />
+</head>
+<body>
+  <div id="menu" class="menu" role="menu" aria-labelledby="heading">
+    <div id="heading" class="menu-label">Pick a window</div>
+    <div id="list" class="list"></div>
+    <p id="empty" class="empty hidden">No windows to move. Open an app, then try again.</p>
+    <div class="sep"></div>
+    <p class="note">Windows that can't be resized, or that run as administrator, aren't listed.</p>
+  </div>
+  <script src="window-picker.js"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 {
   "name": "launchpad",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Personal desktop-replacement launcher for apps that don't play nice with the taskbar/Start Menu",
   "main": "main.js",
   "private": true,
@@ -32,6 +32,7 @@
       "panel-preload.js",
       "grid-preload.js",
       "scenes-menu-preload.js",
+      "window-picker-preload.js",
       "lib/**/*",
       "renderer/**/*",
       "build/icon.ico"
