@@ -592,7 +592,7 @@ public static class WindowManager {
     // an own window (Launchpad's main window, whose top bar is the panel):
     // it ends the walk like any other, so a fullscreen app behind it doesn't
     // count either.
-    static Dictionary<string, object> Fullscreen(List<long> own) {
+    static Dictionary<string, object> Fullscreen(List<long> own, bool debug) {
         var monitors = new List<RECT>();
         MonitorEnumProc onMonitor = (IntPtr hMon, IntPtr hdc, IntPtr rect, IntPtr lp) => {
             var mi = new MONITORINFO();
@@ -615,20 +615,37 @@ public static class WindowManager {
         };
         EnumWindows(onWindow, IntPtr.Zero);
 
+        // For the diagnostic log (lib/panel.js): what decided each monitor.
+        var detail = new List<string>();
         var covered = new List<int[]>();
         foreach (RECT m in monitors) {
+            string monitorName = m.Left + "," + m.Top + "," + m.Right + "," + m.Bottom;
             foreach (IntPtr h in windows) {
                 RECT r;
                 GetWindowRect(h, out r);
                 if (r.Left >= m.Right || r.Right <= m.Left || r.Top >= m.Bottom || r.Bottom <= m.Top) continue; // not on this monitor
                 bool covers = r.Left <= m.Left && r.Top <= m.Top && r.Right >= m.Right && r.Bottom >= m.Bottom;
-                if (covers && !IsZoomed(h) && !own.Contains(h.ToInt64())) covered.Add(R(m));
-                if (covers || (GetWindowLong(h, GWL_EXSTYLE) & WS_EX_TOPMOST) == 0) break;
+                bool topmost = (GetWindowLong(h, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+                bool ownWindow = own.Contains(h.ToInt64());
+                if (covers && !IsZoomed(h) && !ownWindow) covered.Add(R(m));
+                if (debug && (covers || ownWindow || !topmost)) {
+                    detail.Add(monitorName + (covers ? " covers" : " stops") + (ownWindow ? " own" : "") + (IsZoomed(h) ? " zoomed" : "")
+                        + (topmost ? " topmost" : "") + " hwnd=" + h.ToInt64() + " class=" + ClassOf(h)
+                        + " exe=" + System.IO.Path.GetFileName(ExePath(WindowPid(h)) ?? "?") + " title=" + TitleOf(h));
+                }
+                if (covers || !topmost) break;
             }
         }
         var o = new Dictionary<string, object>();
         o["monitors"] = covered;
+        o["detail"] = detail;
         return o;
+    }
+
+    static uint WindowPid(IntPtr h) {
+        uint pid;
+        GetWindowThreadProcessId(h, out pid);
+        return pid;
     }
 
     static int I(Dictionary<string, object> r, string k) { return Convert.ToInt32(r[k]); }
@@ -642,7 +659,7 @@ public static class WindowManager {
             if (r.TryGetValue("own", out list) && list is System.Collections.IEnumerable && !(list is string)) {
                 foreach (object o in (System.Collections.IEnumerable)list) own.Add(Convert.ToInt64(o));
             }
-            return Fullscreen(own);
+            return Fullscreen(own, r.ContainsKey("debug") && Convert.ToBoolean(r["debug"]));
         }
         if (cmd == "windows") return Windows();
         var h = new IntPtr(Convert.ToInt64(r["hwnd"]));
