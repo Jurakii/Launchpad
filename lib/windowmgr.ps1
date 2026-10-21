@@ -27,10 +27,14 @@ param(
 #                                      AppBar (registering it first), replies {rect}
 #   appbarRemove {hwnd, ifGone}     -> gives the AppBar's space back (with ifGone, only
 #                                      if the window no longer exists)
-#   fullscreen   {own}              -> {monitors}: the bounds of each monitor a
-#                                      fullscreen window is covering right now.
+#   fullscreen   {own}              -> {monitors}: for each monitor, {monitor} (its
+#                                      bounds) and {window}: the window that decides
+#                                      whether a fullscreen app has it, or null (see
+#                                      Fullscreen). lib/fullscreen.js makes the call.
 #                                      own lists windows (Launchpad's main window)
 #                                      that never count, even when they cover one
+#   topmost      {hwnd}             -> makes the window topmost again if it isn't,
+#                                      replies {was}: whether it still was
 # Failures reply {ok:false, code}: "gone" (window closed), "denied" (an
 # elevated window Windows won't let us move), "failed", or "badRequest".
 #
@@ -122,7 +126,8 @@ public static class WindowManager {
     const uint EVENT_OBJECT_LOCATIONCHANGE = 0x800B, EVENT_OBJECT_NAMECHANGE = 0x800C;
     const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
     const int DWMWA_EXTENDED_FRAME_BOUNDS = 9, DWMWA_CLOAKED = 14;
-    const uint SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_NOOWNERZORDER = 0x0200;
+    const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_NOOWNERZORDER = 0x0200;
+    static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
     const int SW_RESTORE = 9;
     const int SW_MAXIMIZE = 3;
     const int ERROR_ACCESS_DENIED = 5;
@@ -582,16 +587,18 @@ public static class WindowManager {
         foreach (long key in new List<long>(appbars.Keys)) AppBarRemove(new IntPtr(key));
     }
 
-    // A monitor counts as taken over by a fullscreen app when the first
-    // window on it, going down the z-order, covers all of it. Passed over on
-    // the way: the shell's own windows, windows that never take focus
-    // (Launchpad's panels and overlays, notifications), click-through and
-    // tool windows, and smaller always-on-top ones, so a sticky note can't
-    // hide a fullscreen game from this. A maximized window doesn't count even
-    // when it fills the monitor because nothing reserves any space. Nor does
-    // an own window (Launchpad's main window, whose top bar is the panel):
-    // it ends the walk like any other, so a fullscreen app behind it doesn't
-    // count either.
+    // For each monitor, the window that decides whether a fullscreen app has
+    // taken it over: the first one on it, going down the z-order, that covers
+    // all of it or isn't always-on-top. Passed over on the way: the shell's
+    // own windows, windows that never take focus (Launchpad's panels and
+    // overlays, notifications), click-through and tool windows, and smaller
+    // always-on-top ones, so a sticky note can't hide a fullscreen game from
+    // this. An own window (Launchpad's main window, whose top bar is the
+    // panel) ends the walk like any other, so a fullscreen app behind it
+    // doesn't count. The window is reported with what lib/fullscreen.js needs
+    // to decide: whether it covers the monitor, is maximized, is own, and
+    // belongs to the foreground app (a launcher or overlay a game left behind
+    // can cover a monitor without being in front).
     static Dictionary<string, object> Fullscreen(List<long> own, bool debug) {
         var monitors = new List<RECT>();
         MonitorEnumProc onMonitor = (IntPtr hMon, IntPtr hdc, IntPtr rect, IntPtr lp) => {
@@ -615,11 +622,15 @@ public static class WindowManager {
         };
         EnumWindows(onWindow, IntPtr.Zero);
 
+        IntPtr fg = GetForegroundWindow();
+        uint fgPid = fg == IntPtr.Zero ? 0 : WindowPid(fg);
+
         // For the diagnostic log (lib/panel.js): what decided each monitor.
         var detail = new List<string>();
-        var covered = new List<int[]>();
+        var result = new List<object>();
         foreach (RECT m in monitors) {
             string monitorName = m.Left + "," + m.Top + "," + m.Right + "," + m.Bottom;
+            Dictionary<string, object> decider = null;
             foreach (IntPtr h in windows) {
                 RECT r;
                 GetWindowRect(h, out r);
@@ -627,18 +638,40 @@ public static class WindowManager {
                 bool covers = r.Left <= m.Left && r.Top <= m.Top && r.Right >= m.Right && r.Bottom >= m.Bottom;
                 bool topmost = (GetWindowLong(h, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
                 bool ownWindow = own.Contains(h.ToInt64());
-                if (covers && !IsZoomed(h) && !ownWindow) covered.Add(R(m));
-                if (debug && (covers || ownWindow || !topmost)) {
+                if (!covers && topmost) continue;
+                bool foreground = h == fg || (fgPid != 0 && WindowPid(h) == fgPid);
+                decider = new Dictionary<string, object>();
+                decider["hwnd"] = h.ToInt64();
+                decider["covers"] = covers;
+                decider["zoomed"] = IsZoomed(h);
+                decider["own"] = ownWindow;
+                decider["foreground"] = foreground;
+                if (debug) {
                     detail.Add(monitorName + (covers ? " covers" : " stops") + (ownWindow ? " own" : "") + (IsZoomed(h) ? " zoomed" : "")
-                        + (topmost ? " topmost" : "") + " hwnd=" + h.ToInt64() + " class=" + ClassOf(h)
+                        + (topmost ? " topmost" : "") + (foreground ? " foreground" : "") + " hwnd=" + h.ToInt64() + " class=" + ClassOf(h)
                         + " exe=" + System.IO.Path.GetFileName(ExePath(WindowPid(h)) ?? "?") + " title=" + TitleOf(h));
                 }
-                if (covers || !topmost) break;
+                break;
             }
+            var entry = new Dictionary<string, object>();
+            entry["monitor"] = R(m);
+            entry["window"] = decider;
+            result.Add(entry);
         }
         var o = new Dictionary<string, object>();
-        o["monitors"] = covered;
+        o["monitors"] = result;
         o["detail"] = detail;
+        return o;
+    }
+
+    // The panels are made topmost once, by Electron; this puts that back if
+    // something took it away. A window that still is topmost is left where
+    // it is, so the panel doesn't jump above a menu or overlay opened later.
+    static Dictionary<string, object> Topmost(IntPtr h) {
+        bool was = (GetWindowLong(h, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+        if (!was) SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        var o = new Dictionary<string, object>();
+        o["was"] = was;
         return o;
     }
 
@@ -676,6 +709,7 @@ public static class WindowManager {
             case "place":
                 return Place(h, I(r, "x"), I(r, "y"), I(r, "w"), I(r, "h"), r.ContainsKey("max") && Convert.ToBoolean(r["max"]));
             case "focus": return Focus(h);
+            case "topmost": return Topmost(h);
             case "appbarSet":
                 return AppBarSet(h, (uint)Convert.ToInt64(r["msg"]), I(r, "x"), I(r, "y"), I(r, "w"), I(r, "h"),
                     r.ContainsKey("renew") && Convert.ToBoolean(r["renew"]));
