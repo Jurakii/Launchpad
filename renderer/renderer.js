@@ -38,6 +38,9 @@ try {
   // once the panels are up, but the window doesn't jump in the meantime.
   if (localStorage.getItem('launchpad-topbar-hosted') === '1') {
     document.documentElement.setAttribute('data-topbar-hosted', '');
+    if (localStorage.getItem('launchpad-topbar-autohide') === '1') {
+      document.documentElement.setAttribute('data-topbar-autohide', '');
+    }
   }
   // The panel used to have its own look; it follows the top bar's now.
   localStorage.removeItem('launchpad-panel-style');
@@ -2013,14 +2016,20 @@ fullscreenBtn.addEventListener('click', async () => {
 // With the organizer's panel on, the panel on this window's display carries
 // the toolbar (breadcrumb and buttons), so the window hides its own. When
 // fullscreen under a docked panel, the content starts below it (inset).
+// An auto-hiding panel is out of sight most of the time, so the window keeps
+// its settings button then (data-topbar-autohide).
 
-window.launcherAPI.onTopbarState(({ hosted, inset }) => {
+window.launcherAPI.onTopbarState(({ hosted, inset, mode }) => {
   const root = document.documentElement;
+  const autoHide = hosted && mode === 'autoHide';
   root.toggleAttribute('data-topbar-hosted', hosted);
+  root.toggleAttribute('data-topbar-autohide', autoHide);
   root.style.setProperty('--topbar-inset', `${inset}px`);
   try {
     if (hosted) localStorage.setItem('launchpad-topbar-hosted', '1');
     else localStorage.removeItem('launchpad-topbar-hosted');
+    if (autoHide) localStorage.setItem('launchpad-topbar-autohide', '1');
+    else localStorage.removeItem('launchpad-topbar-autohide');
   } catch {}
 });
 
