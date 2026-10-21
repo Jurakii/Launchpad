@@ -84,6 +84,24 @@ body {
    (--topbar-inset, set from main). */
 :root[data-topbar-hosted] .toolbar { display: none; }
 body { padding-top: var(--topbar-inset, 0px); }
+/* An auto-hiding panel is out of sight most of the time, so the window
+   keeps its settings button, floating in the top-right corner of the grid
+   (below a top taskbar, beside a left/right one) rather than taking a row. */
+:root[data-topbar-hosted][data-topbar-autohide] .toolbar {
+  display: block;
+  position: relative;
+  height: 0;
+  padding: 0;
+  border: none;
+  z-index: 5;
+  -webkit-app-region: no-drag;
+}
+:root[data-topbar-hosted][data-topbar-autohide] .toolbar > :not(#settingsBtn) { display: none; }
+:root[data-topbar-hosted][data-topbar-autohide] #settingsBtn {
+  position: absolute;
+  top: calc(var(--topbar-inset, 0px) + 10px);
+  right: 14px;
+}
 
 :root[data-hide-add-buttons="1"] #newFolderBtn,
 :root[data-hide-add-buttons="1"] #addBtn {
@@ -1095,6 +1113,7 @@ button.danger { background: transparent; border-color: var(--danger); color: var
 /* ---------- Window layouts editor ---------- */
 
 .modal.layouts-modal { width: min(780px, calc(100vw - 32px)); }
+.modal.settings-modal { width: min(560px, calc(100vw - 32px)); }
 
 .layouts-editor {
   display: grid;
