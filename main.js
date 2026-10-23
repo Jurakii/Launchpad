@@ -18,6 +18,7 @@ const {
 const store = require('./lib/store');
 const icons = require('./lib/icons');
 const launcher = require('./lib/launcher');
+const fileStore = require('./lib/file-store');
 const layout = require('./lib/layout');
 const settings = require('./lib/settings');
 const volume = require('./lib/volume');
@@ -162,8 +163,8 @@ function applyHotkeyAppFocusSetting(enable) {
 function decorate(apps) {
   return apps.map((a) => {
     const missing =
-      a.kind === 'app' && (a.type === 'path' || a.type === 'script') && a.target
-        ? !fs.existsSync(a.target)
+      a.kind === 'app' && (a.type === 'path' || a.type === 'script' || a.type === 'stored')
+        ? !a.target || !fs.existsSync(a.target)
         : false;
     return { ...a, iconDataUrl: icons.iconDataUrl(a.iconPath), missing };
   });
@@ -563,6 +564,13 @@ ipcMain.handle('apps:update', async (_e, { id, formData }) => {
   if (idx === -1) return decorate(apps);
 
   const entry = apps[idx];
+  // A stored item's target is fixed to its copy in the file store; only its
+  // name can change.
+  if (entry.type === 'stored') {
+    entry.name = formData.name || entry.name;
+    store.save(apps);
+    return decorate(apps);
+  }
   Object.assign(entry, {
     name: formData.name || entry.name,
     type: formData.type,
@@ -589,7 +597,7 @@ ipcMain.handle('apps:update', async (_e, { id, formData }) => {
   return decorate(apps);
 });
 
-ipcMain.handle('apps:remove', (_e, id) => {
+ipcMain.handle('apps:remove', async (_e, id) => {
   const all = store.load();
   const target = all.find((a) => a.id === id);
   // Removing an island doesn't delete what's inside it - bump its contents
@@ -610,7 +618,83 @@ ipcMain.handle('apps:remove', (_e, id) => {
   store.save(apps);
   const iconFile = path.join(store.iconsDir(), `${id}.png`);
   if (fs.existsSync(iconFile)) fs.unlinkSync(iconFile);
+  // A stored item's copy goes with it (the renderer has already confirmed
+  // that). Only after the entry is gone, so a failed save never leaves an
+  // entry pointing at a deleted copy.
+  if (target && target.type === 'stored') {
+    try {
+      await fileStore.removeStored(id);
+    } catch (err) {
+      console.error(`Failed to delete stored copy for ${id}:`, err);
+    }
+  }
   return decorate(apps);
+});
+
+// --- File store ---------------------------------------------------------
+// Files and folders dropped on the grid are copied into userData\files (see
+// lib/file-store.js) and added as type 'stored' entries.
+function fileStoreOptions(s = settings.load()) {
+  const limit = Number(s.fileStoreLimit);
+  return {
+    limit: Number.isFinite(limit) && limit > 0 ? limit : fileStore.DEFAULT_LIMIT,
+    onDrop: s.fileStoreOnDrop === 'link' ? 'link' : 'copy',
+  };
+}
+
+ipcMain.handle('files:store', async (_e, { paths, parentId, gridX, gridY } = {}) => {
+  const list = (Array.isArray(paths) ? paths : []).filter((p) => typeof p === 'string' && p);
+  const apps = store.load();
+  // Refuse before copying anything: a copy with no entry pointing at it
+  // would just be an orphan in the store.
+  if (store.isReadOnly()) store.save(apps); // throws the read-only message
+  const parent = parentId && apps.some((a) => a.id === parentId && a.kind === 'island') ? parentId : null;
+  const results = await fileStore.storeMany(apps, list, {
+    parentId: parent,
+    gridX: Number.isInteger(gridX) ? gridX : 0,
+    gridY: Number.isInteger(gridY) ? gridY : 0,
+    limit: fileStoreOptions().limit,
+  });
+  const added = results.filter((r) => r.ok);
+  if (added.length) {
+    try {
+      store.save(apps);
+    } catch (err) {
+      for (const r of added) await fileStore.removeStored(r.id).catch(() => {});
+      throw err;
+    }
+  }
+  return { apps: decorate(apps), results };
+});
+
+ipcMain.handle('files:restoreThumb', async (_e, id) => {
+  const apps = store.load();
+  const entry = apps.find((a) => a.id === id && a.type === 'stored');
+  if (!entry) return decorate(apps);
+  if (entry.target && fs.existsSync(entry.target)) {
+    entry.thumbState = (await fileStore.makeThumbnail(entry.target, entry.id, entry.storedKind === 'folder')).state;
+  } else {
+    entry.thumbState = 'generic'; // nothing to make one from; stop asking
+  }
+  store.save(apps);
+  return decorate(apps);
+});
+
+ipcMain.handle('files:showOriginal', (_e, id) => {
+  const entry = store.load().find((a) => a.id === id && a.type === 'stored');
+  if (!entry || !entry.originalPath || !fs.existsSync(entry.originalPath)) {
+    return { ok: false, error: "The original isn't there any more. The stored copy still works." };
+  }
+  shell.showItemInFolder(entry.originalPath);
+  return { ok: true };
+});
+
+ipcMain.handle('settings:getFileStoreOnDrop', () => fileStoreOptions().onDrop);
+
+ipcMain.handle('settings:setFileStoreOnDrop', (_e, mode) => {
+  if (mode !== 'copy' && mode !== 'link') return { ok: false, error: 'Unknown drop mode.' };
+  settings.save({ fileStoreOnDrop: mode });
+  return { ok: true };
 });
 
 ipcMain.handle('folder:add', (_e, { name, parentId, color }) => {
@@ -749,7 +833,7 @@ ipcMain.handle('apps:detectMissingIcons', async () => {
   const apps = store.load();
   let fixed = 0;
   for (const entry of apps) {
-    if (entry.kind !== 'app' || !entry.target) continue;
+    if (entry.kind !== 'app' || !entry.target || entry.type === 'stored') continue;
     const hasIcon = entry.iconPath && fs.existsSync(entry.iconPath);
     if (hasIcon) continue;
     const newPath = await autoFetchIcon(entry.id, entry);
@@ -1655,6 +1739,15 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // window layouts), and Media's library and profiles without art
 // (lib/media/backup.js). Version 2 has no library or profiles; older
 // backups are just the array of entries. All still import.
+//
+// Stored files are too big for the JSON, so they're copied to a folder
+// beside it named in `storedFilesFolder` (e.g. launchpad-backup-2026-10-23-files\<id>\).
+// That's an additive field: builds without the file store see those entries
+// as broken links.
+function storedFilesFolderFor(backupFile) {
+  return `${path.basename(backupFile, path.extname(backupFile))}-files`;
+}
+
 ipcMain.handle('backup:export', async () => {
   const res = await dialog.showSaveDialog(mainWindow, {
     defaultPath: `launchpad-backup-${new Date().toISOString().slice(0, 10)}.json`,
@@ -1671,8 +1764,26 @@ ipcMain.handle('backup:export', async () => {
     return entry;
   });
   const bundle = { version: 3, apps, layouts: layouts.exportData(), ...mediaBackup.exportData() };
+
+  const stored = apps.filter((a) => a.type === 'stored');
+  let storedFilesDir = null;
+  const storedMissing = [];
+  if (stored.length) {
+    bundle.storedFilesFolder = storedFilesFolderFor(res.filePath);
+    storedFilesDir = path.join(path.dirname(res.filePath), bundle.storedFilesFolder);
+    for (const a of stored) {
+      const src = path.join(store.filesDir(), a.id);
+      if (!fs.existsSync(src)) {
+        storedMissing.push(a.name);
+        continue;
+      }
+      const dest = path.join(storedFilesDir, a.id);
+      await fs.promises.rm(dest, { recursive: true, force: true });
+      await fileStore.copyDir(src, dest);
+    }
+  }
   fs.writeFileSync(res.filePath, JSON.stringify(bundle, null, 2), 'utf-8');
-  return { ok: true, path: res.filePath };
+  return { ok: true, path: res.filePath, storedFilesDir, storedCount: stored.length, storedMissing };
 });
 
 ipcMain.handle('backup:import', async () => {
@@ -1711,7 +1822,45 @@ ipcMain.handle('backup:import', async () => {
     entry.parentId = parentId && islandIds.has(parentId) ? parentId : null;
   }
 
+  // Stored files come back from the folder beside the backup. One that isn't
+  // there stays as an entry (shown as missing) rather than being dropped.
+  const backupDir = path.dirname(res.filePaths[0]);
+  const folderName =
+    !Array.isArray(bundle) && typeof bundle.storedFilesFolder === 'string' && bundle.storedFilesFolder
+      ? path.basename(bundle.storedFilesFolder)
+      : storedFilesFolderFor(res.filePaths[0]);
+  const storedFilesDir = path.join(backupDir, folderName);
+  const storedMissing = [];
+  for (let i = 0; i < entries.length; i++) {
+    const { entry } = entries[i];
+    if (entry.type !== 'stored') continue;
+    const oldId = rawEntries[i].id;
+    const src = typeof oldId === 'string' && UUID_RE.test(oldId) ? path.join(storedFilesDir, oldId) : null;
+    const dest = path.join(store.filesDir(), entry.id);
+    if (entry.target && fs.existsSync(entry.target)) continue; // already here (same install)
+    if (src && fs.existsSync(src)) {
+      try {
+        await fs.promises.rm(dest, { recursive: true, force: true });
+        await fileStore.copyDir(src, dest);
+        continue;
+      } catch (err) {
+        console.error(`Failed to restore stored file ${entry.name}:`, err);
+      }
+    }
+    storedMissing.push(entry.name);
+  }
+
   const restored = entries.map(({ iconData, entry }) => {
+    if (entry.type === 'stored') {
+      // Its icon path is fixed (thumbs\<id>.png); regenerate if the backup had none.
+      if (typeof iconData === 'string' && iconData) {
+        fs.mkdirSync(fileStore.thumbsDir(), { recursive: true });
+        fs.writeFileSync(entry.iconPath, Buffer.from(iconData, 'base64'));
+      } else if (entry.storedKind === 'file') {
+        entry.thumbState = 'pending';
+      }
+      return entry;
+    }
     if (typeof iconData === 'string' && iconData) {
       const iconPath = path.join(store.iconsDir(), `${entry.id}.png`);
       fs.writeFileSync(iconPath, Buffer.from(iconData, 'base64'));
@@ -1741,5 +1890,5 @@ ipcMain.handle('backup:import', async () => {
   } catch (err) {
     mediaError = err.message;
   }
-  return { ok: true, apps: decorate(restored), layoutsError, mediaError };
+  return { ok: true, apps: decorate(restored), layoutsError, mediaError, storedMissing };
 });

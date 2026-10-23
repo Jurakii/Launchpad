@@ -21,7 +21,7 @@ panel-preload.js     contextBridge → window.panelAPI for the organizer panel (
 grid-preload.js      contextBridge → window.gridAPI for the grid placer (listed in build.files)
 scenes-menu-preload.js  contextBridge → window.scenesMenuAPI for the panel's scenes menu (listed in build.files)
 media-preload.js     contextBridge → window.mediaAPI for the Media window (listed in build.files), see §7.5
-lib/                 Main-process modules (store, layout, launcher, icons, favicon, settings, safe-file, window organizer, + system wrappers)
+lib/                 Main-process modules (store, layout, launcher, icons, favicon, settings, safe-file, file-store, window organizer, + system wrappers)
 lib/media/           Media main side: library.js (library.json store), players.js (profiles.json, argv building), scan.js (folder scan, platform detection, merge), launch.js (tracked launches), art.js + art-protocol.js (artwork and the lpmedia: scheme), controller.js (pad settings), backup.js (its part of backups)
 lib/*.ps1            PowerShell helpers invoked by lib/*.js (asarUnpacked, see §6)
 spikes/organizer/    Throwaway Win32 experiments for the window organizer (not shipped, not tested; README has the findings)
@@ -32,7 +32,7 @@ build.bat            Local build helper for Windows (npm install → npm run dis
 .github/workflows/release.yml  Manual "Release" workflow (windows-latest) → GitHub release
 .github/workflows/test.yml     "Test" workflow: npm test on push to main and on PRs (windows-latest)
 build/icon.ico       App/window/tray icon (electron-builder win icon)
-test/                node:test unit tests (store, settings, favicon, layout, zones, layouts, strip, autohide, cells, scenes, and Media's library, players, scan, launch, pad, art, controller, media-backup); helpers.js stubs `electron` with a temp userData
+test/                node:test unit tests (store, settings, file-store, favicon, layout, zones, layouts, strip, autohide, cells, scenes, and Media's library, players, scan, launch, pad, art, controller, media-backup); helpers.js stubs `electron` with a temp userData
 Launchpad/           Icon sources (not used at runtime)
 ```
 
@@ -84,7 +84,8 @@ Renderer calls these through `launcherAPI` (preload method → channel):
 
 | Area | Channels |
 |---|---|
-| Apps/items | `apps:list`, `apps:loadIssue`, `apps:add`, `apps:update`, `apps:remove`, `apps:launch`, `apps:detectMissingIcons`, `apps:restoreDefaults` |
+| Apps/items | `apps:list`, `apps:loadIssue`, `apps:add`, `apps:update`, `apps:remove` (also deletes a stored item's copy), `apps:launch`, `apps:detectMissingIcons` (skips stored items), `apps:restoreDefaults` |
+| File store | `files:store` (`{ paths, parentId, gridX, gridY }` → `{ apps, results: [{ ok, path, id, message, tooLarge }] }`; refuses before copying while `apps.json` is read-only; one failure doesn't stop the rest, and if the save fails the new copies are removed), `files:restoreThumb` (id → apps; remakes `thumbs/<id>.png`), `files:showOriginal` (id → `{ ok, error }`; Explorer at `originalPath`) |
 | Folders ("islands") | `folder:add`, `item:rename`, `item:setColor`, `item:move`, `item:setPosition`, `item:setPositions` (batch), `item:setCollapsed`, `item:setShowNames`, `item:setSize` |
 | Taskbar pins | `item:togglePin`, `item:setPinned`, `item:setPinOrder` |
 | Dialogs / icons | `dialog:pickTarget`, `dialog:pickIcon`, `icon:extractPreview`, `icon:fetchFaviconPreview` |
@@ -105,7 +106,7 @@ Renderer calls these through `launcherAPI` (preload method → channel):
 | Wi-Fi | `system:listWifiNetworks`, `system:connectWifi`, `system:disconnectWifi`, `system:openNetworkSettings` |
 | Misc system | `system:emptyRecycleBin` |
 | Window | `window:isFullscreen`, `window:toggleFullscreen` (+ push `fullscreen-changed`) |
-| Settings | `settings:getAutoLaunch/setAutoLaunch`, `getStartFullscreen/setStartFullscreen`, `getHotkey/setHotkey`, `getDisableHotkeyInApps/setDisableHotkeyInApps`, `getNotifyUpdates/setNotifyUpdates`, `getGoogleFaviconFallback/setGoogleFaviconFallback`, `getMinimizeToTrayOnClose/setMinimizeToTrayOnClose`, `getOrganizerEnabled/setOrganizerEnabled`, `getOrganizerPanel/setOrganizerPanel`, `getOrganizerSnapOnDrag/setOrganizerSnapOnDrag` (the organizer setters call `organizer.configure`), `getOrganizerHotkey/setOrganizerHotkey` (the grid placer; refuses the show/hide hotkey, and `setHotkey` refuses the grid's) |
+| Settings | `settings:getAutoLaunch/setAutoLaunch`, `getStartFullscreen/setStartFullscreen`, `getHotkey/setHotkey`, `getDisableHotkeyInApps/setDisableHotkeyInApps`, `getNotifyUpdates/setNotifyUpdates`, `getGoogleFaviconFallback/setGoogleFaviconFallback`, `getMinimizeToTrayOnClose/setMinimizeToTrayOnClose`, `getOrganizerEnabled/setOrganizerEnabled`, `getOrganizerPanel/setOrganizerPanel`, `getOrganizerSnapOnDrag/setOrganizerSnapOnDrag` (the organizer setters call `organizer.configure`), `getOrganizerHotkey/setOrganizerHotkey` (the grid placer; refuses the show/hide hotkey, and `setHotkey` refuses the grid's), `getFileStoreOnDrop/setFileStoreOnDrop` (`copy` / `link`) |
 | Updates | `app:getVersion`, `update:check`, `update:install` (+ push `update:status`) |
 | Backup | `backup:export`, `backup:import` |
 
@@ -128,7 +129,8 @@ Pattern used throughout: `store.load()` → mutate → `store.save(apps)` → `r
   - Saved as `<userData>/icons/<id>.png`.
   - `iconIsCustom` protects a user-chosen icon from being overwritten by auto-detect.
 - **Open-window icons** (taskbar window list, organizer panel) are cached per exe path by `icons.exeIconDataUrl`.
-- **Backup format:** `{ version: 3, apps, layouts, library, profiles }`. `library` and `profiles` are Media's (`lib/media/backup.js`), without art; importing them replaces the library (ids kept, so art folders still match) and the profiles, and a failure there comes back as `mediaError`. Version 2 has neither and leaves them alone. `apps` is the entries, each icon embedded as base64 `iconData` (stripped of `iconPath`); on import, icons are rewritten to `<userData>/icons/<id>.png`. `layouts` is what `layouts.json` holds (`layouts.exportData()`: layouts, hidden list, gap and scenes) and replaces it on import (`importData`, invalid layouts and scenes dropped); a failure there is reported as `layoutsError` without undoing the apps. Older backups are a bare array of entries: they still import and leave the layouts alone.
+- **Stored files** (`lib/file-store.js`): a drop from Explorer sends `.exe .com .msi .bat .cmd .ps1 .vbs .lnk .url .py .js .mjs` (`LINK_EXTENSIONS`, mirrored in the renderer) to the old `quickAddFromPath` link path, and everything else to `files:store`, which copies it to `files/<id>/<name>`. Alt-drop or `fileStoreOnDrop: 'link'` links everything. Folders are copied recursively with symlinks and junctions skipped, up to `fileStoreLimit` bytes (default 2 GB) and 10,000 files; over that, the renderer offers to link instead. A failed copy removes its own folder. `removeStored` only deletes `files/<uuid>/` and `thumbs/<uuid>.png` and refuses any other id. Thumbnails: `nativeImage.createThumbnailFromPath` (256 px) → `thumbState: 'ready'`; else `app.getFileIcon` → `'generic'`. Folders get no file and the renderer draws `storedFolderSVG()`, because `getFileIcon` returns a drive icon for folders on Windows. A second drop of the same file is a second copy, named "name (2)".
+- **Backup format:** `{ version: 3, apps, layouts, library, profiles }`, plus `storedFilesFolder` when there are stored items: the name of a folder beside the backup (`<backup name>-files/<id>/`) holding their copies. Import copies them back from that folder (by the backup's original id); an entry whose copy isn't there is kept and shows as missing, and the names come back as `storedMissing`. A stored entry's embedded icon is written to `files/thumbs/<id>.png`; with none, a file's `thumbState` becomes `pending` and the renderer asks for `files:restoreThumb`. `library` and `profiles` are Media's (`lib/media/backup.js`), without art; importing them replaces the library (ids kept, so art folders still match) and the profiles, and a failure there comes back as `mediaError`. Version 2 has neither and leaves them alone. `apps` is the entries, each icon embedded as base64 `iconData` (stripped of `iconPath`); on import, icons are rewritten to `<userData>/icons/<id>.png`. `layouts` is what `layouts.json` holds (`layouts.exportData()`: layouts, hidden list, gap and scenes) and replaces it on import (`importData`, invalid layouts and scenes dropped); a failure there is reported as `layoutsError` without undoing the apps. Older backups are a bare array of entries: they still import and leave the layouts alone.
 
 ---
 
@@ -145,6 +147,7 @@ Stored under Electron's `app.getPath('userData')`:
 | `layouts.json` | `lib/layouts.js` | User window layouts, which layouts are hidden, the organizer gap and the scenes (see §4.4). Written by the Layouts editor and scenes; optional |
 | `appbars.json` | `lib/panel.js` | Window handles of the panels docked right now; emptied on quit, released at the next start if not (§6.2) |
 | `icons/<id>.png` | `lib/icons.js` | Per-item icon |
+| `files/<id>/<name>`, `files/thumbs/<id>.png` | `lib/file-store.js` | Stored copies of dropped files and folders, and their thumbnails (§3.5) |
 | `library.json`, `library.json.bak`, `library.corrupt-<ts>.json` | `lib/media/library.js` | Media's games and videos (§4.5). Same atomic write, backup, restore and read-only behaviour as `apps.json` |
 | `media/<id>/<slot>.jpg` or `.png` | `lib/media/art.js` | Media art per library entry: `cover`, `banner`, `screenshot` as JPEG, `logo` as PNG, shrunk to fit 600×900, 1920×1080, 1280×720 and 800×400 |
 | `profiles.json`, `profiles.corrupt-<ts>.json` | `lib/media/players.js` | Media's players and emulators and the default per platform (§4.5). An unreadable one is moved aside, like `settings.json` |
@@ -152,7 +155,8 @@ Stored under Electron's `app.getPath('userData')`:
 ### 4.1 Entry shape (`apps.json`)
 Common: `id` (UUID), `kind` (`'app'` | `'island'`), `parentId` (null = Home, or an island id), `pinned`, `pinOrder`, `createdAt`, `gridX`, `gridY`, `color`.
 
-- **App** (`kind: 'app'`): `name`, `type` (`path` | `url` | `script` | `command`), `target`, `args`, `cwd`, `interpreter`, `command`, `iconPath`, `iconIsCustom`, `lastLaunched`, `launchCount`, optional `special: 'recycleBin'`.
+- **App** (`kind: 'app'`): `name`, `type` (`path` | `url` | `script` | `command` | `stored`), `target`, `args`, `cwd`, `interpreter`, `command`, `iconPath`, `iconIsCustom`, `lastLaunched`, `launchCount`, optional `special: 'recycleBin'`.
+- **Stored** (`type: 'stored'`, a copy in the file store): also `storedName` (the copied file or folder's name), `storedKind` (`file` | `folder`), `originalPath`, `size` (bytes), `thumbState` (`ready` | `generic` | `pending`). `normalize()` re-derives `target` (`files/<id>/<storedName>`) and `iconPath` (`files/thumbs/<id>.png`) on every load and never trusts them from disk; a `storedName` with path parts, or an id that isn't UUID-shaped, gets an empty target.
 - **Island** (`kind: 'island'`): `collapsed` (default `true`), `w`/`h` (cells, used when expanded), `showNames`. Formerly `'folder'`; `normalize()` migrates it.
 
 `lib/store.js` `normalize()` backfills defaults for old entries. `assignMissingPositions()` gives every entry a grid cell, grouped per parent. `assignMissingPinOrders()` gives pinned items a stable order.
@@ -170,7 +174,7 @@ Common: `id` (UUID), `kind` (`'app'` | `'island'`), `parentId` (null = Home, or 
 - **Backup import** gives a fresh UUID to any entry whose `id` isn't a UUID or is a duplicate (ids become icon filenames). Children are re-pointed to the new id. A `parentId` that isn't an island in the backup becomes `null`.
 
 ### 4.2 `settings.json` keys
-`hotkey` (default `CommandOrControl+Space`), `startFullscreen`, `minimizeToTrayOnClose` (default true), `notifyUpdates`, `disableHotkeyInApps`, `googleFaviconFallback` (default true; absent = on), `organizerEnabled` (window organizer master switch; default false), `organizerPanel` (`always` / `autoHide` / `off`; default `always`), `organizerSnapOnDrag` (default true), `organizerHotkey` (grid placer; default `CommandOrControl+Alt+G`, registered only while the organizer is on). `settings.organizerOptions()` fills in the organizer defaults (the hotkey comes back as `gridHotkey`). `controller`: Media's pad settings, `{ deadZone, pads: { <Gamepad id>: { <button index>: action } } }`; `lib/media/controller.js` clamps the dead zone to 0.1–0.9 (default 0.35) and drops invalid buttons and actions, and any pad map without `select` and `back`. `libraries`: Media's library folders, `[{ root, library, recursive, platforms }]` (one per folder and library; re-adding replaces it).
+`hotkey` (default `CommandOrControl+Space`), `startFullscreen`, `minimizeToTrayOnClose` (default true), `notifyUpdates`, `disableHotkeyInApps`, `googleFaviconFallback` (default true; absent = on), `organizerEnabled` (window organizer master switch; default false), `organizerPanel` (`always` / `autoHide` / `off`; default `always`), `organizerSnapOnDrag` (default true), `organizerHotkey` (grid placer; default `CommandOrControl+Alt+G`, registered only while the organizer is on). `fileStoreOnDrop` (`copy` / `link`; default `copy`): whether files dropped from Explorer are copied into the file store. `fileStoreLimit` (bytes, default 2 GB; no UI): the largest file or folder `files:store` will copy. `settings.organizerOptions()` fills in the organizer defaults (the hotkey comes back as `gridHotkey`). `controller`: Media's pad settings, `{ deadZone, pads: { <Gamepad id>: { <button index>: action } } }`; `lib/media/controller.js` clamps the dead zone to 0.1–0.9 (default 0.35) and drops invalid buttons and actions, and any pad map without `select` and `back`. `libraries`: Media's library folders, `[{ root, library, recursive, platforms }]` (one per folder and library; re-adding replaces it).
 
 ### 4.3 Renderer `localStorage` keys (UI-only prefs, read before first paint)
 `launchpad-theme` (`light`/`dark`), `launchpad-accent`, `launchpad-wallpaper`, `launchpad-taskbar-style`, `launchpad-topbar-style`, `launchpad-taskbar-edge`, `launchpad-taskbar-position` (`right` = pinned side), `launchpad-taskbar-align` (`center`), `launchpad-tray-align` (`center`/`shared`), `launchpad-tray-order` (JSON), `launchpad-hide-add-buttons` (`1`), `launchpad-hide-app-names` (`1`), `launchpad-topbar-hosted` (`1` while the panel carries the toolbar, so the window starts without it instead of jumping once main confirms). The old `launchpad-panel-style` is removed at startup: the panel follows `launchpad-topbar-style` now.
@@ -251,6 +255,7 @@ Separate from the launcher grid above, but the same integer-cell idea: a layout 
 - `url` → `shell.openExternal`.
 - `script` → detached spawn of `interpreter` (default `python`) with target and args.
 - `command` → detached spawn via `shell:true`.
+- `stored` → `shell.openPath(target)`, like `path` (files open in their default app, folders in Explorer).
 - Any `.cmd`/`.bat` target is forced to `shell:true` (Node EINVAL hardening).
 
 ### 6.2 PowerShell helpers (`lib/*.js` → `lib/*.ps1`)
@@ -366,6 +371,7 @@ A fullscreen front end for games and videos, opened from the toolbar's or panel'
 ## 9. Feature checklist (what exists today)
 
 - Launch apps, folders, URLs, Python/JS scripts and shell commands. Drag from Explorer to add. `.lnk` resolution.
+- File store: files and folders dropped from Explorer are copied into Launchpad with thumbnails, so they survive the original moving; programs and shortcuts stay links. Context menu: show original, add as link, refresh thumbnail. Included in backups as a sibling folder.
 - Freeform grid with islands (folders): nested, collapsible, resizable, colorable, optional name labels. Multi-select with marquee, bulk move/pin/remove.
 - Auto icons (exe, favicon), custom icon picker, "Detect Missing Icons", "Restore Default Apps".
 - Taskbar: pins (drag-reorder), running-window buttons (focus), search across everything, recent items, tray widgets (volume + per-app mixer + output device, USB eject, Bluetooth disconnect, Wi-Fi connect, power, clock, fullscreen), reorderable tray.
