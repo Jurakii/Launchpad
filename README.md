@@ -19,6 +19,7 @@ It runs as its own window (or full screen). The window has a grid of your apps g
   - **Grid placer:** press **Ctrl+Alt+G** (or the grid button on the panel) to lay a grid over the screen, then drag across cells, or use the arrow keys and Enter, to size the window to them.
   - **Your own layouts:** **Layouts** in the toolbar lets you make layouts by merging and splitting cells, hide the ones you don't use, and set the gap between snapped windows.
   - **Scenes:** the scenes button on the panel saves where all your windows are, on every screen, and puts them back later with one click. Right-click an island and choose **Save arrangement for this island**; then **Open as scene** starts whichever of its apps aren't running and puts each window in its place.
+- **Media Mode:** a full-screen library of your games and videos, made to use from the couch with a controller or the keyboard. Add a folder and Launchpad finds the ROMs and videos in it, works out the console from folder names and file types, and lists them by platform with a "Continue" row for what you played last. Each game or video opens in the player or emulator you choose (presets for mpv, VLC and RetroArch), and Launchpad counts plays and time played. Covers and artwork come in a later version.
 - **Layout and look:** dock the taskbar to any screen edge. Align it to the edge or center (Windows 10 or 11 style), and reorder the tray icons. Choose light or dark, an accent color, solid, translucent or transparent bars, and a wallpaper.
 - **Icons:** Launchpad picks icons automatically from the program or website. You can also choose your own.
 - **Backups and updates:** export and import your whole setup, icons, window layouts and scenes included. Updates install from inside the app.
@@ -39,6 +40,10 @@ Settings shows when an update is available and installs it for you. You can also
 - Right-click an item, empty grid space, or the taskbar for more options.
 - With the window organizer on, **Ctrl+Alt+G** opens the grid placer for the window you're using: arrow keys move the selection, **Shift**+arrows resize it, **Enter** places the window and **Esc** cancels. You can change the keys in Settings.
 - Keyboard: use the arrow keys to move, **Enter** to launch, and **Esc** to close menus. Start typing to search.
+- **Media Mode** in the top bar opens the full-screen library:
+  1. **Players and emulators**: add the programs that open your files. Pick a preset or your own program, give the arguments (`{file}` is the game or video), and the platforms it's for (for example `snes`, or `videos` for films).
+  2. **Add folder**: choose a folder of games or videos, check the platform found for each subfolder, and add it.
+  3. Move with the arrow keys or a controller's D-pad or left stick. **Enter** or **A** launches, **Esc** or **B** goes back, and **LB**/**RB** switch between Games, Videos and All. While a game runs, **Ctrl+Space** brings Media Mode back.
 
 ## Your data
 
@@ -51,10 +56,12 @@ Everything is stored in `%APPDATA%\launchpad`:
 | `settings.json` | App settings (hotkey, startup, update notifications, …) |
 | `layouts.json` | Your own window layouts, which layouts are hidden, and the gap between snapped windows. Optional: the built-in layouts don't need it. |
 | `icons\` | One PNG per item |
+| `library.json` | Media Mode's games and videos, with play counts. `library.json.bak` is the previous version |
+| `profiles.json` | Media Mode's players and emulators, and which one each platform uses |
 
 Visual preferences (theme, accent color, wallpaper, taskbar layout) are stored inside the app itself.
 
-If `apps.json` ever gets damaged, Launchpad keeps a copy of the damaged file and restores the previous version. If that isn't possible, it opens without saving changes, so nothing gets overwritten. Use **Settings → Export Config…** for a backup you can keep somewhere else.
+If `apps.json` ever gets damaged, Launchpad keeps a copy of the damaged file and restores the previous version. If that isn't possible, it opens without saving changes, so nothing gets overwritten. Use **Settings → Export Config…** for a backup you can keep somewhere else. It doesn't include Media Mode's library and players yet; copy `library.json` and `profiles.json` to keep those.
 
 **Network use:**
 - Update checks go to GitHub.
