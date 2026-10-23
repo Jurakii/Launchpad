@@ -2620,7 +2620,9 @@ settingsBtn.addEventListener('click', async () => {
   snapOnDragToggle.checked = await window.launcherAPI.getOrganizerSnapOnDrag();
   gridHotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getOrganizerHotkey());
   updateOrganizerRows();
+  showSettingsSection(settingsSectionId);
   settingsModalOverlay.classList.remove('hidden');
+  settingsSearch.focus();
   // A download in progress or already finished shouldn't be interrupted by
   // re-opening Settings and kicking off a fresh check - just re-show where
   // things stand. Anything else (never checked, none, error) checks fresh
@@ -2700,6 +2702,75 @@ updateActionBtn.addEventListener('click', async () => {
 window.launcherAPI.getVersion().then((v) => {
   versionLabel.textContent = `Launchpad v${v}`;
 });
+// ---------- Settings sections and search ----------
+// The sidebar shows one section at a time. Typing in the search box shows
+// every setting that matches, across sections, with each section's title
+// above its matches and a count beside it in the sidebar.
+const settingsSearch = document.getElementById('settingsSearch');
+const settingsContent = document.querySelector('.settings-content');
+const settingsHeading = document.getElementById('settingsHeading');
+const settingsBlurb = document.getElementById('settingsBlurb');
+const settingsNoResults = document.getElementById('settingsNoResults');
+const settingsSections = [...document.querySelectorAll('.settings-section')];
+const settingsNavItems = [...document.querySelectorAll('.settings-nav-item')];
+let settingsSectionId = localStorage.getItem('launchpad-settings-section') || 'general';
+
+function renderSettingsSections() {
+  const query = settingsSearch.value.trim().toLowerCase();
+  settingsContent.classList.toggle('searching', !!query);
+  let total = 0;
+  for (const section of settingsSections) {
+    const id = section.dataset.section;
+    let matches = 0;
+    for (const item of section.querySelectorAll('.settings-item')) {
+      const hit = !query || `${section.dataset.title} ${item.textContent}`.toLowerCase().includes(query);
+      item.classList.toggle('hidden', !hit);
+      if (hit) matches++;
+    }
+    total += matches;
+    section.classList.toggle('hidden', query ? matches === 0 : id !== settingsSectionId);
+    const nav = settingsNavItems.find((b) => b.dataset.section === id);
+    nav.classList.toggle('active', !query && id === settingsSectionId);
+    nav.classList.toggle('no-match', !!query && matches === 0);
+    nav.querySelector('.settings-nav-count').textContent = query && matches ? String(matches) : '';
+    if (!query && id === settingsSectionId) nav.setAttribute('aria-current', 'page');
+    else nav.removeAttribute('aria-current');
+  }
+  if (query) {
+    settingsHeading.textContent = `Results for "${settingsSearch.value.trim()}"`;
+    settingsBlurb.textContent = total === 1 ? '1 setting' : `${total} settings`;
+  } else {
+    const current = settingsSections.find((s) => s.dataset.section === settingsSectionId);
+    settingsHeading.textContent = current.dataset.title;
+    settingsBlurb.textContent = current.dataset.blurb;
+  }
+  settingsNoResults.classList.toggle('hidden', !query || total > 0);
+}
+
+function showSettingsSection(id) {
+  if (!settingsSections.some((s) => s.dataset.section === id)) id = 'general';
+  settingsSectionId = id;
+  try {
+    localStorage.setItem('launchpad-settings-section', id);
+  } catch {}
+  settingsSearch.value = '';
+  renderSettingsSections();
+  settingsContent.scrollTop = 0;
+}
+
+for (const nav of settingsNavItems) nav.addEventListener('click', () => showSettingsSection(nav.dataset.section));
+settingsSearch.addEventListener('input', renderSettingsSections);
+// Esc in a non-empty search clears it rather than closing Settings.
+settingsSearch.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && settingsSearch.value) {
+    e.preventDefault();
+    e.stopPropagation();
+    settingsSearch.value = '';
+    renderSettingsSections();
+  }
+});
+showSettingsSection(settingsSectionId);
+
 settingsCloseBtn.addEventListener('click', () => settingsModalOverlay.classList.add('hidden'));
 settingsModalOverlay.addEventListener('click', (e) => {
   if (e.target === settingsModalOverlay) settingsModalOverlay.classList.add('hidden');
