@@ -1,6 +1,6 @@
 # Media Mode: Research and Implementation Plan
 
-Status: Phase 1 is built (2026-10-23): library store, profiles, folder scanning, tracked launching, the Media Mode window and controller input. `CODEBASE_SUMMARY.md` §4.5 and §7.5 describe what exists; §11 there lists Phase 1's known gaps. Phases 2 to 4 are not started. §9 lists what the pre-build review changed.
+Status: Phases 1 and 2 are built (2026-10-23). Phase 1: library store, profiles, folder scanning, tracked launching, the Media Mode window and controller input. Phase 2: art storage and the `lpmedia:` protocol, the Customize screen, controller remapping per pad with a dead-zone setting, and backups version 3 with the library and profiles. `CODEBASE_SUMMARY.md` §4.5 and §7.5 describe what exists; its §11 lists the known gaps. Phases 3 and 4 are not started. §9 lists what the pre-build review changed.
 
 Designs: [Media Mode design canvas](https://claude.ai/artifact/8x1EMf45s551xxEnxkUEz5) (Home, Videos, Scraper review, Customize art, Controller setup, Players and emulators, Add library folder, Game running).
 
