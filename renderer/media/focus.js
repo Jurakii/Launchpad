@@ -1,4 +1,4 @@
-// Spatial focus for Media Mode: the arrow keys (and, later, a controller's
+// Spatial focus for Media: the arrow keys (and, later, a controller's
 // D-pad and stick) move focus to the nearest [data-nav] element in that
 // direction. Everything focusable stays a real button, input or select, so
 // Enter, Space and Tab keep their usual meaning.

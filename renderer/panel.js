@@ -158,7 +158,7 @@ gridBtn.addEventListener('click', async () => {
 const toolbarAction = (action, detail = {}) => window.panelAPI.launchpad(action, detail);
 
 for (const [id, action] of [
-  ['mediaModeBtn', 'mediaMode'],
+  ['mediaBtn', 'media'],
   ['layoutsBtn', 'layouts'],
   ['settingsBtn', 'settings'],
   ['newIslandBtn', 'newIsland'],

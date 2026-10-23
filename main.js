@@ -177,7 +177,7 @@ function showWindow() {
 }
 
 function toggleWindow() {
-  // While Media Mode is open the hotkey belongs to it: it brings Media Mode
+  // While Media is open the hotkey belongs to it: it brings Media
   // back from a game, and hides it when it is already in front.
   if (mediaWindow && !mediaWindow.isDestroyed()) {
     if (mediaWindow.isVisible() && mediaWindow.isFocused()) mediaWindow.hide();
@@ -1041,7 +1041,7 @@ ipcMain.handle('panel:hover', (e, zone) => {
 // The toolbar buttons on the panel carrying Launchpad's top bar. Everything
 // but fullscreen is done by the main window, which comes to the front for it:
 // the click went to Launchpad, so Windows lets it take the foreground.
-const TOPBAR_ACTIONS = ['crumb', 'crumbMenu', 'drop', 'layouts', 'settings', 'newIsland', 'addApp', 'fullscreen', 'mediaMode'];
+const TOPBAR_ACTIONS = ['crumb', 'crumbMenu', 'drop', 'layouts', 'settings', 'newIsland', 'addApp', 'fullscreen', 'media'];
 
 ipcMain.handle('panel:launchpad', (e, request) => {
   if (!mainWindow || !panel.isHostSender(e.sender)) return { ok: false };
@@ -1051,7 +1051,7 @@ ipcMain.handle('panel:launchpad', (e, request) => {
     mainWindow.setFullScreen(!mainWindow.isFullScreen());
     return { ok: true };
   }
-  if (action === 'mediaMode') {
+  if (action === 'media') {
     openMediaWindow();
     return { ok: true };
   }
@@ -1262,7 +1262,7 @@ ipcMain.handle('apps:launch', async (_e, id) => {
   return { ok: true };
 });
 
-// --- Media Mode launching -------------------------------------------------
+// --- Media launching -------------------------------------------------
 // Tracked launches report their exit to the window that started them, which
 // also comes back to the front unless the process just handed off to another
 // one (see HANDOFF_MS in lib/media/launch.js).
@@ -1286,7 +1286,7 @@ mediaLauncher.on('exit', (info) => {
   }
 });
 
-// --- Media Mode window -----------------------------------------------------
+// --- Media window -----------------------------------------------------
 // A separate fullscreen window (renderer/media/) over the library. Its
 // handlers only answer that window.
 let mediaWindow = null;
@@ -1310,19 +1310,24 @@ function openMediaWindow() {
   });
   mediaWindow.setMenuBarVisibility(false);
   mediaWindow.loadFile(path.join(__dirname, 'renderer', 'media', 'index.html'));
+  // The page never navigates; a stray drop or link must not replace it.
+  mediaWindow.webContents.on('will-navigate', (e) => e.preventDefault());
+  mediaWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mediaWindow.on('closed', () => {
     mediaWindow = null;
+    // However it was closed (Exit, Alt+F4), Launchpad comes back.
+    if (!isQuitting) showWindow();
   });
 }
 
 function closeMediaWindow() {
   if (mediaWindow && !mediaWindow.isDestroyed()) mediaWindow.close();
-  showWindow();
+  else showWindow();
 }
 
 const isMediaSender = (e) => !!mediaWindow && !mediaWindow.isDestroyed() && e.sender === mediaWindow.webContents;
 
-// Registers a handler that only the Media Mode window may call.
+// Registers a handler that only the Media window may call.
 function mediaHandle(channel, fn) {
   ipcMain.handle(channel, (e, ...args) => {
     if (!isMediaSender(e)) throw new Error('Not available here');
@@ -1647,7 +1652,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // A backup is { version: 3, apps, layouts, library, profiles }: the
 // apps.json entries with their icons embedded, layouts.json (the user's
-// window layouts), and Media Mode's library and profiles without art
+// window layouts), and Media's library and profiles without art
 // (lib/media/backup.js). Version 2 has no library or profiles; older
 // backups are just the array of entries. All still import.
 ipcMain.handle('backup:export', async () => {
@@ -1729,7 +1734,7 @@ ipcMain.handle('backup:import', async () => {
       layoutsError = err.message;
     }
   }
-  // Version 3 also carries Media Mode's library and profiles; older ones leave them alone.
+  // Version 3 also carries Media's library and profiles; older ones leave them alone.
   let mediaError = null;
   try {
     mediaBackup.importData(bundle);

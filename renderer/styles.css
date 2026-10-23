@@ -276,6 +276,47 @@ button.danger { background: transparent; border-color: var(--danger); color: var
 .island-card.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .island-card.resizing { transition: none; }
 
+/* Grid shown while an island is resized (showResizeGuide in renderer.js). */
+.canvas.show-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--text) 12%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--text) 12%, transparent) 1px, transparent 1px);
+  background-size: var(--cell) var(--cell);
+}
+.resize-guide {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 14px;
+  pointer-events: none;
+}
+.resize-guide-max {
+  border: 2px dashed color-mix(in srgb, var(--text) 35%, transparent);
+}
+.resize-guide-snap {
+  border: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.resize-guide-label {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--panel);
+}
+.resize-guide-snap .resize-guide-label {
+  right: 0;
+  bottom: -26px;
+}
+.resize-guide-max .resize-guide-label {
+  right: 6px;
+  bottom: auto;
+  top: 6px;
+}
+
 .island-card-header {
   display: flex;
   align-items: center;
