@@ -51,16 +51,44 @@
     return held;
   }
 
+  // Puts `action` on `button` in a copy of `mapping`. The action the button
+  // had before moves to the action's old button (a swap), so remapping never
+  // leaves select or back without a button; with no old button to swap to,
+  // that other action is left unmapped and returned as `unmapped`.
+  function assignButton(mapping, action, button) {
+    const next = { ...mapping };
+    const oldButton = Object.keys(next).find((b) => next[b] === action);
+    const other = next[button];
+    if (oldButton !== undefined) delete next[oldButton];
+    next[button] = action;
+    if (other && other !== action) {
+      if (oldButton !== undefined && Number(oldButton) !== Number(button)) {
+        next[oldButton] = other;
+        return { mapping: next, swapped: other, unmapped: null };
+      }
+      return { mapping: next, swapped: null, unmapped: other };
+    }
+    return { mapping: next, swapped: null, unmapped: null };
+  }
+
   // Edge-triggered actions with key-repeat for movement: an action fires
   // when pressed, then (if it repeats) after REPEAT_DELAY_MS and every
-  // REPEAT_RATE_MS while held. Several pads act as one.
-  function createPadReader({ mapping = DEFAULT_MAPPING, deadZone = DEFAULT_DEAD_ZONE } = {}) {
+  // REPEAT_RATE_MS while held. Several pads act as one, each with its own
+  // mapping (mappingFor(pad)).
+  function createPadReader({ mapping, mappingFor, deadZone = DEFAULT_DEAD_ZONE } = {}) {
     const holding = new Map(); // action -> time it should fire next
+    let mapOf = mappingFor || (() => mapping || DEFAULT_MAPPING);
+    let zone = deadZone;
+
+    function configure(opts) {
+      if (opts.mappingFor) mapOf = opts.mappingFor;
+      if (typeof opts.deadZone === 'number') zone = opts.deadZone;
+    }
 
     function update(pads, now) {
       const held = new Set();
       for (const pad of pads) {
-        if (pad && pad.connected !== false) for (const a of heldActions(pad, mapping, deadZone)) held.add(a);
+        if (pad && pad.connected !== false) for (const a of heldActions(pad, mapOf(pad), zone)) held.add(a);
       }
       const fired = [];
       for (const action of held) {
@@ -82,21 +110,45 @@
     function reset(pads) {
       holding.clear();
       for (const pad of pads || []) {
-        if (pad) for (const a of heldActions(pad, mapping, deadZone)) holding.set(a, Infinity);
+        if (pad) for (const a of heldActions(pad, mapOf(pad), zone)) holding.set(a, Infinity);
       }
     }
 
-    return { update, reset };
+    return { update, reset, configure };
   }
+
+  const pressedButtons = (pad) =>
+    (pad.buttons || []).reduce((set, b, i) => (b && b.pressed ? set.add(i) : set), new Set());
 
   // Browser loop: polls every animation frame while any pad is connected
   // and calls onAction(action). onActive() fires on the first pad input
   // after other input, so the prompts can switch to controller glyphs.
+  //
+  // Returns controls: configure({ deadZone, mappingFor }) changes settings
+  // live; capture(callback) hands the next newly pressed raw button
+  // (callback(index, pad)) to the Controller setup screen instead of
+  // running an action; cancelCapture() stops that; pads() lists them.
   function startPads({ onAction, onActive, focusGraceMs = 500 }) {
     const reader = createPadReader();
     let running = false;
     let ignoreUntil = 0;
+    let capturing = null; // callback while waiting for a button
+    let lastPressed = new Map(); // pad index -> Set of pressed buttons
     const pads = () => [...navigator.getGamepads()].filter(Boolean);
+
+    // Buttons that went down since the last frame, per pad.
+    function newPresses(list) {
+      const out = [];
+      const next = new Map();
+      for (const pad of list) {
+        const now = pressedButtons(pad);
+        const before = lastPressed.get(pad.index) || new Set();
+        for (const b of now) if (!before.has(b)) out.push({ pad, button: b });
+        next.set(pad.index, now);
+      }
+      lastPressed = next;
+      return out;
+    }
 
     // Chromium only reports pads to a focused page; on coming back, ignore
     // whatever is still held for a moment.
@@ -115,8 +167,17 @@
         running = false;
         return;
       }
+      const presses = newPresses(list);
       if (now < ignoreUntil || !document.hasFocus()) {
         reader.reset(list);
+      } else if (capturing) {
+        if (presses.length) {
+          const done = capturing;
+          capturing = null;
+          done(presses[0].button, presses[0].pad);
+          // The captured button is still down: don't let it act on release.
+          reader.reset(list);
+        }
       } else {
         const actions = reader.update(list, now);
         if (actions.length) onActive();
@@ -132,9 +193,31 @@
     };
     window.addEventListener('gamepadconnected', start);
     if (pads().length) start();
+
+    return {
+      configure: (opts) => reader.configure(opts),
+      capture: (callback) => {
+        capturing = callback;
+        lastPressed = new Map(pads().map((p) => [p.index, pressedButtons(p)]));
+      },
+      cancelCapture: () => {
+        capturing = null;
+      },
+      pads,
+    };
   }
 
-  const api = { createPadReader, stickDirection, heldActions, startPads, DEFAULT_MAPPING, DEFAULT_DEAD_ZONE, REPEAT_DELAY_MS, REPEAT_RATE_MS };
+  const api = {
+    createPadReader,
+    assignButton,
+    stickDirection,
+    heldActions,
+    startPads,
+    DEFAULT_MAPPING,
+    DEFAULT_DEAD_ZONE,
+    REPEAT_DELAY_MS,
+    REPEAT_RATE_MS,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else window.MediaPad = api;
 })();

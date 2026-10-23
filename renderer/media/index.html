@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: lpmedia:; style-src 'self' 'unsafe-inline';" />
 <title>Media Mode</title>
 <link rel="stylesheet" href="media.css" />
 </head>
@@ -17,6 +17,7 @@
     <div class="topbar-actions">
       <button type="button" id="addFolderBtn" data-nav>Add folder</button>
       <button type="button" id="profilesBtn" data-nav>Players and emulators</button>
+      <button type="button" id="controllerBtn" data-nav>Controller</button>
       <button type="button" id="exitBtn" data-nav>Exit</button>
     </div>
     <div id="clock" class="clock"></div>
@@ -27,6 +28,7 @@
       <div class="hero" id="hero">
         <div class="hero-art" id="heroArt"></div>
         <div class="hero-text">
+          <img id="heroLogo" class="hero-logo hidden" alt="" />
           <h1 id="heroName"></h1>
           <p id="heroInfo" class="muted"></p>
         </div>
@@ -119,6 +121,40 @@
             <button type="submit" id="pfSaveBtn" class="primary" data-nav>Save</button>
           </div>
         </form>
+      </div>
+      <div class="actions">
+        <button type="button" class="back-btn" data-nav>Back</button>
+      </div>
+    </section>
+
+    <section id="customizeScreen" class="screen hidden" aria-label="Customize art">
+      <h1 id="customizeTitle">Customize</h1>
+      <p class="muted">Choose a file, drop one on a slot, or paste an image address. PNG or JPEG. Art you set here is kept when the library is scraped.</p>
+      <div id="slotGrid" class="slot-grid"></div>
+      <div class="actions">
+        <button type="button" class="back-btn" data-nav>Back</button>
+      </div>
+    </section>
+
+    <section id="controllerScreen" class="screen hidden" aria-label="Controller setup">
+      <h1>Controller setup</h1>
+      <p id="padName" class="muted"></p>
+      <div class="controller">
+        <div class="table-wrap grow">
+          <table class="table">
+            <thead><tr><th>Action</th><th>Button</th><th></th></tr></thead>
+            <tbody id="mapRows"></tbody>
+          </table>
+        </div>
+        <div class="controller-side">
+          <label class="field">
+            <span>Stick dead zone: <strong id="deadZoneValue"></strong></span>
+            <input id="deadZone" type="range" min="10" max="90" step="5" data-nav />
+          </label>
+          <p class="muted small">How far the stick must move before it counts. Raise it if the selection drifts on its own.</p>
+          <p id="captureStatus" class="accent-text" role="status"></p>
+          <button type="button" id="resetMapBtn" data-nav>Reset this controller to defaults</button>
+        </div>
       </div>
       <div class="actions">
         <button type="button" class="back-btn" data-nav>Back</button>

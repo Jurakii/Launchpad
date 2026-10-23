@@ -78,6 +78,39 @@ test('two pads act as one, and disconnected pads are ignored', () => {
   assert.deepStrictEqual(reader.update([{ ...snapshot({ buttons: [9] }), connected: false }, null], 16), []);
 });
 
+test('assignButton swaps with the action that had the button', () => {
+  const start = { 0: 'select', 1: 'back', 2: 'quick' };
+  const { mapping, swapped, unmapped } = pad.assignButton(start, 'select', 1);
+  assert.deepStrictEqual(mapping, { 0: 'back', 1: 'select', 2: 'quick' });
+  assert.deepStrictEqual([swapped, unmapped], ['back', null]);
+  assert.deepStrictEqual(start, { 0: 'select', 1: 'back', 2: 'quick' }, 'input not mutated');
+});
+
+test('assignButton onto a free button just moves the action', () => {
+  const { mapping, swapped, unmapped } = pad.assignButton({ 0: 'select', 1: 'back' }, 'back', 7);
+  assert.deepStrictEqual(mapping, { 0: 'select', 7: 'back' });
+  assert.deepStrictEqual([swapped, unmapped], [null, null]);
+});
+
+test('assignButton for an unmapped action takes the button from its owner', () => {
+  const { mapping, unmapped } = pad.assignButton({ 0: 'select', 1: 'back', 9: 'menu' }, 'quick', 9);
+  assert.deepStrictEqual(mapping, { 0: 'select', 1: 'back', 9: 'quick' });
+  assert.strictEqual(unmapped, 'menu');
+});
+
+test('each pad uses its own mapping, and configure changes it live', () => {
+  const reader = pad.createPadReader({ mappingFor: (p) => (p.id === 'odd' ? { 1: 'select' } : pad.DEFAULT_MAPPING) });
+  const odd = { ...snapshot({ buttons: [1] }), id: 'odd' };
+  const std = { ...snapshot({ buttons: [1] }), id: 'std' };
+  assert.deepStrictEqual(reader.update([odd], 0), ['select']);
+  assert.deepStrictEqual(reader.update([snapshot()], 16), []);
+  assert.deepStrictEqual(reader.update([std], 32), ['back']);
+  reader.update([snapshot()], 48);
+  reader.configure({ mappingFor: () => ({ 1: 'menu' }), deadZone: 0.9 });
+  assert.deepStrictEqual(reader.update([std], 64), ['menu']);
+  assert.deepStrictEqual(reader.update([snapshot({ axes: [0.8, 0] })], 80), [], 'new dead zone applies');
+});
+
 test('a custom mapping replaces the default', () => {
   const reader = pad.createPadReader({ mapping: { 1: 'select', 0: 'back' } });
   assert.deepStrictEqual(reader.update([snapshot({ buttons: [1] })], 0), ['select']);

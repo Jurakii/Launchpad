@@ -25,6 +25,9 @@ const state = {
   running: null, // { id, name, startedAt }
   add: { root: null, library: 'games', recursive: true, platforms: {} },
   editing: null, // profile being edited, or null
+  customizing: null, // id of the entry on the Customize screen
+  controller: { deadZone: 0.35, pads: {} }, // settings.json `controller`
+  capturing: null, // action waiting for a button on the Controller screen
 };
 
 // "Error invoking remote method 'media:launch': Error: Can't find…" -> the message.
@@ -41,7 +44,14 @@ function toast(text) {
 
 // ---------- Screens ----------
 
-const SCREENS = { home: 'homeScreen', add: 'addScreen', profiles: 'profilesScreen', running: 'runningScreen' };
+const SCREENS = {
+  home: 'homeScreen',
+  add: 'addScreen',
+  profiles: 'profilesScreen',
+  customize: 'customizeScreen',
+  controller: 'controllerScreen',
+  running: 'runningScreen',
+};
 
 function showScreen(name) {
   if (state.screen === 'home' && document.activeElement && document.activeElement.classList.contains('tile')) {
@@ -55,7 +65,7 @@ function showScreen(name) {
 }
 
 function renderPrompts() {
-  MediaPrompts.render($('prompts'), state.screen, state.input);
+  MediaPrompts.render($('prompts'), state.screen, state.input, padGlyphs());
 }
 
 // The prompts follow whatever was used last: keys and mouse, or a pad.
@@ -69,6 +79,7 @@ document.addEventListener('keydown', () => setInput('keys'), true);
 document.addEventListener('pointerdown', () => setInput('keys'), true);
 
 function back() {
+  if (state.capturing) return cancelCapture();
   if (state.screen === 'home') api.close();
   else showScreen('home');
 }
@@ -84,6 +95,7 @@ $('exitBtn').addEventListener('click', () => api.close());
 $('addFolderBtn').addEventListener('click', openAdd);
 $('emptyAddBtn').addEventListener('click', openAdd);
 $('profilesBtn').addEventListener('click', openProfiles);
+$('controllerBtn').addEventListener('click', openController);
 
 function tickClock() {
   $('clock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -161,12 +173,39 @@ function homeRows() {
   return rows;
 }
 
+// lpmedia: URL for one slot's art, or null. `v` changes with the art.
+function artUrl(entry, slot) {
+  const v = entry.art && entry.art[slot];
+  return v === undefined || v === null ? null : `lpmedia://art/${entry.id}/${slot}?v=${v}`;
+}
+
+// The picture a tile shows: covers for games, banners (or a screenshot) for videos.
+function tileArt(entry, wide) {
+  const order = wide ? ['banner', 'screenshot', 'cover'] : ['cover', 'banner', 'screenshot'];
+  for (const slot of order) {
+    const url = artUrl(entry, slot);
+    if (url) return url;
+  }
+  return null;
+}
+
 function tileFor(entry, wide) {
+  const isWide = wide || entry.library === 'videos';
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = `tile${wide || entry.library === 'videos' ? ' wide' : ''}${entry.available ? '' : ' unavailable'}`;
+  btn.className = `tile${isWide ? ' wide' : ''}${entry.available ? '' : ' unavailable'}`;
   btn.dataset.nav = '';
   btn.dataset.id = entry.id;
+  const url = tileArt(entry, isWide);
+  if (url) {
+    const img = document.createElement('img');
+    img.className = 'tile-img';
+    img.alt = '';
+    img.loading = 'lazy';
+    img.src = url;
+    btn.appendChild(img);
+    btn.classList.add('has-art');
+  }
   const name = document.createElement('span');
   name.className = 'tile-name';
   name.textContent = entry.name;
@@ -180,6 +219,16 @@ function tileFor(entry, wide) {
   btn.setAttribute('aria-label', entry.available ? entry.name : `${entry.name}, file not found`);
   btn.addEventListener('focus', () => showHero(entry));
   btn.addEventListener('click', () => launch(entry));
+  btn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    openCustomize(entry.id);
+  });
+  btn.addEventListener('keydown', (e) => {
+    if (e.key === 'c' || e.key === 'C') {
+      e.preventDefault();
+      openCustomize(entry.id);
+    }
+  });
   return btn;
 }
 
@@ -225,8 +274,27 @@ function showHero(entry) {
   const profile = profileFor(entry);
   if (entry.available && entry.type === 'profile') info.push(profile ? `Opens in ${profile.name}` : 'No player or emulator set up');
   $('heroInfo').textContent = info.join(' · ');
-  $('heroArt').textContent = entry.name;
-  $('heroArt').classList.toggle('wide', entry.library === 'videos');
+  const wide = entry.library === 'videos';
+  const picture = wide ? artUrl(entry, 'banner') || artUrl(entry, 'screenshot') : artUrl(entry, 'cover');
+  const heroArt = $('heroArt');
+  heroArt.classList.toggle('wide', wide);
+  heroArt.replaceChildren();
+  if (picture) {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = picture;
+    heroArt.appendChild(img);
+  } else {
+    heroArt.textContent = entry.name;
+  }
+  // A logo stands in for the name, which stays for screen readers.
+  const logo = artUrl(entry, 'logo');
+  $('heroLogo').classList.toggle('hidden', !logo);
+  $('heroName').classList.toggle('visually-hidden', !!logo);
+  if (logo) $('heroLogo').src = logo;
+  // The banner fills the screen behind the library, faintly.
+  const backdrop = artUrl(entry, 'banner');
+  document.body.style.setProperty('--backdrop', backdrop ? `url("${backdrop}")` : 'none');
 }
 
 function formatDuration(seconds) {
@@ -548,6 +616,296 @@ $('pfDeleteBtn').addEventListener('click', async () => {
   }
 });
 
+// ---------- Customize art ----------
+
+const SLOT_LABELS = { cover: 'Cover', banner: 'Banner', logo: 'Logo', screenshot: 'Screenshot' };
+const SLOT_HINTS = {
+  cover: 'Portrait box art, shown on game tiles',
+  banner: 'Wide 16:9 art, shown on video tiles and behind the library',
+  logo: 'Title logo with a transparent background, shown instead of the name',
+  screenshot: 'A still from the game or video',
+};
+
+function sourceText(m) {
+  if (!m) return 'Empty';
+  if (m.source === 'user') return 'Set by you. Scrapes will not replace it.';
+  return `From ${String(m.source).replace(/^scraper:/, '')}`;
+}
+
+function replaceEntry(updated) {
+  state.entries = state.entries.map((e) => (e.id === updated.id ? updated : e));
+}
+
+function openCustomize(id) {
+  const entry = state.entries.find((e) => e.id === id);
+  if (!entry) return;
+  state.customizing = id;
+  renderCustomize();
+  showScreen('customize');
+}
+
+async function changeArt(slot, call) {
+  try {
+    const updated = await call();
+    if (!updated) return; // dialog cancelled
+    replaceEntry(updated);
+    renderCustomize(slot);
+    renderHome();
+  } catch (err) {
+    toast(message(err));
+  }
+}
+
+function renderCustomize(focusSlot) {
+  const entry = state.entries.find((e) => e.id === state.customizing);
+  if (!entry) return showScreen('home');
+  $('customizeTitle').textContent = `Customize: ${entry.name}`;
+  const grid = $('slotGrid');
+  grid.replaceChildren();
+  for (const slot of Object.keys(SLOT_LABELS)) {
+    const card = document.createElement('section');
+    card.className = `slot slot-${slot}`;
+    card.setAttribute('aria-label', SLOT_LABELS[slot]);
+
+    const head = document.createElement('div');
+    head.className = 'slot-head';
+    const title = document.createElement('h2');
+    title.textContent = SLOT_LABELS[slot];
+    const source = document.createElement('span');
+    source.className = `small ${entry.media && entry.media[slot] && entry.media[slot].source === 'user' ? 'accent-text' : 'muted'}`;
+    source.textContent = sourceText(entry.media && entry.media[slot]);
+    head.append(title, source);
+
+    const preview = document.createElement('div');
+    preview.className = 'slot-preview';
+    const url = artUrl(entry, slot);
+    if (url) {
+      const img = document.createElement('img');
+      img.alt = `${SLOT_LABELS[slot]} for ${entry.name}`;
+      img.src = url;
+      preview.appendChild(img);
+    } else {
+      preview.textContent = 'Drop an image here';
+    }
+    // Dropping a file from Explorer onto the slot.
+    preview.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      preview.classList.add('drop');
+    });
+    preview.addEventListener('dragleave', () => preview.classList.remove('drop'));
+    preview.addEventListener('drop', (e) => {
+      e.preventDefault();
+      preview.classList.remove('drop');
+      const file = e.dataTransfer.files[0];
+      if (file) changeArt(slot, () => api.setArtDropped(entry.id, slot, file));
+    });
+
+    const hint = document.createElement('p');
+    hint.className = 'muted small';
+    hint.textContent = SLOT_HINTS[slot];
+
+    const buttons = document.createElement('div');
+    buttons.className = 'slot-buttons';
+    const fileBtn = document.createElement('button');
+    fileBtn.type = 'button';
+    fileBtn.dataset.nav = '';
+    fileBtn.dataset.slot = slot;
+    fileBtn.textContent = 'Choose file';
+    fileBtn.addEventListener('click', () => changeArt(slot, () => api.setArtFile(entry.id, slot)));
+    buttons.appendChild(fileBtn);
+    if (url) {
+      const clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.dataset.nav = '';
+      clearBtn.textContent = 'Clear';
+      clearBtn.addEventListener('click', () => changeArt(slot, () => api.clearArt(entry.id, slot)));
+      buttons.appendChild(clearBtn);
+    }
+
+    const urlForm = document.createElement('form');
+    urlForm.className = 'slot-url';
+    const urlInput = document.createElement('input');
+    urlInput.type = 'url';
+    urlInput.dataset.nav = '';
+    urlInput.placeholder = 'https://…/image.jpg';
+    urlInput.setAttribute('aria-label', `${SLOT_LABELS[slot]} image address`);
+    const urlBtn = document.createElement('button');
+    urlBtn.type = 'submit';
+    urlBtn.dataset.nav = '';
+    urlBtn.textContent = 'Use address';
+    urlForm.append(urlInput, urlBtn);
+    urlForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (urlInput.value.trim()) changeArt(slot, () => api.setArtUrl(entry.id, slot, urlInput.value));
+    });
+
+    card.append(head, preview, hint, buttons, urlForm);
+    grid.appendChild(card);
+  }
+  if (focusSlot) {
+    const btn = grid.querySelector(`[data-slot="${focusSlot}"]`);
+    if (btn) MediaFocus.focus(btn);
+  }
+}
+
+// ---------- Controller setup ----------
+
+const BUTTON_NAMES = ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'Back', 'Start', 'Left stick', 'Right stick', 'D-pad up', 'D-pad down', 'D-pad left', 'D-pad right', 'Guide'];
+const buttonName = (i) => BUTTON_NAMES[i] || `Button ${Number(i) + 1}`;
+const ACTION_LABELS = {
+  select: 'Select or launch',
+  back: 'Back',
+  customize: 'Customize art',
+  quick: 'Quick actions',
+  tabPrev: 'Previous tab',
+  tabNext: 'Next tab',
+  pageUp: 'Page up',
+  pageDown: 'Page down',
+  menu: 'Menu (Players and emulators)',
+  up: 'Move up',
+  down: 'Move down',
+  left: 'Move left',
+  right: 'Move right',
+};
+
+// The pad being set up: the first one connected.
+function activePad() {
+  return padControls ? padControls.pads()[0] || null : null;
+}
+
+function mappingFor(pad) {
+  return (pad && state.controller.pads[pad.id]) || MediaPad.DEFAULT_MAPPING;
+}
+
+// Prompt glyphs that follow the active pad's mapping.
+function padGlyphs() {
+  const mapping = mappingFor(activePad());
+  const nameOf = (action) => {
+    const b = Object.keys(mapping).find((k) => mapping[k] === action);
+    return b === undefined ? null : buttonName(b);
+  };
+  const prev = nameOf('tabPrev');
+  const next = nameOf('tabNext');
+  return {
+    select: nameOf('select'),
+    back: nameOf('back'),
+    menu: nameOf('menu'),
+    customize: nameOf('customize'),
+    tabs: prev && next ? `${prev} / ${next}` : null,
+  };
+}
+
+function applyController() {
+  if (!padControls) return;
+  padControls.configure({ deadZone: state.controller.deadZone, mappingFor });
+  renderPrompts();
+}
+
+async function saveController() {
+  state.controller = await api.saveController(state.controller);
+  applyController();
+}
+
+async function openController() {
+  state.controller = await api.controller();
+  renderController();
+  showScreen('controller');
+}
+
+function renderController(focusAction) {
+  const pad = activePad();
+  $('padName').textContent = pad
+    ? `Setting up: ${pad.id}${pad.mapping === 'standard' ? '' : ' (not a standard layout: check every button)'}`
+    : 'No controller connected. Connect one and press any button on it.';
+  const mapping = mappingFor(pad);
+  const tbody = $('mapRows');
+  tbody.replaceChildren();
+  for (const action of Object.keys(ACTION_LABELS)) {
+    const tr = document.createElement('tr');
+    if (state.capturing === action) tr.className = 'capturing';
+    const label = document.createElement('td');
+    label.textContent = ACTION_LABELS[action];
+    const current = document.createElement('td');
+    const b = Object.keys(mapping).find((k) => mapping[k] === action);
+    const kbd = document.createElement('kbd');
+    kbd.textContent = state.capturing === action ? 'Press a button…' : b === undefined ? 'None' : buttonName(b);
+    current.appendChild(kbd);
+    const change = document.createElement('td');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.nav = '';
+    btn.dataset.action = action;
+    btn.textContent = 'Change';
+    btn.disabled = !pad;
+    btn.addEventListener('click', () => startCapture(action));
+    change.appendChild(btn);
+    tr.append(label, current, change);
+    tbody.appendChild(tr);
+  }
+  $('deadZone').value = String(Math.round(state.controller.deadZone * 100));
+  $('deadZoneValue').textContent = `${Math.round(state.controller.deadZone * 100)}%`;
+  $('resetMapBtn').disabled = !pad || !state.controller.pads[pad.id];
+  if (focusAction) {
+    const btn = tbody.querySelector(`[data-action="${focusAction}"]`);
+    if (btn) MediaFocus.focus(btn);
+  }
+}
+
+let captureTimer = null;
+
+function startCapture(action) {
+  const pad = activePad();
+  if (!pad) return;
+  state.capturing = action;
+  // Every pad button is captured, so cancelling is Esc or just waiting.
+  $('captureStatus').textContent = `Press the button for "${ACTION_LABELS[action]}". Wait 8 seconds or press Esc to cancel.`;
+  renderController(action);
+  clearTimeout(captureTimer);
+  captureTimer = setTimeout(cancelCapture, 8000);
+  padControls.capture(async (button, fromPad) => {
+    clearTimeout(captureTimer);
+    state.capturing = null;
+    const { mapping, swapped, unmapped } = MediaPad.assignButton(mappingFor(fromPad), action, button);
+    state.controller.pads = { ...state.controller.pads, [fromPad.id]: mapping };
+    if (swapped) $('captureStatus').textContent = `${buttonName(button)} is now ${ACTION_LABELS[action]}. ${ACTION_LABELS[swapped]} moved to its old button.`;
+    else if (unmapped) $('captureStatus').textContent = `${buttonName(button)} is now ${ACTION_LABELS[action]}. ${ACTION_LABELS[unmapped]} has no button now.`;
+    else $('captureStatus').textContent = `${buttonName(button)} is now ${ACTION_LABELS[action]}.`;
+    await saveController();
+    renderController(action);
+  });
+}
+
+function cancelCapture() {
+  clearTimeout(captureTimer);
+  if (padControls) padControls.cancelCapture();
+  const action = state.capturing;
+  state.capturing = null;
+  $('captureStatus').textContent = '';
+  renderController(action);
+}
+
+$('deadZone').addEventListener('input', () => {
+  state.controller.deadZone = Number($('deadZone').value) / 100;
+  $('deadZoneValue').textContent = `${$('deadZone').value}%`;
+});
+$('deadZone').addEventListener('change', saveController);
+
+$('resetMapBtn').addEventListener('click', async () => {
+  const pad = activePad();
+  if (!pad) return;
+  const pads = { ...state.controller.pads };
+  delete pads[pad.id];
+  state.controller.pads = pads;
+  await saveController();
+  $('captureStatus').textContent = 'Back to the standard layout.';
+  renderController();
+});
+
+window.addEventListener('gamepadconnected', () => {
+  if (state.screen === 'controller') renderController();
+  renderPrompts();
+});
+
 // ---------- Controller ----------
 
 const TAB_ORDER = ['games', 'videos', 'all'];
@@ -599,19 +957,26 @@ function onPadAction(action) {
     case 'menu':
       if (state.screen === 'home') openProfiles();
       break;
+    case 'customize': {
+      const el = document.activeElement;
+      if (state.screen === 'home' && el && el.classList.contains('tile')) openCustomize(el.dataset.id);
+      break;
+    }
     default:
-      break; // quick (X) and customize (Y) arrive with Phase 2
+      break; // quick (X) arrives with the scraper's quick actions
   }
 }
 
-MediaPad.startPads({ onAction: onPadAction, onActive: () => setInput('pad') });
+const padControls = MediaPad.startPads({ onAction: onPadAction, onActive: () => setInput('pad') });
 
 // ---------- Start ----------
 
 (async () => {
   const platforms = await api.platforms();
   state.platforms = new Map(platforms.map((p) => [p.id, p.name]));
-  await Promise.all([loadLibrary(), loadProfiles()]);
+  const [controller] = await Promise.all([api.controller(), loadLibrary(), loadProfiles()]);
+  state.controller = controller;
+  applyController();
   if (!state.entries.some((e) => e.library === 'games') && state.entries.some((e) => e.library === 'videos')) {
     state.tab = 'videos';
   }
