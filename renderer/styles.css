@@ -96,7 +96,16 @@ body { padding-top: var(--topbar-inset, 0px); }
   z-index: 5;
   -webkit-app-region: no-drag;
 }
-:root[data-topbar-hosted][data-topbar-autohide] .toolbar > :not(#settingsBtn) { display: none; }
+:root[data-topbar-hosted][data-topbar-autohide] .toolbar > :not(#settingsBtn):not(#backBtn) { display: none; }
+/* Likewise a back arrow, top-left, while inside an island. Hidden otherwise:
+   the breadcrumb already does the job when the toolbar is visible. */
+#backBtn { display: none; }
+:root[data-topbar-hosted][data-topbar-autohide] #backBtn:not([hidden]) {
+  display: flex;
+  position: absolute;
+  top: calc(var(--topbar-inset, 0px) + 10px);
+  left: 14px;
+}
 :root[data-topbar-hosted][data-topbar-autohide] #settingsBtn {
   position: absolute;
   top: calc(var(--topbar-inset, 0px) + 10px);
@@ -628,14 +637,16 @@ button.danger { background: transparent; border-color: var(--danger); color: var
 .session-mute-btn,
 .usb-eject-btn,
 #settingsBtn,
+#backBtn,
 #fullscreenBtn {
   color: var(--accent);
 }
-.taskbar-icon-btn svg, .recent-btn svg, #settingsBtn svg, #fullscreenBtn svg { width: 19px; height: 19px; }
+.taskbar-icon-btn svg, .recent-btn svg, #settingsBtn svg, #backBtn svg, #fullscreenBtn svg { width: 19px; height: 19px; }
 .mute-toggle-btn svg, .usb-eject-btn svg { width: 15px; height: 15px; }
 .session-mute-btn svg { width: 13px; height: 13px; }
 
 #settingsBtn,
+#backBtn,
 #fullscreenBtn {
   width: 36px;
   height: 36px;
