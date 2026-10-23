@@ -208,171 +208,272 @@
   </div>
 
   <div id="settingsModalOverlay" class="modal-overlay hidden">
-    <div class="modal settings-modal">
-      <h2>Settings</h2>
+    <div class="modal settings-modal" role="dialog" aria-labelledby="settingsTitle">
+      <div class="settings-header">
+        <h2 id="settingsTitle">Settings</h2>
+        <button type="button" id="settingsCloseBtn" class="settings-close" aria-label="Close settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="settings-body">
+        <nav class="settings-nav" aria-label="Settings sections">
+          <label class="settings-search">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input type="search" id="settingsSearch" placeholder="Search settings" aria-label="Search settings" autocomplete="off" />
+          </label>
+          <button type="button" class="settings-nav-item" data-section="general"><span>General</span><span class="settings-nav-count"></span></button>
+          <button type="button" class="settings-nav-item" data-section="appearance"><span>Appearance</span><span class="settings-nav-count"></span></button>
+          <button type="button" class="settings-nav-item" data-section="taskbar"><span>Taskbar</span><span class="settings-nav-count"></span></button>
+          <button type="button" class="settings-nav-item" data-section="hotkeys"><span>Hotkeys</span><span class="settings-nav-count"></span></button>
+          <button type="button" class="settings-nav-item" data-section="organizer"><span>Window organizer</span><span class="settings-nav-count"></span></button>
+          <button type="button" class="settings-nav-item" data-section="privacy"><span>Icons &amp; privacy</span><span class="settings-nav-count"></span></button>
+          <button type="button" class="settings-nav-item" data-section="backup"><span>Backup &amp; updates</span><span class="settings-nav-count"></span></button>
+        </nav>
+        <div class="settings-content">
+          <div class="settings-content-head">
+            <h3 id="settingsHeading"></h3>
+            <p id="settingsBlurb"></p>
+          </div>
+          <p id="settingsNoResults" class="settings-empty hidden">No settings match that. Try "taskbar", "hotkey" or "icons".</p>
 
-      <div class="settings-row">
-        <label class="switch-row"><input type="checkbox" id="autoLaunchToggle" /> Start with Windows</label>
-      </div>
-      <div class="settings-row">
-        <label class="switch-row"><input type="checkbox" id="themeToggle" /> Light theme</label>
-      </div>
-      <div class="settings-row">
-        <label class="switch-row"><input type="checkbox" id="fullscreenToggle" /> Start fullscreen</label>
-      </div>
-      <div class="settings-row">
-        <label class="switch-row"><input type="checkbox" id="minimizeToTrayToggle" /> Minimize to tray on close</label>
-      </div>
-      <div class="settings-row">
-        <label class="switch-row"><input type="checkbox" id="showAddButtonsToggle" /> Show "New Island" and "Add App" buttons</label>
-      </div>
-      <div class="settings-row">
-        <label class="switch-row"><input type="checkbox" id="showAppNamesToggle" /> Show app names</label>
-      </div>
-      <div class="settings-row settings-accent-row">
-        <span>Accent color</span>
-        <div class="accent-color-controls">
-          <input type="color" id="accentColorInput" />
-          <button type="button" id="accentResetBtn">Reset</button>
+          <section class="settings-section" data-section="general" data-title="General" data-blurb="How Launchpad starts and what the home grid shows.">
+            <h4 class="settings-section-title">General</h4>
+            <div class="settings-card">
+              <div class="settings-item">
+                <div class="settings-row">
+                  <label class="switch-row"><input type="checkbox" id="autoLaunchToggle" /> Start with Windows</label>
+                </div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row">
+                  <label class="switch-row"><input type="checkbox" id="fullscreenToggle" /> Start fullscreen</label>
+                </div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row">
+                  <label class="switch-row"><input type="checkbox" id="minimizeToTrayToggle" /> Minimize to tray on close</label>
+                </div>
+                <div class="settings-hint">Closing the window keeps Launchpad in the system tray. Use the tray icon's Quit to exit.</div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row">
+                  <label class="switch-row"><input type="checkbox" id="showAddButtonsToggle" /> Show "New Island" and "Add App" buttons</label>
+                </div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row">
+                  <label class="switch-row"><input type="checkbox" id="showAppNamesToggle" /> Show app names</label>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section" data-section="appearance" data-title="Appearance" data-blurb="Theme, accent color, wallpaper and the look of the top bar.">
+            <h4 class="settings-section-title">Appearance</h4>
+            <div class="settings-card">
+              <div class="settings-item">
+                <div class="settings-row">
+                  <label class="switch-row"><input type="checkbox" id="themeToggle" /> Light theme</label>
+                </div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>Accent color</span>
+                  <div class="accent-color-controls">
+                    <input type="color" id="accentColorInput" aria-label="Accent color" />
+                    <button type="button" id="accentResetBtn">Reset</button>
+                  </div>
+                </div>
+                <div class="settings-hint">Used for focus rings, selections and active buttons.</div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>Wallpaper</span>
+                  <div class="accent-color-controls">
+                    <button type="button" id="wallpaperPickBtn">Choose Image…</button>
+                    <button type="button" id="wallpaperResetBtn">Clear</button>
+                    <input type="file" id="wallpaperFileInput" accept="image/*" class="hidden" />
+                  </div>
+                </div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>Top bar look</span>
+                  <select id="topbarStyleSelect" aria-label="Top bar look">
+                    <option value="solid">Solid</option>
+                    <option value="translucent">Translucent</option>
+                    <option value="transparent">Transparent</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section" data-section="taskbar" data-title="Taskbar" data-blurb="Where the taskbar sits and how its buttons line up.">
+            <h4 class="settings-section-title">Taskbar</h4>
+            <div class="settings-card">
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>Look</span>
+                  <select id="taskbarStyleSelect" aria-label="Taskbar look">
+                    <option value="solid">Solid</option>
+                    <option value="translucent">Translucent</option>
+                    <option value="transparent">Transparent</option>
+                  </select>
+                </div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>Location</span>
+                  <select id="taskbarEdgeSelect" aria-label="Taskbar location">
+                    <option value="bottom">Bottom</option>
+                    <option value="top">Top</option>
+                    <option value="left">Left</option>
+                    <option value="right">Right</option>
+                  </select>
+                </div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>Alignment</span>
+                  <select id="taskbarAlignSelect" aria-label="Taskbar alignment">
+                    <option value="edge">Edge (Windows 10)</option>
+                    <option value="center">Center (Windows 11)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>Buttons</span>
+                  <select id="taskbarPositionSelect" aria-label="Taskbar buttons">
+                    <option value="left">Left / Top</option>
+                    <option value="right">Right / Bottom</option>
+                  </select>
+                </div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>System tray position</span>
+                  <select id="trayAlignSelect" aria-label="System tray position">
+                    <option value="edge">Snap to edge</option>
+                    <option value="center">Snap to center</option>
+                    <option value="shared">Same side as taskbar buttons</option>
+                  </select>
+                </div>
+                <div class="settings-hint">Drag the clock, volume and network icons to reorder them. Right-click an empty spot on the taskbar to change these quickly.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section" data-section="hotkeys" data-title="Hotkeys" data-blurb="Keyboard shortcuts that work from anywhere in Windows.">
+            <h4 class="settings-section-title">Hotkeys</h4>
+            <div class="settings-card">
+              <div class="settings-item">
+                <div class="settings-row settings-hotkey-row">
+                  <span>Show or hide Launchpad</span>
+                  <button type="button" id="hotkeyBtn">Ctrl+Space</button>
+                </div>
+                <div class="settings-hint">Click the button, then press the new keys.</div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row">
+                  <label class="switch-row"><input type="checkbox" id="disableHotkeyInAppsToggle" /> Disable hotkey while another app is focused</label>
+                </div>
+                <div class="settings-hint">The keys go to games and editors instead. The hotkey still works from the desktop and taskbar.</div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row settings-hotkey-row">
+                  <span>Grid placer</span>
+                  <button type="button" id="gridHotkeyBtn">Ctrl+Alt+G</button>
+                </div>
+                <div class="settings-hint">Opens a grid over the screen to size the window you're using: drag across cells, or use the arrow keys (Shift+arrows to resize) and Enter. Needs the window organizer.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section" data-section="organizer" data-title="Window organizer" data-blurb="A panel along the top of each screen for snapping windows into layouts.">
+            <h4 class="settings-section-title">Window organizer</h4>
+            <div class="settings-card">
+              <div class="settings-item">
+                <div class="settings-row">
+                  <label class="switch-row"><input type="checkbox" id="organizerToggle" /> Window organizer</label>
+                </div>
+                <div class="settings-hint">Click a zone in one of the panel's layouts to move the window you're using there. Right-click an open window on the taskbar for the same layouts. While the panel is on, it also carries Launchpad's top bar on the screen Launchpad is on, and follows the top bar look. Make your own with <strong>Layouts</strong>.</div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>Organizer panel</span>
+                  <select id="organizerPanelSelect" aria-label="Organizer panel">
+                    <option value="always">Always shown</option>
+                    <option value="autoHide">Auto-hide</option>
+                    <option value="off">Off</option>
+                  </select>
+                </div>
+                <div class="settings-hint">Auto-hide brings the panel down when the pointer rests against the top edge. Fullscreen apps cover it, apart from Launchpad itself.</div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row">
+                  <label class="switch-row"><input type="checkbox" id="snapOnDragToggle" /> Snap windows by dragging them to the top of the screen</label>
+                </div>
+                <div class="settings-hint">Drop the window on a zone in the layouts that appear. Press Esc or move away to cancel.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section" data-section="privacy" data-title="Icons &amp; privacy" data-blurb="Where app and website icons come from.">
+            <h4 class="settings-section-title">Icons &amp; privacy</h4>
+            <div class="settings-card">
+              <div class="settings-item">
+                <div class="settings-row">
+                  <label class="switch-row"><input type="checkbox" id="googleFaviconToggle" /> Use Google to find website icons as a fallback</label>
+                </div>
+                <div class="settings-hint">Only when a site has no icon of its own. Google then sees the site's address.</div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>Missing icons</span>
+                  <button type="button" id="detectIconsBtn">Detect Missing Icons</button>
+                </div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>Default apps</span>
+                  <button type="button" id="restoreDefaultsBtn">Restore Default Apps</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section" data-section="backup" data-title="Backup &amp; updates" data-blurb="Keep a copy of your setup and stay current.">
+            <h4 class="settings-section-title">Backup &amp; updates</h4>
+            <div class="settings-card">
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>Backup</span>
+                  <div class="settings-actions">
+                    <button type="button" id="exportBtn">Export Config…</button>
+                    <button type="button" id="importBtn">Import Config…</button>
+                  </div>
+                </div>
+                <div class="settings-hint">Includes your apps, layouts, and the Media library and players. Artwork isn't included.</div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row">
+                  <label class="switch-row"><input type="checkbox" id="notifyUpdatesToggle" /> Notify me when an update is available</label>
+                </div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row settings-update-row">
+                  <span id="versionLabel"></span>
+                  <div class="settings-actions">
+                    <span id="updateStatusLabel" class="settings-version"></span>
+                    <button type="button" id="updateActionBtn" class="primary hidden"></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
-      </div>
-      <div class="settings-row settings-accent-row">
-        <span>Taskbar look</span>
-        <select id="taskbarStyleSelect">
-          <option value="solid">Solid</option>
-          <option value="translucent">Translucent</option>
-          <option value="transparent">Transparent</option>
-        </select>
-      </div>
-      <div class="settings-row settings-accent-row">
-        <span>Top bar look</span>
-        <select id="topbarStyleSelect">
-          <option value="solid">Solid</option>
-          <option value="translucent">Translucent</option>
-          <option value="transparent">Transparent</option>
-        </select>
-      </div>
-      <div class="settings-row settings-accent-row">
-        <span>Taskbar location</span>
-        <select id="taskbarEdgeSelect">
-          <option value="bottom">Bottom</option>
-          <option value="top">Top</option>
-          <option value="left">Left</option>
-          <option value="right">Right</option>
-        </select>
-      </div>
-      <div class="settings-row settings-accent-row">
-        <span>Taskbar alignment</span>
-        <select id="taskbarAlignSelect">
-          <option value="edge">Edge (Windows 10)</option>
-          <option value="center">Center (Windows 11)</option>
-        </select>
-      </div>
-      <div class="settings-row settings-accent-row">
-        <span>Taskbar buttons</span>
-        <select id="taskbarPositionSelect">
-          <option value="left">Left / Top</option>
-          <option value="right">Right / Bottom</option>
-        </select>
-      </div>
-      <div class="settings-row settings-accent-row">
-        <span>System tray position</span>
-        <select id="trayAlignSelect">
-          <option value="edge">Snap to edge</option>
-          <option value="center">Snap to center</option>
-          <option value="shared">Same side as taskbar buttons</option>
-        </select>
-      </div>
-      <div class="settings-row settings-hint">
-        Drag the clock/volume/network icons in the taskbar to reorder them. Right-click an empty
-        spot on the taskbar to change these quickly.
-      </div>
-      <div class="settings-row settings-accent-row">
-        <span>Wallpaper</span>
-        <div class="accent-color-controls">
-          <button type="button" id="wallpaperPickBtn">Choose Image…</button>
-          <button type="button" id="wallpaperResetBtn">Clear</button>
-          <input type="file" id="wallpaperFileInput" accept="image/*" class="hidden" />
-        </div>
-      </div>
-      <div class="settings-row settings-hotkey-row">
-        <span>Toggle hotkey</span>
-        <button type="button" id="hotkeyBtn">Ctrl+Space</button>
-      </div>
-      <div class="settings-row settings-hint">
-        The hotkey shows/hides Launchpad from anywhere. Closing the window
-        minimizes it to the system tray instead of quitting - use the tray icon's Quit to fully exit.
-      </div>
-      <div class="settings-row">
-        <label class="switch-row"><input type="checkbox" id="disableHotkeyInAppsToggle" /> Disable hotkey while another app is focused</label>
-      </div>
-      <div class="settings-row settings-hint">
-        When on, the hotkey only opens Launchpad from the desktop or taskbar - inside other apps
-        (games, editors) the keys go to that app instead.
-      </div>
-      <div class="settings-row">
-        <label class="switch-row"><input type="checkbox" id="organizerToggle" /> Window organizer</label>
-      </div>
-      <div class="settings-row settings-hint">
-        Adds a panel along the top of each screen. Click a zone in one of its layouts to move the window
-        you're using there, or its grid button to size the window to any block of cells. Right-click an open
-        window on the taskbar for the same layouts, organizer on or off. Make your own with <strong>Layouts</strong>.
-        While the panel is on, it's also Launchpad's top bar: the breadcrumb and the Layouts, Settings,
-        New Island, Add App and fullscreen buttons move into the panel on the screen Launchpad is on.
-        It follows the top bar look.
-      </div>
-      <div class="settings-row settings-accent-row">
-        <span>Organizer panel</span>
-        <select id="organizerPanelSelect">
-          <option value="always">Always shown</option>
-          <option value="autoHide">Auto-hide</option>
-          <option value="off">Off</option>
-        </select>
-      </div>
-      <div class="settings-row">
-        <label class="switch-row"><input type="checkbox" id="snapOnDragToggle" /> Snap windows by dragging them to the top of the screen</label>
-      </div>
-      <div class="settings-row settings-hint">
-        Drag a window by its title bar to the top of a screen, then drop it on a zone in the layouts that
-        appear. Press Esc or move away to cancel. Auto-hide brings the panel down when the pointer rests
-        against the top edge. Fullscreen apps cover it, apart from Launchpad itself.
-      </div>
-      <div class="settings-row settings-hotkey-row">
-        <span>Grid placer hotkey</span>
-        <button type="button" id="gridHotkeyBtn">Ctrl+Alt+G</button>
-      </div>
-      <div class="settings-row settings-hint">
-        Opens a grid over the screen for the window you're using. Drag across cells, or use the arrow keys
-        (Shift+arrows to resize) and Enter, to size the window to them.
-      </div>
-      <div class="settings-row">
-        <label class="switch-row"><input type="checkbox" id="notifyUpdatesToggle" /> Notify me when an update is available</label>
-      </div>
-      <div class="settings-row">
-        <label class="switch-row"><input type="checkbox" id="googleFaviconToggle" /> Use Google to find website icons as a fallback</label>
-      </div>
-      <div class="settings-row settings-hint">
-        Website icons come from the site itself. If it doesn't provide one, this asks Google's
-        favicon service instead, which tells Google the site's address.
-      </div>
-      <div class="settings-row settings-actions">
-        <button type="button" id="detectIconsBtn">Detect Missing Icons</button>
-        <button type="button" id="restoreDefaultsBtn">Restore Default Apps</button>
-      </div>
-      <div class="settings-row settings-actions">
-        <button type="button" id="exportBtn">Export Config…</button>
-        <button type="button" id="importBtn">Import Config…</button>
-      </div>
-
-      <div class="settings-row settings-version" id="versionLabel"></div>
-      <div class="settings-row settings-update-row">
-        <span id="updateStatusLabel" class="settings-version"></span>
-        <button type="button" id="updateActionBtn" class="primary hidden"></button>
-      </div>
-
-      <div class="modal-actions">
-        <div class="spacer"></div>
-        <button type="button" id="settingsCloseBtn">Close</button>
       </div>
     </div>
   </div>
