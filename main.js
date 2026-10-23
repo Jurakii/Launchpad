@@ -33,6 +33,10 @@ const sceneRunner = require('./lib/scene-runner');
 const organizer = require('./lib/organizer');
 const panel = require('./lib/panel');
 const windowmgr = require('./lib/windowmgr');
+const library = require('./lib/media/library');
+const players = require('./lib/media/players');
+const mediaLaunch = require('./lib/media/launch');
+const mediaScan = require('./lib/media/scan');
 const { autoUpdater } = require('electron-updater');
 
 autoUpdater.autoDownload = false;
@@ -166,6 +170,13 @@ function showWindow() {
 }
 
 function toggleWindow() {
+  // While Media Mode is open the hotkey belongs to it: it brings Media Mode
+  // back from a game, and hides it when it is already in front.
+  if (mediaWindow && !mediaWindow.isDestroyed()) {
+    if (mediaWindow.isVisible() && mediaWindow.isFocused()) mediaWindow.hide();
+    else openMediaWindow();
+    return;
+  }
   if (!mainWindow) return;
   if (mainWindow.isVisible() && mainWindow.isFocused()) {
     mainWindow.hide();
@@ -1023,7 +1034,7 @@ ipcMain.handle('panel:hover', (e, zone) => {
 // The toolbar buttons on the panel carrying Launchpad's top bar. Everything
 // but fullscreen is done by the main window, which comes to the front for it:
 // the click went to Launchpad, so Windows lets it take the foreground.
-const TOPBAR_ACTIONS = ['crumb', 'crumbMenu', 'drop', 'layouts', 'settings', 'newIsland', 'addApp', 'fullscreen'];
+const TOPBAR_ACTIONS = ['crumb', 'crumbMenu', 'drop', 'layouts', 'settings', 'newIsland', 'addApp', 'fullscreen', 'mediaMode'];
 
 ipcMain.handle('panel:launchpad', (e, request) => {
   if (!mainWindow || !panel.isHostSender(e.sender)) return { ok: false };
@@ -1031,6 +1042,10 @@ ipcMain.handle('panel:launchpad', (e, request) => {
   if (!TOPBAR_ACTIONS.includes(action)) return { ok: false };
   if (action === 'fullscreen') {
     mainWindow.setFullScreen(!mainWindow.isFullScreen());
+    return { ok: true };
+  }
+  if (action === 'mediaMode') {
+    openMediaWindow();
     return { ok: true };
   }
   showWindow();
@@ -1239,6 +1254,171 @@ ipcMain.handle('apps:launch', async (_e, id) => {
   await launchAndRecord(entry);
   return { ok: true };
 });
+
+// --- Media Mode launching -------------------------------------------------
+// Tracked launches report their exit to the window that started them, which
+// also comes back to the front unless the process just handed off to another
+// one (see HANDOFF_MS in lib/media/launch.js).
+const mediaLauncher = mediaLaunch.createLauncher();
+const mediaLaunchSenders = new Map(); // library id -> webContents
+
+mediaLauncher.on('exit', (info) => {
+  try {
+    library.save(mediaLaunch.recordPlay(library.load(), info));
+  } catch (err) {
+    console.error('Failed to record play time:', err);
+  }
+  const sender = mediaLaunchSenders.get(info.id);
+  mediaLaunchSenders.delete(info.id);
+  if (!sender || sender.isDestroyed()) return;
+  sender.send('media:exited', info);
+  const win = BrowserWindow.fromWebContents(sender);
+  if (win && !info.handoff) {
+    win.show();
+    win.focus();
+  }
+});
+
+// --- Media Mode window -----------------------------------------------------
+// A separate fullscreen window (renderer/media/) over the library. Its
+// handlers only answer that window.
+let mediaWindow = null;
+
+function openMediaWindow() {
+  if (mediaWindow && !mediaWindow.isDestroyed()) {
+    mediaWindow.show();
+    mediaWindow.focus();
+    return;
+  }
+  mediaWindow = new BrowserWindow({
+    fullscreen: true,
+    backgroundColor: '#16181d',
+    icon: fs.existsSync(ICON_PATH) ? ICON_PATH : undefined,
+    webPreferences: {
+      preload: path.join(__dirname, 'media-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  mediaWindow.setMenuBarVisibility(false);
+  mediaWindow.loadFile(path.join(__dirname, 'renderer', 'media', 'index.html'));
+  mediaWindow.on('closed', () => {
+    mediaWindow = null;
+  });
+}
+
+function closeMediaWindow() {
+  if (mediaWindow && !mediaWindow.isDestroyed()) mediaWindow.close();
+  showWindow();
+}
+
+const isMediaSender = (e) => !!mediaWindow && !mediaWindow.isDestroyed() && e.sender === mediaWindow.webContents;
+
+// Registers a handler that only the Media Mode window may call.
+function mediaHandle(channel, fn) {
+  ipcMain.handle(channel, (e, ...args) => {
+    if (!isMediaSender(e)) throw new Error('Not available here');
+    return fn(e, ...args);
+  });
+}
+
+ipcMain.handle('media:open', () => openMediaWindow());
+
+mediaHandle('media:close', () => closeMediaWindow());
+
+mediaHandle('media:library', () => ({ entries: library.load(), loadIssue: library.getLoadIssue() }));
+
+mediaHandle('media:platforms', () => mediaScan.PLATFORMS.map(({ id, name }) => ({ id, name })));
+
+// Profiles, the presets to start one from (with any found installed), and
+// the defaults.
+mediaHandle('media:profiles', () => ({
+  ...players.load(),
+  presets: players.PRESETS.map(({ candidates, ...p }) => p),
+  detected: players.detectInstalled(),
+}));
+
+// Saves the whole profiles file. Any invalid profile refuses the save, with
+// its problems, rather than being dropped silently.
+mediaHandle('media:saveProfiles', (_e, data) => {
+  const profiles = data && Array.isArray(data.profiles) ? data.profiles : [];
+  for (const p of profiles) {
+    const errors = players.validateProfile(p);
+    if (errors.length) return { ok: false, id: p && p.id, errors };
+  }
+  return { ok: true, data: players.save(data) };
+});
+
+mediaHandle('media:pickProgram', async () => {
+  const res = await dialog.showOpenDialog(mediaWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'Programs', extensions: ['exe'] }],
+  });
+  return res.canceled ? null : res.filePaths[0] || null;
+});
+
+mediaHandle('media:pickFolder', async () => {
+  const res = await dialog.showOpenDialog(mediaWindow, { properties: ['openDirectory'] });
+  return res.canceled ? null : res.filePaths[0] || null;
+});
+
+// Checks a library folder request from the renderer. Throws a message for
+// the user when it isn't usable.
+function libraryRequest(request) {
+  const { root, library: lib, recursive = true, platforms = {} } = request || {};
+  if (typeof root !== 'string' || !path.isAbsolute(root) || !fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+    throw new Error('Choose a folder that exists');
+  }
+  if (!library.LIBRARIES.includes(lib)) throw new Error('Choose games or videos');
+  const valid = new Set(mediaScan.PLATFORMS.map((p) => p.id));
+  const picks = {};
+  for (const [folder, id] of Object.entries(platforms && typeof platforms === 'object' ? platforms : {})) {
+    if (typeof folder === 'string' && valid.has(id)) picks[folder] = id;
+  }
+  return { root, library: lib, recursive: recursive !== false, platforms: picks };
+}
+
+mediaHandle('media:scanPreview', async (_e, request) => {
+  const req = libraryRequest(request);
+  const found = await mediaScan.scanFolder(req.root, req);
+  return { count: found.length, groups: mediaScan.summarize(found) };
+});
+
+// Scans a folder into the library and remembers it, so a later rescan uses
+// the same choices.
+mediaHandle('media:addLibrary', async (_e, request) => {
+  const req = libraryRequest(request);
+  const found = await mediaScan.scanFolder(req.root, req);
+  const result = mediaScan.mergeScan(library.load(), found, { root: req.root, library: req.library });
+  library.save(result.entries);
+  const others = (settings.load().libraries || []).filter(
+    (l) => !(l && typeof l.root === 'string' && l.root.toLowerCase() === req.root.toLowerCase() && l.library === req.library)
+  );
+  settings.save({ libraries: [...others, req] });
+  return { added: result.added, missing: result.missing, restored: result.restored };
+});
+
+mediaHandle('media:launch', async (e, id) => {
+  if (!library.isValidId(id)) throw new Error('Invalid library id');
+  const entries = library.load();
+  const entry = entries.find((x) => x.id === id);
+  if (!entry) throw new Error('That item is no longer in the library');
+  const result = await mediaLauncher.launch(entry, players.load());
+  if (result.alreadyRunning) return result;
+  if (result.tracked) mediaLaunchSenders.set(id, e.sender);
+  try {
+    library.save(mediaLaunch.recordLaunch(library.load(), id));
+  } catch (err) {
+    // It launched; a library that can't be saved right now shouldn't say otherwise.
+    console.error('Failed to record launch:', err);
+  }
+  return result;
+});
+
+mediaHandle('media:running', () => mediaLauncher.list());
+
+mediaHandle('media:stop', (_e, id) => mediaLauncher.stop(id));
 
 ipcMain.handle('dialog:pickTarget', async (_e, kind) => {
   // Windows can't show a combined file+folder picker with files visible - it

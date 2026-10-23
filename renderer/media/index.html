@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';" />
+<title>Media Mode</title>
+<link rel="stylesheet" href="media.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Media Mode</div>
+    <nav class="tabs" aria-label="Library">
+      <button type="button" class="tab" data-tab="games" data-nav>Games</button>
+      <button type="button" class="tab" data-tab="videos" data-nav>Videos</button>
+      <button type="button" class="tab" data-tab="all" data-nav>All</button>
+    </nav>
+    <div class="topbar-actions">
+      <button type="button" id="addFolderBtn" data-nav>Add folder</button>
+      <button type="button" id="profilesBtn" data-nav>Players and emulators</button>
+      <button type="button" id="exitBtn" data-nav>Exit</button>
+    </div>
+    <div id="clock" class="clock"></div>
+  </header>
+
+  <main>
+    <section id="homeScreen" class="screen" aria-label="Library">
+      <div class="hero" id="hero">
+        <div class="hero-art" id="heroArt"></div>
+        <div class="hero-text">
+          <h1 id="heroName"></h1>
+          <p id="heroInfo" class="muted"></p>
+        </div>
+      </div>
+      <div id="rows" class="rows"></div>
+      <div id="emptyState" class="empty hidden">
+        <h2 id="emptyTitle">Nothing here yet</h2>
+        <p class="muted">Add a folder of games or videos to fill your library.</p>
+        <button type="button" id="emptyAddBtn" class="primary" data-nav>Add folder</button>
+      </div>
+    </section>
+
+    <section id="addScreen" class="screen hidden" aria-label="Add library folder">
+      <h1>Add library folder</h1>
+      <div class="form-row">
+        <label class="field grow">
+          <span>Folder</span>
+          <span class="path-pick">
+            <input id="addRoot" type="text" readonly placeholder="No folder chosen" />
+            <button type="button" id="addBrowseBtn" data-nav>Browse</button>
+          </span>
+        </label>
+        <label class="field">
+          <span>Type</span>
+          <select id="addType" data-nav>
+            <option value="games">Games</option>
+            <option value="videos">Videos</option>
+          </select>
+        </label>
+        <label class="field check">
+          <input id="addRecursive" type="checkbox" checked data-nav />
+          <span>Include subfolders</span>
+        </label>
+      </div>
+      <p id="addStatus" class="muted"></p>
+      <div class="table-wrap">
+        <table id="addTable" class="table hidden">
+          <thead><tr><th>Subfolder</th><th>Platform</th><th>Files</th><th>Launch with</th></tr></thead>
+          <tbody id="addRows"></tbody>
+        </table>
+      </div>
+      <p class="muted small">Platforms come from folder names and file extensions. Files already in the library are kept, and missing files are kept as unavailable.</p>
+      <div class="actions">
+        <button type="button" class="back-btn" data-nav>Back</button>
+        <button type="button" id="addConfirmBtn" class="primary" data-nav disabled>Add to library</button>
+      </div>
+    </section>
+
+    <section id="profilesScreen" class="screen hidden" aria-label="Players and emulators">
+      <h1>Players and emulators</h1>
+      <p class="muted">Set up once. Every game or video on a platform uses its default.</p>
+      <div class="profiles">
+        <div class="profile-list">
+          <div id="profileList"></div>
+          <h2 class="small-heading">Add from a preset</h2>
+          <div id="presetList"></div>
+          <button type="button" id="newProfileBtn" data-nav>New blank profile</button>
+        </div>
+        <form id="profileForm" class="profile-form hidden">
+          <label class="field"><span>Name</span><input id="pfName" type="text" data-nav /></label>
+          <label class="field">
+            <span>Kind</span>
+            <select id="pfKind" data-nav>
+              <option value="player">Player (videos)</option>
+              <option value="emulator">Emulator (games)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Program</span>
+            <span class="path-pick">
+              <input id="pfExe" type="text" data-nav placeholder="C:\Program Files\…\program.exe" />
+              <button type="button" id="pfBrowseBtn" data-nav>Browse</button>
+            </span>
+          </label>
+          <label class="field">
+            <span>Arguments, one per line. {file} is the game or video, {dir} its folder, {name} its name.</span>
+            <textarea id="pfArgs" rows="4" data-nav></textarea>
+          </label>
+          <label class="field">
+            <span>Platforms, separated by commas (for example snes, psx). Use videos for the video library.</span>
+            <input id="pfPlatforms" type="text" data-nav />
+          </label>
+          <label class="field check">
+            <input id="pfDefault" type="checkbox" data-nav />
+            <span>Use as the default for these platforms</span>
+          </label>
+          <p id="pfErrors" class="error" role="alert"></p>
+          <div class="actions">
+            <button type="button" id="pfDeleteBtn" class="danger" data-nav>Delete</button>
+            <button type="submit" id="pfSaveBtn" class="primary" data-nav>Save</button>
+          </div>
+        </form>
+      </div>
+      <div class="actions">
+        <button type="button" class="back-btn" data-nav>Back</button>
+      </div>
+    </section>
+
+    <section id="runningScreen" class="screen hidden" aria-label="Running">
+      <div class="running">
+        <div class="cover big" id="runningArt"></div>
+        <div class="running-text">
+          <p id="runningWith" class="accent-text"></p>
+          <h1 id="runningName"></h1>
+          <p class="muted">When it closes, Media Mode comes back here.</p>
+          <p id="runningTime" class="muted"></p>
+          <div class="actions start">
+            <button type="button" id="runningStopBtn" data-nav>Close it</button>
+          </div>
+          <p class="muted small">Press Ctrl+Space to come back to Media Mode while it runs.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="prompts" id="prompts"></footer>
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <script src="focus.js"></script>
+  <script src="pad.js"></script>
+  <script src="prompts.js"></script>
+  <script src="media.js"></script>
+</body>
+</html>

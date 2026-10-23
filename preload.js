@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('launcherAPI', {
   updateApp: (id, formData) => ipcRenderer.invoke('apps:update', { id, formData }),
   removeApp: (id) => ipcRenderer.invoke('apps:remove', id),
   launchApp: (id) => ipcRenderer.invoke('apps:launch', id),
+  openMediaMode: () => ipcRenderer.invoke('media:open'),
   pickTarget: (kind) => ipcRenderer.invoke('dialog:pickTarget', kind),
   pickIcon: () => ipcRenderer.invoke('dialog:pickIcon'),
   extractIconPreview: (targetPath) => ipcRenderer.invoke('icon:extractPreview', targetPath),

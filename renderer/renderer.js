@@ -3289,6 +3289,7 @@ layoutGapInput.addEventListener('change', async () => {
 });
 
 layoutsBtn.addEventListener('click', openLayoutsModal);
+document.getElementById('mediaModeBtn').addEventListener('click', () => window.launcherAPI.openMediaMode());
 layoutsCloseBtn.addEventListener('click', closeLayoutsModal);
 layoutsModalOverlay.addEventListener('click', (e) => {
   if (e.target === layoutsModalOverlay) closeLayoutsModal();

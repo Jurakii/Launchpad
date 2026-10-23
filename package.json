@@ -33,6 +33,7 @@
       "grid-preload.js",
       "scenes-menu-preload.js",
       "window-picker-preload.js",
+      "media-preload.js",
       "lib/**/*",
       "renderer/**/*",
       "build/icon.ico"
