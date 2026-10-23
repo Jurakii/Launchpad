@@ -2997,6 +2997,10 @@ ${ipcErrorMessage(err)}`);
       await showAlert(`Your apps were imported, but the window layouts and scenes in the backup couldn't be:
 ${res.layoutsError}`);
     }
+    if (res.mediaError) {
+      await showAlert(`Your apps were imported, but the Media Mode library in the backup couldn't be:
+${res.mediaError}`);
+    }
   }
 });
 

@@ -37,6 +37,13 @@ const library = require('./lib/media/library');
 const players = require('./lib/media/players');
 const mediaLaunch = require('./lib/media/launch');
 const mediaScan = require('./lib/media/scan');
+const art = require('./lib/media/art');
+const artProtocol = require('./lib/media/art-protocol');
+const mediaController = require('./lib/media/controller');
+const mediaBackup = require('./lib/media/backup');
+
+artProtocol.registerScheme(); // before 'ready', or the scheme can't be privileged
+app.whenReady().then(() => artProtocol.handleScheme());
 const { autoUpdater } = require('electron-updater');
 
 autoUpdater.autoDownload = false;
@@ -1327,7 +1334,56 @@ ipcMain.handle('media:open', () => openMediaWindow());
 
 mediaHandle('media:close', () => closeMediaWindow());
 
-mediaHandle('media:library', () => ({ entries: library.load(), loadIssue: library.getLoadIssue() }));
+// Each entry goes out with `art`: { slot: updatedAt } for the slots whose
+// file exists, which the page turns into lpmedia: URLs.
+function withArt(entry) {
+  const present = art.existingArt(entry);
+  return { ...entry, art: Object.fromEntries(Object.entries(present).map(([slot, m]) => [slot, m.updatedAt || 0])) };
+}
+
+mediaHandle('media:library', () => ({ entries: library.load().map(withArt), loadIssue: library.getLoadIssue() }));
+
+// Stores new art for one slot of one entry, or clears it (buf null), and
+// returns the updated entry.
+function setEntryArt(id, slot, buf, source) {
+  if (!library.isValidId(id)) throw new Error('Invalid library id');
+  if (!art.IMAGE_SLOTS.includes(slot)) throw new Error('Unknown art slot');
+  const entries = library.load();
+  const entry = entries.find((e) => e.id === id);
+  if (!entry) throw new Error('That item is no longer in the library');
+  if (buf) {
+    entry.media = { ...entry.media, [slot]: art.saveArt(id, slot, buf, source) };
+  } else {
+    art.clearArt(id, slot);
+    entry.media = { ...entry.media, [slot]: null };
+  }
+  library.save(entries);
+  return withArt(entry);
+}
+
+mediaHandle('media:setArtFile', async (_e, id, slot) => {
+  const res = await dialog.showOpenDialog(mediaWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }],
+  });
+  if (res.canceled || !res.filePaths[0]) return null;
+  return setEntryArt(id, slot, art.readImageFile(res.filePaths[0]), 'user');
+});
+
+// A file dropped on a slot. The path comes from the page (webUtils), so
+// readImageFile checks it is a real file of a sane size, and decoding
+// refuses anything that isn't a PNG or JPEG.
+mediaHandle('media:setArtPath', (_e, id, slot, filePath) => setEntryArt(id, slot, art.readImageFile(filePath), 'user'));
+
+mediaHandle('media:setArtUrl', async (_e, id, slot, url) =>
+  setEntryArt(id, slot, await art.downloadImage(String(url || '').trim()), 'user')
+);
+
+mediaHandle('media:clearArt', (_e, id, slot) => setEntryArt(id, slot, null));
+
+mediaHandle('media:controller', () => mediaController.load());
+
+mediaHandle('media:saveController', (_e, data) => mediaController.save(data));
 
 mediaHandle('media:platforms', () => mediaScan.PLATFORMS.map(({ id, name }) => ({ id, name })));
 
@@ -1589,9 +1645,11 @@ ipcMain.handle('settings:setOrganizerHotkey', (_e, accel) => {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// A backup is { version: 2, apps, layouts }: the apps.json entries with
-// their icons embedded, and layouts.json (the user's window layouts). Older
-// backups are just the array of entries, and still import.
+// A backup is { version: 3, apps, layouts, library, profiles }: the
+// apps.json entries with their icons embedded, layouts.json (the user's
+// window layouts), and Media Mode's library and profiles without art
+// (lib/media/backup.js). Version 2 has no library or profiles; older
+// backups are just the array of entries. All still import.
 ipcMain.handle('backup:export', async () => {
   const res = await dialog.showSaveDialog(mainWindow, {
     defaultPath: `launchpad-backup-${new Date().toISOString().slice(0, 10)}.json`,
@@ -1607,7 +1665,7 @@ ipcMain.handle('backup:export', async () => {
     delete entry.iconPath;
     return entry;
   });
-  const bundle = { version: 2, apps, layouts: layouts.exportData() };
+  const bundle = { version: 3, apps, layouts: layouts.exportData(), ...mediaBackup.exportData() };
   fs.writeFileSync(res.filePath, JSON.stringify(bundle, null, 2), 'utf-8');
   return { ok: true, path: res.filePath };
 });
@@ -1671,5 +1729,12 @@ ipcMain.handle('backup:import', async () => {
       layoutsError = err.message;
     }
   }
-  return { ok: true, apps: decorate(restored), layoutsError };
+  // Version 3 also carries Media Mode's library and profiles; older ones leave them alone.
+  let mediaError = null;
+  try {
+    mediaBackup.importData(bundle);
+  } catch (err) {
+    mediaError = err.message;
+  }
+  return { ok: true, apps: decorate(restored), layoutsError, mediaError };
 });

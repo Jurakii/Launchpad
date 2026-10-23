@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // Media Mode (renderer/media/): the library, players and emulators, library
 // folders, and launching. Every channel answers only this window.
@@ -16,4 +16,11 @@ contextBridge.exposeInMainWorld('mediaAPI', {
   stop: (id) => ipcRenderer.invoke('media:stop', id),
   onExited: (callback) => ipcRenderer.on('media:exited', (_e, info) => callback(info)),
   close: () => ipcRenderer.invoke('media:close'),
+  setArtFile: (id, slot) => ipcRenderer.invoke('media:setArtFile', id, slot),
+  // A dropped File -> its path on disk (the page can't see paths itself).
+  setArtDropped: (id, slot, file) => ipcRenderer.invoke('media:setArtPath', id, slot, webUtils.getPathForFile(file)),
+  setArtUrl: (id, slot, url) => ipcRenderer.invoke('media:setArtUrl', id, slot, url),
+  clearArt: (id, slot) => ipcRenderer.invoke('media:clearArt', id, slot),
+  controller: () => ipcRenderer.invoke('media:controller'),
+  saveController: (data) => ipcRenderer.invoke('media:saveController', data),
 });
