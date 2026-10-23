@@ -6,7 +6,8 @@ It runs as its own window (or full screen). The window has a grid of your apps g
 
 ## Features
 
-- **Launch anything:** programs, files, folders, websites, Python/Node scripts and shell commands. Drag files or shortcuts in from Explorer to add them. `.lnk` shortcuts are resolved to the real target.
+- **Launch anything:** programs, files, folders, websites, Python/Node scripts and shell commands. `.lnk` shortcuts are resolved to the real target.
+- **Files on the grid:** drop a file or folder from Explorer and Launchpad keeps its own copy, with a thumbnail for pictures, so it still opens after the original is moved or deleted. Programs, scripts and shortcuts are added as links instead. Hold **Alt** while dropping to add anything as a link, or turn copying off in Settings.
 - **Freeform grid:** place items anywhere. Group them into islands that can be nested, collapsed, resized, colored and labelled. Select several items with a drag box to move, pin or remove them together.
 - **Taskbar:** pinned items, buttons for open windows, search across everything, recently launched items, and tray widgets:
   - volume, with a per-app mixer and output-device picker
@@ -35,7 +36,8 @@ Settings shows when an update is available and installs it for you. You can also
 
 - **Ctrl+Space** shows or hides Launchpad. You can change this in Settings, or have it ignored while another app is focused, so games and editors get the keys.
 - Closing the window hides it to the system tray. To exit fully, choose **Quit** from the tray icon.
-- **+ Add App** adds a program, file, folder, website, script or command. Or drag something in from Explorer.
+- **+ Add App** adds a program, file, folder, website, script or command. Or drag something in from Explorer: files and folders are copied into Launchpad (a small dot marks them), programs and shortcuts are linked.
+- Right-click a stored file for **Show original location**, **Add as link** and **Refresh thumbnail**. Removing a stored file deletes Launchpad's copy permanently (it doesn't go to the Recycle Bin). The original is never touched.
 - **+ New Island** creates a group. Drag items onto it, and right-click it to rename, recolor, expand or show names.
 - Right-click an item, empty grid space, or the taskbar for more options.
 - With the window organizer on, **Ctrl+Alt+G** opens the grid placer for the window you're using: arrow keys move the selection, **Shift**+arrows resize it, **Enter** places the window and **Esc** cancels. You can change the keys in Settings.
@@ -58,13 +60,14 @@ Everything is stored in `%APPDATA%\launchpad`:
 | `settings.json` | App settings (hotkey, startup, update notifications, …) |
 | `layouts.json` | Your own window layouts, which layouts are hidden, and the gap between snapped windows. Optional: the built-in layouts don't need it. |
 | `icons\` | One PNG per item |
+| `files\` | Copies of files and folders dropped on the grid, one folder per item, and their thumbnails in `files\thumbs\` |
 | `library.json` | Media's games and videos, with play counts. `library.json.bak` is the previous version |
 | `profiles.json` | Media's players and emulators, and which one each platform uses |
 | `media\` | Media's covers, banners, logos and screenshots, one folder per game or video |
 
 Visual preferences (theme, accent color, wallpaper, taskbar layout) are stored inside the app itself.
 
-If `apps.json` ever gets damaged, Launchpad keeps a copy of the damaged file and restores the previous version. If that isn't possible, it opens without saving changes, so nothing gets overwritten. Use **Settings → Export Config…** for a backup you can keep somewhere else. It includes Media's library and players, but not its artwork; copy the `media` folder to keep that.
+If `apps.json` ever gets damaged, Launchpad keeps a copy of the damaged file and restores the previous version. If that isn't possible, it opens without saving changes, so nothing gets overwritten. Use **Settings → Export Config…** for a backup you can keep somewhere else. It includes Media's library and players, but not its artwork; copy the `media` folder to keep that. Stored files are copied to a folder next to the backup, named after it with `-files` on the end. Keep that folder with the backup: importing looks for it there, and any stored file it can't find shows as missing.
 
 **Network use:**
 - Update checks go to GitHub.

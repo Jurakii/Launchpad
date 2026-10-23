@@ -97,9 +97,8 @@ body { padding-top: var(--topbar-inset, 0px); }
   -webkit-app-region: no-drag;
 }
 :root[data-topbar-hosted][data-topbar-autohide] .toolbar > :not(#settingsBtn):not(#backBtn) { display: none; }
-/* Likewise a back arrow, top-left, while inside an island. Hidden otherwise:
-   the breadcrumb already does the job when the toolbar is visible. */
-#backBtn { display: none; }
+/* Likewise a back arrow, top-left, while inside an island, the same
+   distance from its corner as the settings button is from its own. */
 :root[data-topbar-hosted][data-topbar-autohide] #backBtn:not([hidden]) {
   display: flex;
   position: absolute;
@@ -197,6 +196,29 @@ button.danger { background: transparent; border-color: var(--danger); color: var
 .tile:hover { background: var(--panel); }
 .tile.selected { background: var(--panel); outline: 2px solid var(--accent); outline-offset: -2px; }
 .tile.missing { opacity: 0.45; }
+/* A stored file's own thumbnail (a photo, a PDF page) keeps its shape,
+   rounded like a desktop preview. Same 48px height as an icon, so names
+   stay in line across a row. */
+.tile img.tile-icon.stored-thumb {
+  width: auto;
+  height: auto;
+  max-width: 72px;
+  max-height: 48px;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+}
+/* Marks stored copies apart from links: a small dot at the icon's corner. */
+.tile .stored-badge {
+  position: absolute;
+  top: 12px;
+  left: 18px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.8;
+  pointer-events: none;
+}
 .tile.drag-over { background: var(--panel); outline: 2px dashed var(--accent); outline-offset: -2px; }
 .tile.multi-selected,
 .island-card.multi-selected {
@@ -258,6 +280,7 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   justify-content: center;
 }
 .folder-icon svg { width: 70%; height: 70%; }
+.folder-icon.stored-folder-icon svg { width: 100%; height: 100%; }
 
 /* ---------- Expanded island card ---------- */
 
@@ -697,6 +720,9 @@ button.danger { background: transparent; border-color: var(--danger); color: var
   align-items: center;
   justify-content: center;
 }
+/* Home has nowhere to go back to (renderBreadcrumb sets [hidden]). Has to
+   come after the display: flex above, which would otherwise win. */
+#backBtn[hidden] { display: none; }
 
 .menu-item-icon {
   display: inline-flex;

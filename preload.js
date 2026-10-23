@@ -6,6 +6,13 @@ contextBridge.exposeInMainWorld('launcherAPI', {
   addApp: (formData) => ipcRenderer.invoke('apps:add', formData),
   updateApp: (id, formData) => ipcRenderer.invoke('apps:update', { id, formData }),
   removeApp: (id) => ipcRenderer.invoke('apps:remove', id),
+  // The file store: dropped files copied into Launchpad. storeFiles resolves
+  // to { apps, results: [{ ok, path, message, tooLarge }] }.
+  storeFiles: (paths, parentId, gridX, gridY) => ipcRenderer.invoke('files:store', { paths, parentId, gridX, gridY }),
+  restoreThumb: (id) => ipcRenderer.invoke('files:restoreThumb', id),
+  showOriginal: (id) => ipcRenderer.invoke('files:showOriginal', id),
+  getFileStoreOnDrop: () => ipcRenderer.invoke('settings:getFileStoreOnDrop'),
+  setFileStoreOnDrop: (mode) => ipcRenderer.invoke('settings:setFileStoreOnDrop', mode),
   launchApp: (id) => ipcRenderer.invoke('apps:launch', id),
   openMedia: () => ipcRenderer.invoke('media:open'),
   pickTarget: (kind) => ipcRenderer.invoke('dialog:pickTarget', kind),

@@ -123,6 +123,7 @@ const taskbarAlignSelect = document.getElementById('taskbarAlignSelect');
 const taskbarEdgeSelect = document.getElementById('taskbarEdgeSelect');
 const notifyUpdatesToggle = document.getElementById('notifyUpdatesToggle');
 const googleFaviconToggle = document.getElementById('googleFaviconToggle');
+const fileStoreCopyToggle = document.getElementById('fileStoreCopyToggle');
 const disableHotkeyInAppsToggle = document.getElementById('disableHotkeyInAppsToggle');
 const organizerToggle = document.getElementById('organizerToggle');
 const organizerPanelSelect = document.getElementById('organizerPanelSelect');
@@ -274,6 +275,13 @@ function folderSVG(color) {
   return `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="${c}" d="M3 6.5A2.5 2.5 0 0 1 5.5 4h4l2 2h7A2.5 2.5 0 0 1 21 8.5v9A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-11Z"/></svg>`;
 }
 
+// A stored (copied) folder. Drawn rather than asked of the shell, which
+// hands back a drive icon for folders. Two-tone manila like Explorer's, so
+// it can't be mistaken for an island's flat colored glyph.
+function storedFolderSVG() {
+  return `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#d9a425" d="M2.5 6A2 2 0 0 1 4.5 4h4.2l2 2h8.8a2 2 0 0 1 2 2v1H2.5V6Z"/><path fill="#f6c94b" d="M2 9.2A1.2 1.2 0 0 1 3.2 8h17.6A1.2 1.2 0 0 1 22 9.2l-.8 9A2 2 0 0 1 19.2 20H4.8a2 2 0 0 1-2-1.8l-.8-9Z"/></svg>`;
+}
+
 // Windows won't hand over its real recycle-bin icon through any API path
 // available (see the comment on the "special" field where it's set) - this
 // is a stand-in instead, loaded from icons/recycle-bin.svg like the rest of
@@ -342,6 +350,10 @@ function iconNode(item, extraClass) {
     el = document.createElement('div');
     el.className = 'folder-icon';
     el.innerHTML = folderSVG(item.color);
+  } else if (item.type === 'stored' && item.storedKind === 'folder') {
+    el = document.createElement('div');
+    el.className = 'folder-icon stored-folder-icon';
+    el.innerHTML = storedFolderSVG();
   } else if (item.special === 'recycleBin' && !item.iconIsCustom) {
     el = document.createElement('div');
     el.className = 'folder-icon';
@@ -351,6 +363,7 @@ function iconNode(item, extraClass) {
     el = document.createElement('img');
     el.alt = '';
     el.src = item.iconDataUrl || PLACEHOLDER_ICON;
+    if (item.type === 'stored' && item.thumbState === 'ready' && item.iconDataUrl) el.classList.add('stored-thumb');
   }
   if (extraClass) el.classList.add(extraClass);
   // Images (and links) are natively draggable by default, which competes
@@ -437,8 +450,7 @@ function renderBreadcrumb() {
   addDropTarget(homeBtn, null);
   breadcrumbEl.appendChild(homeBtn);
 
-  // Back arrow: only shown inside an island, and only while the panel
-  // auto-hides (the breadcrumb is out of sight then). Goes up one level.
+  // Back arrow: only shown inside an island. Goes up one level.
   backBtn.hidden = chain.length === 0;
 
   chain.forEach((f, i) => {
@@ -513,16 +525,62 @@ async function moveItemsInto(ids, targetParentId) {
   if (moving.length) await refreshFromServer(window.launcherAPI.listApps());
 }
 
+// The tooltip doubles as a stored item's info card: what it is, how big,
+// where it came from and when.
+function tileTitle(item) {
+  if (item.type === 'stored') {
+    const lines = [item.name];
+    if (item.missing) lines.push('⚠ The stored copy is missing. Remove this item, or drop the file again.');
+    const kind = item.storedKind === 'folder' ? 'folder' : 'file';
+    lines.push(`Stored ${kind}${typeof item.size === 'number' ? `, ${formatSize(item.size)}` : ''}`);
+    if (item.originalPath) lines.push(`From: ${item.originalPath}`);
+    if (item.createdAt) lines.push(`Added: ${new Date(item.createdAt).toLocaleString()}`);
+    return lines.join('\n');
+  }
+  return item.missing ? `${item.name}\n⚠ Target not found:\n${item.target}` : item.name;
+}
+
+function formatSize(bytes) {
+  const units = ['bytes', 'KB', 'MB', 'GB', 'TB'];
+  let n = bytes;
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  if (i === 0) return n === 1 ? '1 byte' : `${n} bytes`;
+  return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
+}
+
+// Thumbnails missing after a backup import are made in the background, once
+// per item per session, and the grid redraws as each one lands.
+const thumbRequests = new Set();
+function requestThumb(id) {
+  if (thumbRequests.has(id)) return;
+  thumbRequests.add(id);
+  window.launcherAPI
+    .restoreThumb(id)
+    .then((list) => refreshFromServer(Promise.resolve(list)))
+    .catch(() => {});
+}
+
 function buildTile(item) {
   const tile = document.createElement('div');
   tile.className = 'tile';
   if (item.missing) tile.classList.add('missing');
   if (selectedIds.has(item.id)) tile.classList.add('multi-selected');
-  tile.title = item.missing ? `${item.name}\n⚠ Target not found:\n${item.target}` : item.name;
+  tile.title = tileTitle(item);
   tile.draggable = true;
   tile.dataset.id = item.id;
 
   tile.appendChild(iconNode(item, 'tile-icon'));
+  if (item.type === 'stored') {
+    tile.classList.add('stored');
+    const badge = document.createElement('div');
+    badge.className = 'stored-badge';
+    tile.appendChild(badge);
+    if (item.thumbState === 'pending' && !item.missing) requestThumb(item.id);
+  }
 
   const label = document.createElement('div');
   label.className = 'tile-name';
@@ -536,7 +594,7 @@ function buildTile(item) {
   editBtn.title = 'Edit';
   editBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (item.kind === 'island') openRenameModal(item);
+    if (item.kind === 'island' || item.type === 'stored') openRenameModal(item);
     else openEditModal(item);
   });
   tile.appendChild(editBtn);
@@ -1201,12 +1259,72 @@ document.body.addEventListener('drop', async (e) => {
   e.preventDefault();
   fileDragDepth = 0;
   document.body.classList.remove('file-drag-over');
-  const files = Array.from(e.dataTransfer.files || []);
-  for (const file of files) {
-    const filePath = window.launcherAPI.getPathForFile(file);
-    if (filePath) await quickAddFromPath(filePath);
-  }
+  const paths = Array.from(e.dataTransfer.files || [])
+    .map((f) => window.launcherAPI.getPathForFile(f))
+    .filter(Boolean);
+  if (!paths.length) return;
+
+  // Programs, scripts and shortcuts are always links. Alt-drop, or the
+  // "copy dropped files" setting being off, links everything else too.
+  const forceLink = e.altKey || (await window.launcherAPI.getFileStoreOnDrop()) === 'link';
+  const toLink = paths.filter((p) => forceLink || isLinkable(p));
+  const toCopy = paths.filter((p) => !toLink.includes(p));
+
+  for (const p of toLink) await quickAddFromPath(p);
+  if (toCopy.length) await storeDroppedFiles(toCopy, dropCell(e));
 });
+
+// Same list as LINK_EXTENSIONS in lib/file-store.js.
+const LINK_EXTENSIONS = ['exe', 'com', 'msi', 'bat', 'cmd', 'ps1', 'vbs', 'lnk', 'url', 'py', 'js', 'mjs'];
+
+function isLinkable(filePath) {
+  const dot = filePath.lastIndexOf('.');
+  const slash = Math.max(filePath.lastIndexOf('\\'), filePath.lastIndexOf('/'));
+  return dot > slash && LINK_EXTENSIONS.includes(filePath.slice(dot + 1).toLowerCase());
+}
+
+// The grid cell under a drop, using the same math as the reposition drop. A
+// drop anywhere else (the taskbar, the empty-state panel) asks for cell 0,0
+// and main finds the nearest free one.
+function dropCell(e) {
+  const rect = grid.getBoundingClientRect();
+  const inGrid =
+    !grid.classList.contains('hidden') &&
+    e.clientX >= rect.left &&
+    e.clientX <= rect.right &&
+    e.clientY >= rect.top &&
+    e.clientY <= rect.bottom;
+  if (!inGrid) return { gridX: 0, gridY: 0 };
+  const relX = e.clientX - rect.left + grid.scrollLeft;
+  const relY = e.clientY - rect.top + grid.scrollTop;
+  return { gridX: Math.max(0, Math.round(relX / CELL - 0.5)), gridY: Math.max(0, Math.round(relY / CELL - 0.5)) };
+}
+
+async function storeDroppedFiles(paths, { gridX, gridY }) {
+  let res;
+  try {
+    res = await window.launcherAPI.storeFiles(paths, currentFolderId, gridX, gridY);
+  } catch (err) {
+    await showAlert(`Launchpad couldn't store those files:\n${ipcErrorMessage(err)}`);
+    return;
+  }
+  await refreshFromServer(Promise.resolve(res.apps));
+
+  // One message for everything that failed, not one per file. Anything
+  // over the size limit can still be added as a link.
+  const failed = res.results.filter((r) => !r.ok);
+  if (!failed.length) return;
+  const lines = failed.map((r) => `• ${r.message}`).join('\n');
+  const tooLarge = failed.filter((r) => r.tooLarge);
+  if (!tooLarge.length) {
+    await showAlert(`Some items weren't stored:\n${lines}`);
+    return;
+  }
+  const noun = tooLarge.length === 1 ? 'it' : `those ${tooLarge.length}`;
+  if (await showConfirm(`Some items weren't stored:\n${lines}\n\nAdd ${noun} as a link to the original instead?`)) {
+    for (const r of tooLarge) await quickAddFromPath(r.path);
+  }
+}
 
 async function quickAddFromPath(filePath) {
   const dot = filePath.lastIndexOf('.');
@@ -2307,7 +2425,11 @@ function showItemContextMenu(x, y, item) {
     return;
   }
   const menuItems = [{ label: 'Rename', action: () => openRenameModal(item) }];
-  if (item.kind === 'app') {
+  if (item.type === 'stored') {
+    menuItems.push({ label: 'Show original location', action: () => showOriginal(item) });
+    if (item.originalPath) menuItems.push({ label: 'Add as link', action: () => quickAddFromPath(item.originalPath) });
+    menuItems.push({ label: 'Refresh thumbnail', action: () => refreshFromServer(window.launcherAPI.restoreThumb(item.id)) });
+  } else if (item.kind === 'app') {
     menuItems.push({ label: 'Edit…', action: () => openEditModal(item) });
   }
   if (item.special === 'recycleBin') {
@@ -2357,8 +2479,17 @@ async function bulkSetPinned(ids, pinned) {
   await refreshFromServer(window.launcherAPI.listApps());
 }
 
+async function showOriginal(item) {
+  const res = await window.launcherAPI.showOriginal(item.id);
+  if (!res.ok) await showAlert(res.error);
+}
+
 async function bulkRemove(ids) {
-  if (!(await showConfirm(`Remove ${ids.length} items from Launchpad? (This does not delete the apps themselves.)`))) return;
+  const stored = ids.filter((id) => apps.some((a) => a.id === id && a.type === 'stored')).length;
+  const note = stored
+    ? `\n\n${stored === 1 ? '1 of them is a file' : `${stored} of them are files`} stored in Launchpad. ${stored === 1 ? 'Its copy' : 'Those copies'} will be deleted permanently, not moved to the Recycle Bin. The originals are not touched.`
+    : ' (This does not delete the apps themselves.)';
+  if (!(await showConfirm(`Remove ${ids.length} items from Launchpad?${note}`))) return;
   for (const id of ids) await window.launcherAPI.removeApp(id);
   clearSelection();
   await refreshFromServer(window.launcherAPI.listApps());
@@ -2426,7 +2557,9 @@ async function removeItem(item) {
   const msg =
     item.kind === 'island'
       ? `Remove island "${item.name}"? Its contents will move up one level.`
-      : `Remove "${item.name}" from Launchpad? (This does not delete the app itself.)`;
+      : item.type === 'stored'
+        ? `Remove "${item.name}"?\n\nLaunchpad's stored copy will be deleted permanently, not moved to the Recycle Bin. The original${item.originalPath ? ` at ${item.originalPath}` : ''} is not touched.`
+        : `Remove "${item.name}" from Launchpad? (This does not delete the app itself.)`;
   if (!(await showConfirm(msg))) return;
   await refreshFromServer(window.launcherAPI.removeApp(item.id));
 }
@@ -2613,6 +2746,7 @@ settingsBtn.addEventListener('click', async () => {
   taskbarEdgeSelect.value = localStorage.getItem('launchpad-taskbar-edge') || 'bottom';
   notifyUpdatesToggle.checked = await window.launcherAPI.getNotifyUpdates();
   googleFaviconToggle.checked = await window.launcherAPI.getGoogleFaviconFallback();
+  fileStoreCopyToggle.checked = (await window.launcherAPI.getFileStoreOnDrop()) === 'copy';
   hotkeyBtn.textContent = formatAccelerator(await window.launcherAPI.getHotkey());
   disableHotkeyInAppsToggle.checked = await window.launcherAPI.getDisableHotkeyInApps();
   organizerToggle.checked = await window.launcherAPI.getOrganizerEnabled();
@@ -3036,6 +3170,10 @@ googleFaviconToggle.addEventListener('change', () => {
   window.launcherAPI.setGoogleFaviconFallback(googleFaviconToggle.checked);
 });
 
+fileStoreCopyToggle.addEventListener('change', () => {
+  window.launcherAPI.setFileStoreOnDrop(fileStoreCopyToggle.checked ? 'copy' : 'link');
+});
+
 wallpaperPickBtn.addEventListener('click', () => wallpaperFileInput.click());
 
 wallpaperFileInput.addEventListener('change', () => {
@@ -3111,7 +3249,16 @@ exportBtn.addEventListener('click', async () => {
 ${ipcErrorMessage(err)}`);
     return;
   }
-  if (res && res.ok) await showAlert(`Exported to:\n${res.path}`);
+  if (res && res.ok) {
+    let msg = `Exported to:\n${res.path}`;
+    if (res.storedFilesDir) {
+      msg += `\n\nStored files were copied to:\n${res.storedFilesDir}\nKeep that folder next to the backup file.`;
+    }
+    if (res.storedMissing && res.storedMissing.length) {
+      msg += `\n\nThese stored files were missing, so they aren't in the backup:\n${res.storedMissing.map((n) => `• ${n}`).join('\n')}`;
+    }
+    await showAlert(msg);
+  }
 });
 
 importBtn.addEventListener('click', async () => {
@@ -3139,6 +3286,12 @@ ${res.layoutsError}`);
     if (res.mediaError) {
       await showAlert(`Your apps were imported, but the Media library in the backup couldn't be:
 ${res.mediaError}`);
+    }
+    if (res.storedMissing && res.storedMissing.length) {
+      await showAlert(`These stored files weren't found next to the backup, so they show as missing:
+${res.storedMissing.map((n) => `• ${n}`).join('\n')}
+
+Put the backup's "-files" folder beside it and import again to bring them back.`);
     }
   }
 });
