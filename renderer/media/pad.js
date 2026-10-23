@@ -1,4 +1,4 @@
-// Controller input for Media Mode. Reads pads through the browser Gamepad
+// Controller input for Media. Reads pads through the browser Gamepad
 // API and turns them into named actions (up, down, left, right, select,
 // back, tabPrev, tabNext, menu, pageUp, pageDown, quick, customize).
 // createPadReader() holds no browser state, so it also runs under node:test;

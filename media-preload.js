@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
-// Media Mode (renderer/media/): the library, players and emulators, library
+// Media (renderer/media/): the library, players and emulators, library
 // folders, and launching. Every channel answers only this window.
 contextBridge.exposeInMainWorld('mediaAPI', {
   library: () => ipcRenderer.invoke('media:library'),

@@ -1,33 +1,33 @@
-# Media Mode: Research and Implementation Plan
+# Media: Research and Implementation Plan
 
-Status: Phases 1 and 2 are built (2026-10-23). Phase 1: library store, profiles, folder scanning, tracked launching, the Media Mode window and controller input. Phase 2: art storage and the `lpmedia:` protocol, the Customize screen, controller remapping per pad with a dead-zone setting, and backups version 3 with the library and profiles. `CODEBASE_SUMMARY.md` §4.5 and §7.5 describe what exists; its §11 lists the known gaps. Phases 3 and 4 are not started. §9 lists what the pre-build review changed.
+Status: Phases 1 and 2 are built (2026-10-23). Phase 1: library store, profiles, folder scanning, tracked launching, the Media window and controller input. Phase 2: art storage and the `lpmedia:` protocol, the Customize screen, controller remapping per pad with a dead-zone setting, and backups version 3 with the library and profiles. `CODEBASE_SUMMARY.md` §4.5 and §7.5 describe what exists; its §11 lists the known gaps. Phases 3 and 4 are not started. §9 lists what the pre-build review changed.
 
-Designs: [Media Mode design canvas](https://claude.ai/artifact/8x1EMf45s551xxEnxkUEz5) (Home, Videos, Scraper review, Customize art, Controller setup, Players and emulators, Add library folder, Game running).
+Designs: [Media design canvas](https://claude.ai/artifact/8x1EMf45s551xxEnxkUEz5) (Home, Videos, Scraper review, Customize art, Controller setup, Players and emulators, Add library folder, Game running).
 
 ## 1. Goal
 
-Add a **Media Mode**: a fullscreen, controller- and remote-friendly front end, in the spirit of Steam Big Picture or EmulationStation, that lets the user:
+Add **Media**: a fullscreen, controller- and remote-friendly front end, in the spirit of Steam Big Picture or EmulationStation, that lets the user:
 
 1. Launch **videos and media** through a chosen media player (mpv, VLC, MPC-HC, Kodi, or any command line).
 2. Launch **retro and modern games**, both native PC games and emulated ROMs, through the user's emulators.
 3. **Customize covers and banners** for every entry, by hand or from a scraper.
 4. **Auto-fill metadata and artwork** with scrapers, similar to EmulationStation / ES-DE.
 
-Media Mode should reuse Launchpad's existing machinery (item model, `launcher.js` spawn/openPath path, icon cache, settings, backups) instead of being a separate app.
+Media should reuse Launchpad's existing machinery (item model, `launcher.js` spawn/openPath path, icon cache, settings, backups) instead of being a separate app.
 
 ## 2. What Launchpad already has
 
 Relevant pieces from the current codebase (see `CODEBASE_SUMMARY.md`):
 
-| Piece | Where | Reuse for Media Mode |
+| Piece | Where | Reuse for Media |
 |---|---|---|
 | Item model (`kind: 'app' / 'island'`, `name`, `type: path / url / script / command`, `target`, `args`, `cwd`, grid position, pins) | `lib/store.js`, `apps.json` | Copy its load/backup/corruption handling into a **separate** `library.json` store. Do not put library entries in `apps.json` (§5.1 says why). Reuse its field names. |
 | Launch pipeline (`detachedSpawn`, `shell.openPath`, `openExternal`) | `lib/launcher.js` | Add a profile launch that keeps the child process for tracking; `detachedSpawn` unrefs it and returns nothing |
 | Icon handling (one PNG per item in `%APPDATA%\launchpad\icons\`, sent to the renderer as data URLs) | `lib/icons.js` | Reuse `nativeImage` loading and the capped image fetch (`readCapped`, `fetchImage`). Covers need a different delivery path (§5.4). |
-| Settings (`settings.json`, merged top-level `save(patch)`, atomic writes) | `lib/settings.js`, `lib/safe-file.js` | Controller mapping and Media Mode preferences. Not scraper secrets (§4). |
+| Settings (`settings.json`, merged top-level `save(patch)`, atomic writes) | `lib/settings.js`, `lib/safe-file.js` | Controller mapping and Media preferences. Not scraper secrets (§4). |
 | Backups (`backup:export` writes one JSON with every icon embedded as base64) | `main.js` | Add the library and profiles; leave art out (§5.1) |
-| Strict renderer ↔ main boundary (`preload.js`, `contextBridge`) | `preload.js` | All file access, scraping and launching stays in main; the Media Mode UI only calls IPC |
-| Gamepad-free UI today | `renderer/` | Media Mode needs its own renderer surface (see §5) |
+| Strict renderer ↔ main boundary (`preload.js`, `contextBridge`) | `preload.js` | All file access, scraping and launching stays in main; the Media UI only calls IPC |
+| Gamepad-free UI today | `renderer/` | Media needs its own renderer surface (see §5) |
 
 ## 3. How the reference products do it
 
@@ -126,10 +126,10 @@ Every JSON file is written with `writeFileAtomic`. **Backups:** `backup:export` 
 | Module | Responsibility |
 |---|---|
 | `lib/media/library.js` | The `library.json` store (§5.1): load, save, normalize, backup and recovery |
-| `lib/media/art-protocol.js` | Registers the `lpmedia:` protocol that serves art to the Media Mode window (§5.4) |
+| `lib/media/art-protocol.js` | Registers the `lpmedia:` protocol that serves art to the Media window (§5.4) |
 | `lib/media/players.js` | Player and emulator profiles: detect installed players, build argv from a template, validate paths |
 | `lib/media/scan.js` | Scan a folder for video files (by extension) or ROMs (by platform extension list), and create entries |
-| `lib/media/launch.js` | Launch a typed action; spawn with an **argv array**, never a shell string, and track the process so Media Mode can show "running" and return focus |
+| `lib/media/launch.js` | Launch a typed action; spawn with an **argv array**, never a shell string, and track the process so Media can show "running" and return focus |
 | `lib/media/art.js` | Read and write per-entry art; resize with `nativeImage.resize` and save as JPEG/PNG (no new dependency); manage the scraper-vs-user source flag |
 | `lib/scrapers/*.js` | One module per source (§4); common queue and cache in `lib/scrapers/index.js` |
 | `lib/scrapers/queue.js` | Per-source rate limit, concurrency, retry and backoff |
@@ -140,10 +140,10 @@ Every JSON file is written with `writeFileAtomic`. **Backups:** `backup:export` 
 - **Do not allow `.bat`/`.cmd` as a profile `exe`.** `detachedSpawn` has to switch to `shell: true` for those (Node refuses them otherwise), and then a ROM name with `&` or `%` is interpreted by `cmd.exe`. The profile editor rejects them; scripted setups can keep using normal Launchpad items.
 - **Native PC games:** the existing `path` / `url` / `script` / `command` types, through the existing `launcher.launch`. Steam/Epic URIs (`steam://rungameid/…`) already work through `openExternal`.
 - **Process tracking:** `lib/media/launch.js` keeps the child (not `detached` + `unref` like `detachedSpawn`) and listens for `exit`. For launchers that hand off to another process (Steam, some emulators), the child exits at once; treat that case as "launched, not tracked", and say so in the UI rather than guessing.
-- **Focus:** on exit, bring the Media Mode window back with `win.show()` and `win.focus()`. The window-manager helper already has a `focus` command (`lib/windowmgr.js`) if Windows refuses the foreground change.
+- **Focus:** on exit, bring the Media window back with `win.show()` and `win.focus()`. The window-manager helper already has a `focus` command (`lib/windowmgr.js`) if Windows refuses the foreground change.
 - **Launch counts** are recorded the same way `launchAndRecord` does for grid items, so "Continue" can sort by last played.
 
-### 5.4 Renderer: Media Mode UI
+### 5.4 Renderer: Media UI
 
 A new window, `renderer/media/` (`index.html`, `media.js`, `media.css`), built like the existing panels, with its own preload (`media-preload.js`) that exposes `window.mediaAPI`. Add it to `build.files`.
 
@@ -151,11 +151,11 @@ A new window, `renderer/media/` (`index.html`, `media.js`, `media.css`), built l
 - **Input:** Controller, keyboard and mouse all work on every screen. Controller behavior, mapping and focus rules are in §5.6.
 - **Modes:** "Games", "Videos", and "All". Filters and search work in every mode.
 - **Editing:** a "Customize" sheet for any entry: pick a file for each art slot, paste a URL, pick from SteamGridDB results, or reset to the scraped image. Drag-and-drop works here too.
-- **Theme:** reuse the existing theme tokens (accent, light/dark) so Media Mode matches the rest of Launchpad.
-- **Art delivery:** every current window's CSP is `img-src 'self' data:`, and icons reach the renderer as data URLs. That does not scale to hundreds of covers. Register a privileged `lpmedia:` scheme with `protocol.handle` that serves only `media\<uuid>\<slot>.<ext>` (it checks the id against `UUID_RE` and the slot against a fixed list, so no other file is reachable). The Media Mode page's CSP is `img-src 'self' lpmedia:`. Tiles load lazily as they scroll in.
+- **Theme:** reuse the existing theme tokens (accent, light/dark) so Media matches the rest of Launchpad.
+- **Art delivery:** every current window's CSP is `img-src 'self' data:`, and icons reach the renderer as data URLs. That does not scale to hundreds of covers. Register a privileged `lpmedia:` scheme with `protocol.handle` that serves only `media\<uuid>\<slot>.<ext>` (it checks the id against `UUID_RE` and the slot against a fixed list, so no other file is reachable). The Media page's CSP is `img-src 'self' lpmedia:`. Tiles load lazily as they scroll in.
 - **Window:** a separate `BrowserWindow` with the same `contextIsolation`, `sandbox` and no `nodeIntegration` as the main window. `media-preload.js` must be added to `build.files` in `package.json`, which lists each preload by name (`renderer/**/*` and `lib/**/*` are already covered).
 
-Entry point: a button in the existing top bar ("Media Mode") and a hotkey in Settings. Esc or the Back button returns to the normal grid.
+Entry point: a button in the existing top bar ("Media") and a hotkey in Settings. Esc or the Back button returns to the normal grid.
 
 ### 5.5 Library import and scanning
 
@@ -166,7 +166,7 @@ Entry point: a button in the existing top bar ("Media Mode") and a hotkey in Set
 
 ### 5.6 Controller support
 
-Controller input is a first-class part of Media Mode, not an add-on. Every screen must be fully usable with a pad, and the keyboard and mouse stay as fallbacks.
+Controller input is a first-class part of Media, not an add-on. Every screen must be fully usable with a pad, and the keyboard and mouse stay as fallbacks.
 
 **Input source.** Read pads in the renderer with the browser Gamepad API (`navigator.getGamepads()`, polled on `requestAnimationFrame`, with `gamepadconnected` and `gamepaddisconnected` for hot-plug). Chromium exposes XInput controllers (Xbox and most modern pads) with the standard mapping. Other pads (DirectInput-only, arcade sticks, many retro-style USB pads) show up with an unmapped layout, so we need a remap table for them. Verify this on real hardware in Phase 1.
 
@@ -185,7 +185,7 @@ Controller input is a first-class part of Media Mode, not an add-on. Every scree
 | Back / close | B |
 | Customize art (on the focused item) | Y |
 | Previous / next library tab | LB / RB |
-| Menu (Media Mode settings, scraper) | Start |
+| Menu (Media settings, scraper) | Start |
 | Quick actions (remove from library, rescrape) | X |
 | Page up / down in long lists | LT / RT, or right stick |
 
@@ -197,11 +197,11 @@ Controller input is a first-class part of Media Mode, not an add-on. Every scree
 
 **Limits to plan for.**
 - The Guide (Xbox) button is not exposed to web pages. Do not make a core action depend on it. Use Start or the Launchpad hotkey instead.
-- Pads need the Media Mode window focused. If another app has focus, the hotkey (Ctrl+Space by default) is what brings Launchpad back.
-- Launched emulators and players take their own input. Chromium only reports pad input to a focused page, so Media Mode stops reacting as soon as the game has focus. Still, ignore input while the Game running screen is up and for about 500 ms after the window gets focus back, so the button that closed the game does not also launch something. Many emulators also read pads directly, so the user may need to set their own controller mapping inside the emulator. The Launch profile can document this.
+- Pads need the Media window focused. If another app has focus, the hotkey (Ctrl+Space by default) is what brings Launchpad back.
+- Launched emulators and players take their own input. Chromium only reports pad input to a focused page, so Media stops reacting as soon as the game has focus. Still, ignore input while the Game running screen is up and for about 500 ms after the window gets focus back, so the button that closed the game does not also launch something. Many emulators also read pads directly, so the user may need to set their own controller mapping inside the emulator. The Launch profile can document this.
 - Rumble and analogue triggers beyond the basic values are optional. Skip them in v1.
 
-**Screens that carry controller design.** Home (games), Videos, Scraper review, Customize art and Controller setup each show the bar for the layout in use. See the Media Mode design artifact: https://claude.ai/artifact/8x1EMf45s551xxEnxkUEz5
+**Screens that carry controller design.** Home (games), Videos, Scraper review, Customize art and Controller setup each show the bar for the layout in use. See the Media design artifact: https://claude.ai/artifact/8x1EMf45s551xxEnxkUEz5
 
 **Implementation sketch.**
 - `renderer/media/input/pad.js`: polls the Gamepad API, applies the dead zone, applies the mapping, emits named actions (`up`, `down`, `select`, `back`, `tabPrev`, `tabNext`, `customize`, `menu`).
@@ -232,10 +232,10 @@ Legal and terms note: ScreenScraper, TheGamesDB, IGDB and SteamGridDB all have t
 2. `lib/media/players.js` and `profiles.json`: argv building from the template, `.bat`/`.cmd` rejection, presets for mpv, VLC and RetroArch. Tests for placeholder substitution with spaces, quotes, `&` and `%` in file names.
 3. `lib/media/scan.js`: folder scan, extension and folder-name platform detection, incremental rescan with `available: false`. Tests on a temp folder tree.
 4. `lib/media/launch.js` and the IPC for it: tracked spawn, exit event to the renderer, launch counts.
-5. Media Mode window: `media-preload.js` (added to `build.files`), `renderer/media/`, entry button and hotkey. Home, Videos, Add library folder, Players and emulators, and Game running screens from the design canvas.
+5. Media window: `media-preload.js` (added to `build.files`), `renderer/media/`, entry button and hotkey. Home, Videos, Add library folder, Players and emulators, and Game running screens from the design canvas.
 6. Controller input: `pad.js`, `focus.js`, `prompts.js`, default mapping and dead zone (§5.6). Remapping waits for Phase 2.
 7. Update `CODEBASE_SUMMARY.md` (new files, IPC channels, storage) and `README.md` (Your data table).
-- **Done when:** a user can add a folder of `.mkv` files and a folder of `.sfc` ROMs, choose mpv and RetroArch, and launch from Media Mode with a controller, and `npm test` passes.
+- **Done when:** a user can add a folder of `.mkv` files and a folder of `.sfc` ROMs, choose mpv and RetroArch, and launch from Media with a controller, and `npm test` passes.
 
 **Phase 2: Art and customization**
 - `media\<id>\` storage, the `lpmedia:` protocol, per-slot set/clear, drag-and-drop, URL import (main process, reusing `icons.js`'s capped fetch, with size and type checks).
@@ -286,7 +286,7 @@ The plan was checked against `lib/store.js`, `lib/launcher.js`, `lib/settings.js
 Still open, and not blocking Phase 1:
 - ScreenScraper developer-key and quota rules, and IGDB limits (Phase 3).
 - Behavior of non-XInput pads, checked on the user's own controllers during Phase 1 step 6.
-- Whether Media Mode should later replace the main window in fullscreen instead of being a second window. Phase 1 uses a second window because it keeps the existing grid code untouched.
+- Whether Media should later replace the main window in fullscreen instead of being a second window. Phase 1 uses a second window because it keeps the existing grid code untouched.
 
 ## 10. Sources
 

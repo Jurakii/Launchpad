@@ -1,4 +1,4 @@
-/* Media Mode. Same color tokens as renderer/styles.css, sized for a TV or a
+/* Media. Same color tokens as renderer/styles.css, sized for a TV or a
    monitor across the room: big type, big targets, an obvious focus ring. */
 :root {
   --bg: #16181d;

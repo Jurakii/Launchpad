@@ -1,4 +1,4 @@
-// Media Mode's screens: the library (Home), Add library folder, Players and
+// Media's screens: the library (Home), Add library folder, Players and
 // emulators, and the screen shown while something runs. Everything goes
 // through window.mediaAPI (media-preload.js); focus moves with
 // window.MediaFocus (focus.js).
@@ -89,6 +89,11 @@ document.addEventListener('keydown', (e) => {
   e.preventDefault();
   back();
 });
+
+// A file dropped anywhere but an art slot would otherwise make the window
+// navigate to it, leaving the library behind.
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => e.preventDefault());
 
 for (const btn of document.querySelectorAll('.back-btn')) btn.addEventListener('click', () => showScreen('home'));
 $('exitBtn').addEventListener('click', () => api.close());

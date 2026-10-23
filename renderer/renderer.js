@@ -212,6 +212,11 @@ const ISLAND_COLORS = ['#5b8cff', '#ff8a5b', '#5bd6ff', '#ffd75b', '#ff5b8a', '#
 // true freeform). Mirrors lib/layout.js's footprint rule - keep in sync.
 const CELL = 112;
 const CARD_MARGIN = 14; // px shaved off each side so cards don't touch neighbors
+// Island footprint limits in cells - match MIN/MAX_ISLAND_* in lib/layout.js.
+const ISLAND_MIN_W = 2;
+const ISLAND_MIN_H = 2;
+const ISLAND_MAX_W = 8;
+const ISLAND_MAX_H = 6;
 // Must match .island-card-header / .island-card-body in styles.css - used
 // to work out how many icons actually fit rather than guessing.
 const ISLAND_HEADER_H = 43;
@@ -737,6 +742,8 @@ function attachResizeHandle(card, item, startFp) {
     let newW = startFp.w;
     let newH = startFp.h;
     card.classList.add('resizing');
+    const guide = showResizeGuide(item);
+    guide.update(newW, newH);
 
     function onMove(ev) {
       const dx = ev.clientX - startX;
@@ -748,13 +755,15 @@ function attachResizeHandle(card, item, startFp) {
       const rawH = Math.max(2 * CELL - CARD_MARGIN, startFp.h * CELL - CARD_MARGIN + dy);
       card.style.width = `${rawW}px`;
       card.style.height = `${rawH}px`;
-      newW = Math.max(2, Math.min(8, Math.round((rawW + CARD_MARGIN) / CELL)));
-      newH = Math.max(2, Math.min(6, Math.round((rawH + CARD_MARGIN) / CELL)));
+      newW = Math.max(ISLAND_MIN_W, Math.min(ISLAND_MAX_W, Math.round((rawW + CARD_MARGIN) / CELL)));
+      newH = Math.max(ISLAND_MIN_H, Math.min(ISLAND_MAX_H, Math.round((rawH + CARD_MARGIN) / CELL)));
+      guide.update(newW, newH);
     }
     function onUp() {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
       card.classList.remove('resizing');
+      guide.remove();
       if (newW !== startFp.w || newH !== startFp.h) {
         refreshFromServer(window.launcherAPI.setSize(item.id, newW, newH));
       }
@@ -764,6 +773,52 @@ function attachResizeHandle(card, item, startFp) {
   });
 
   card.appendChild(handle);
+}
+
+// While an island is resized, the canvas shows its grid cells, the largest
+// footprint the island can take (dashed) and the size it will snap to on
+// release, so the user can see the limits before letting go.
+function showResizeGuide(item) {
+  const gx = typeof item.gridX === 'number' ? item.gridX : 0;
+  const gy = typeof item.gridY === 'number' ? item.gridY : 0;
+  canvas.classList.add('show-grid');
+  canvas.style.setProperty('--cell', `${CELL}px`);
+
+  const place = (el, w, h) => {
+    el.style.left = `${gx * CELL}px`;
+    el.style.top = `${gy * CELL}px`;
+    el.style.width = `${w * CELL}px`;
+    el.style.height = `${h * CELL}px`;
+  };
+
+  const bounds = document.createElement('div');
+  bounds.className = 'resize-guide resize-guide-max';
+  place(bounds, ISLAND_MAX_W, ISLAND_MAX_H);
+  const maxLabel = document.createElement('span');
+  maxLabel.className = 'resize-guide-label';
+  maxLabel.textContent = `Max ${ISLAND_MAX_W} × ${ISLAND_MAX_H}`;
+  bounds.appendChild(maxLabel);
+
+  const snap = document.createElement('div');
+  snap.className = 'resize-guide resize-guide-snap';
+  const sizeLabel = document.createElement('span');
+  sizeLabel.className = 'resize-guide-label';
+  snap.appendChild(sizeLabel);
+
+  // Behind the cards, so the island being resized stays on top.
+  canvas.prepend(bounds, snap);
+
+  return {
+    update(w, h) {
+      place(snap, w, h);
+      sizeLabel.textContent = `${w} × ${h}`;
+    },
+    remove() {
+      bounds.remove();
+      snap.remove();
+      canvas.classList.remove('show-grid');
+    },
+  };
 }
 
 function buildItemElement(item) {
@@ -3011,7 +3066,7 @@ ${ipcErrorMessage(err)}`);
 ${res.layoutsError}`);
     }
     if (res.mediaError) {
-      await showAlert(`Your apps were imported, but the Media Mode library in the backup couldn't be:
+      await showAlert(`Your apps were imported, but the Media library in the backup couldn't be:
 ${res.mediaError}`);
     }
   }
@@ -3306,7 +3361,7 @@ layoutGapInput.addEventListener('change', async () => {
 });
 
 layoutsBtn.addEventListener('click', openLayoutsModal);
-document.getElementById('mediaModeBtn').addEventListener('click', () => window.launcherAPI.openMediaMode());
+document.getElementById('mediaBtn').addEventListener('click', () => window.launcherAPI.openMedia());
 layoutsCloseBtn.addEventListener('click', closeLayoutsModal);
 layoutsModalOverlay.addEventListener('click', (e) => {
   if (e.target === layoutsModalOverlay) closeLayoutsModal();

@@ -14,7 +14,7 @@
       ['customize', 'Customize art'],
       ['tabs', 'Switch tab'],
       ['menu', 'Players and emulators'],
-      ['back', 'Exit Media Mode'],
+      ['back', 'Exit Media'],
     ],
     add: [['select', 'Select'], ['move', 'Move'], ['back', 'Back']],
     profiles: [['select', 'Select'], ['move', 'Move'], ['back', 'Back']],
