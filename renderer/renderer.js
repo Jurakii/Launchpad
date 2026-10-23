@@ -55,6 +55,7 @@ const breadcrumbEl = document.getElementById('breadcrumb');
 const addBtn = document.getElementById('addBtn');
 const newFolderBtn = document.getElementById('newFolderBtn');
 const settingsBtn = document.getElementById('settingsBtn');
+const backBtn = document.getElementById('backBtn');
 const layoutsBtn = document.getElementById('layoutsBtn');
 
 const modalOverlay = document.getElementById('modalOverlay');
@@ -305,6 +306,7 @@ const ICON_FILES = {
   fullscreenEnter: 'fullscreen-enter',
   fullscreenExit: 'fullscreen-exit',
   recycleBin: 'recycle-bin',
+  back: 'back',
 };
 
 function loadIconFile(fileName) {
@@ -323,6 +325,7 @@ for (const [key, fileName] of Object.entries(ICON_FILES)) {
 }
 
 settingsBtn.innerHTML = ICONS.settings;
+backBtn.innerHTML = ICONS.back;
 recentBtn.innerHTML = ICONS.recent;
 usbBtn.innerHTML = ICONS.usb;
 bluetoothBtn.innerHTML = ICONS.bluetooth;
@@ -428,6 +431,10 @@ function renderBreadcrumb() {
   });
   addDropTarget(homeBtn, null);
   breadcrumbEl.appendChild(homeBtn);
+
+  // Back arrow: only shown inside an island, and only while the panel
+  // auto-hides (the breadcrumb is out of sight then). Goes up one level.
+  backBtn.hidden = chain.length === 0;
 
   chain.forEach((f, i) => {
     const sep = document.createElement('span');
@@ -2528,6 +2535,12 @@ function formatAccelerator(accel) {
 function currentAccentColor() {
   return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
 }
+
+backBtn.addEventListener('click', () => {
+  const chain = getAncestors(currentFolderId);
+  currentFolderId = chain.length > 1 ? chain[chain.length - 2].id : null;
+  render();
+});
 
 settingsBtn.addEventListener('click', async () => {
   autoLaunchToggle.checked = await window.launcherAPI.getAutoLaunch();
