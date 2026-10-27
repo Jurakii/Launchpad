@@ -102,3 +102,36 @@ test('findNearestFreeCell returns a non-overlapping cell at the smallest possibl
     assert.strictEqual(dist(pos.x, pos.y), best, `round ${round}: a nearer free cell existed`);
   }
 });
+
+const entryAt = (id, x, y, extra = {}) => ({ id, kind: 'app', parentId: null, gridX: x, gridY: y, ...extra });
+
+test('placeFree: two items forced onto the same cell in one batch end on two different cells', () => {
+  const apps = [entryAt('a', 0, 0), entryAt('b', 1, 0), entryAt('c', 5, 5)];
+  layout.placeFree(apps, apps[1], 3, 3);
+  layout.placeFree(apps, apps[2], 3, 3);
+  assert.deepStrictEqual([apps[1].gridX, apps[1].gridY], [3, 3]);
+  assert.notDeepStrictEqual([apps[2].gridX, apps[2].gridY], [3, 3]);
+  const rects = apps.map((a) => cell(a.gridX, a.gridY));
+  for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) assert.ok(!overlaps(rects[i], rects[j]));
+});
+
+test('placeFree: forced onto an occupied cell lands one ring out; no target means the first free cell', () => {
+  const apps = [entryAt('a', 0, 0), entryAt('b', 1, 0), entryAt('n')];
+  layout.placeFree(apps, apps[0], 1, 0);
+  assert.ok(!(apps[0].gridX === 1 && apps[0].gridY === 0));
+  assert.strictEqual(Math.max(Math.abs(apps[0].gridX - 1), Math.abs(apps[0].gridY)), 1);
+  layout.placeFree(apps, apps[2]);
+  for (const other of apps.slice(0, 2)) assert.ok(!overlaps(cell(apps[2].gridX, apps[2].gridY), cell(other.gridX, other.gridY)));
+});
+
+test('placeFree: only siblings count, and an expanded island blocks its whole footprint', () => {
+  const apps = [
+    { id: 'i', kind: 'island', parentId: null, collapsed: false, w: 3, h: 2, gridX: 0, gridY: 0 },
+    entryAt('child', 0, 0, { parentId: 'i' }),
+    entryAt('x'),
+  ];
+  layout.placeFree(apps, apps[2], 1, 1);
+  assert.ok(!overlaps(cell(apps[2].gridX, apps[2].gridY), cell(0, 0, 3, 2)));
+  layout.placeFree(apps, apps[1], 0, 0); // the island's own space is empty
+  assert.deepStrictEqual([apps[1].gridX, apps[1].gridY], [0, 0]);
+});

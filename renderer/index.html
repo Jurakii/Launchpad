@@ -228,6 +228,7 @@
           <button type="button" class="settings-nav-item" data-section="organizer"><span>Window organizer</span><span class="settings-nav-count"></span></button>
           <button type="button" class="settings-nav-item" data-section="privacy"><span>Icons &amp; privacy</span><span class="settings-nav-count"></span></button>
           <button type="button" class="settings-nav-item" data-section="backup"><span>Backup &amp; updates</span><span class="settings-nav-count"></span></button>
+          <button type="button" class="settings-nav-item" data-section="danger"><span>Danger zone</span><span class="settings-nav-count"></span></button>
         </nav>
         <div class="settings-content">
           <div class="settings-content-head">
@@ -444,8 +445,12 @@
               <div class="settings-item">
                 <div class="settings-row settings-accent-row">
                   <span>Default apps</span>
-                  <button type="button" id="restoreDefaultsBtn">Restore Default Apps</button>
+                  <div class="settings-actions">
+                    <button type="button" id="restoreDefaultsBtn">Restore Default Apps</button>
+                    <button type="button" id="repairDefaultsBtn">Repair Default Apps</button>
+                  </div>
                 </div>
+                <div class="settings-hint">Restore adds File Explorer or the Recycle Bin if they're gone. Repair also puts back what they open and their icons, as this version ships them. Names, islands and positions are kept.</div>
               </div>
             </div>
           </section>
@@ -476,6 +481,26 @@
                     <button type="button" id="updateActionBtn" class="primary hidden"></button>
                   </div>
                 </div>
+              </div>
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>Repair Launchpad</span>
+                  <button type="button" id="reinstallBtn">Reinstall This Version…</button>
+                </div>
+                <div class="settings-hint">Downloads this version's installer from its GitHub release and runs it, like an update. Your apps and settings are kept. Launchpad restarts when it's done.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section" data-section="danger" data-title="Danger zone" data-blurb="Start over from a fresh install.">
+            <h4 class="settings-section-title">Danger zone</h4>
+            <div class="settings-card settings-danger-card">
+              <div class="settings-item">
+                <div class="settings-row settings-accent-row">
+                  <span>Reset Launchpad</span>
+                  <button type="button" id="resetLaunchpadBtn" class="danger">Reset Launchpad…</button>
+                </div>
+                <div class="settings-hint">Removes your apps, islands, icons, stored files, layouts, scenes and settings, and restarts Launchpad as a first install. Your Media library, players and artwork are kept.</div>
               </div>
             </div>
           </section>
@@ -543,6 +568,34 @@
         <button type="button" id="saveSceneBtn" class="primary">Save current arrangement</button>
         <div class="spacer"></div>
         <button type="button" id="scenesCloseBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="resetModalOverlay" class="modal-overlay hidden">
+    <div class="modal reset-modal" role="dialog" aria-labelledby="resetTitle">
+      <h2 id="resetTitle">Reset Launchpad</h2>
+      <p class="dialog-message">This deletes:</p>
+      <ul class="reset-list">
+        <li>Your apps, islands, pins and their icons</li>
+        <li>Files stored in Launchpad (the originals aren't touched)</li>
+        <li>Your window layouts and scenes</li>
+        <li>All settings, theme and taskbar look</li>
+      </ul>
+      <p class="dialog-message"><strong>Your Media library, players and artwork are kept.</strong></p>
+      <p class="settings-hint">A copy of what's deleted is saved as <code>pre-reset-…json</code> in Launchpad's data folder first. It doesn't hold stored files, so export a backup if you have any.</p>
+      <div class="reset-step">
+        <button type="button" id="resetBackupBtn" class="primary">Back Up First…</button>
+        <span id="resetBackupStatus" class="settings-hint"></span>
+      </div>
+      <label class="switch-row"><input type="checkbox" id="resetNoBackupToggle" /> I don't want a backup</label>
+      <label class="reset-confirm"><span>Type <strong>RESET</strong> to confirm</span>
+        <input id="resetConfirmInput" type="text" autocomplete="off" spellcheck="false" />
+      </label>
+      <div class="modal-actions">
+        <div class="spacer"></div>
+        <button type="button" id="resetCancelBtn">Cancel</button>
+        <button type="button" id="resetConfirmBtn" class="danger-solid" disabled>Reset and Restart</button>
       </div>
     </div>
   </div>

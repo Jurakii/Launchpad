@@ -22,6 +22,7 @@ const menuEl = document.getElementById('menu');
 const headingEl = document.getElementById('heading');
 const listEl = document.getElementById('list');
 const emptyEl = document.getElementById('empty');
+menuEl.tabIndex = -1;
 
 // { heading, windows: [{ hwnd, title, iconDataUrl, minimized }] }
 function render(state) {
@@ -57,16 +58,16 @@ function render(state) {
   );
   emptyEl.classList.toggle('hidden', windows.length > 0);
   window.pickerAPI.resize(menuEl.getBoundingClientRect().height);
-  // The first window, so the keyboard works straight away.
-  requestAnimationFrame(() => {
-    const first = menuEl.querySelector('.item');
-    if (first) first.focus();
-  });
+  // Nothing is chosen up front, so Enter can't move a window the user
+  // didn't pick: the menu itself takes the focus and an arrow key picks
+  // the first (or last) row.
+  requestAnimationFrame(() => menuEl.focus());
 }
 
 window.pickerAPI.onState(render);
 
-// Arrows move between windows (wrapping); Enter and Space are the buttons' own.
+// Arrows move between windows (wrapping); Enter and Space are the buttons'
+// own, so they do nothing until a row has the focus.
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     e.preventDefault();
@@ -78,6 +79,7 @@ document.addEventListener('keydown', (e) => {
   const items = [...menuEl.querySelectorAll('.item')];
   if (!items.length) return;
   const i = items.indexOf(document.activeElement);
-  const next = e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
+  const down = e.key === 'ArrowDown';
+  const next = i < 0 ? (down ? 0 : items.length - 1) : down ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
   items[next].focus();
 });

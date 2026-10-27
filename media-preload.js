@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('mediaAPI', {
   pickFolder: () => ipcRenderer.invoke('media:pickFolder'),
   scanPreview: (request) => ipcRenderer.invoke('media:scanPreview', request),
   addLibrary: (request) => ipcRenderer.invoke('media:addLibrary', request),
+  // { target, name, library, platform } -> the new entry (one .exe on its own)
+  addApp: (request) => ipcRenderer.invoke('media:addApp', request),
   launch: (id) => ipcRenderer.invoke('media:launch', id),
   running: () => ipcRenderer.invoke('media:running'),
   stop: (id) => ipcRenderer.invoke('media:stop', id),

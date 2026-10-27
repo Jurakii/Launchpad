@@ -161,3 +161,27 @@ test('mediaDirFor stays inside the media folder and rejects non-UUID ids', () =>
     assert.throws(() => library.mediaDirFor(bad), /Invalid library id/);
   }
 });
+
+test('singleAppEntry makes a path entry that runs the program itself', () => {
+  const { library } = setup();
+  const opts = { exists: () => true, platforms: new Set(['snes', 'gamecube']), now: 7 };
+  const e = library.singleAppEntry({ target: 'C:\\Games\\Celeste\\Celeste.exe', name: ' Celeste ', library: 'games', platform: '' }, opts);
+  assert.ok(library.isValidId(e.id));
+  assert.deepStrictEqual(
+    [e.type, e.target, e.name, e.library, e.platform, e.profile, e.available, e.createdAt, e.launchCount],
+    ['path', 'C:\\Games\\Celeste\\Celeste.exe', 'Celeste', 'games', null, null, true, 7, 0]
+  );
+  assert.strictEqual(library.singleAppEntry({ target: 'C:\\Apps\\Kodi.exe', library: 'videos', platform: 'snes' }, opts).platform, null);
+  assert.strictEqual(library.singleAppEntry({ target: 'C:\\Apps\\Kodi.exe' }, opts).name, 'Kodi');
+});
+
+test('singleAppEntry refuses anything but an existing absolute .exe, and unknown libraries or platforms', () => {
+  const { library } = setup();
+  const opts = { exists: (p) => p !== 'C:\\Gone.exe', platforms: new Set(['snes']) };
+  for (const target of ['Game.exe', 'C:\\Games\\run.bat', 'C:\\Games\\run.cmd', 'C:\\Games\\rom.sfc', '', null]) {
+    assert.throws(() => library.singleAppEntry({ target }, opts), /full path/, String(target));
+  }
+  assert.throws(() => library.singleAppEntry({ target: 'C:\\Gone.exe' }, opts), /isn't there/);
+  assert.throws(() => library.singleAppEntry({ target: 'C:\\A.exe', library: 'music' }, opts), /games or videos/);
+  assert.throws(() => library.singleAppEntry({ target: 'C:\\A.exe', platform: 'atari' }, opts), /Unknown platform/);
+});

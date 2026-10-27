@@ -5,6 +5,8 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: lpmedia:; style-src 'self' 'unsafe-inline';" />
 <title>Media</title>
 <link rel="stylesheet" href="media.css" />
+<!-- Before first paint: the user's colours (an external file, since the CSP blocks inline scripts). -->
+<script src="theme.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -15,9 +17,12 @@
       <button type="button" class="tab" data-tab="all" data-nav>All</button>
     </nav>
     <div class="topbar-actions">
-      <button type="button" id="addFolderBtn" data-nav>Add folder</button>
-      <button type="button" id="profilesBtn" data-nav>Players and emulators</button>
-      <button type="button" id="controllerBtn" data-nav>Controller</button>
+      <button type="button" id="addBtn" class="icon-btn" aria-label="Add" title="Add" data-nav>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+      </button>
+      <button type="button" id="settingsBtn" class="icon-btn" aria-label="Settings" title="Settings" data-nav>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+      </button>
       <button type="button" id="exitBtn" data-nav>Exit</button>
     </div>
     <div id="clock" class="clock"></div>
@@ -36,9 +41,57 @@
       <div id="rows" class="rows"></div>
       <div id="emptyState" class="empty hidden">
         <h2 id="emptyTitle">Nothing here yet</h2>
-        <p class="muted">Add a folder of games or videos to fill your library.</p>
-        <button type="button" id="emptyAddBtn" class="primary" data-nav>Add folder</button>
+        <p class="muted">Add a game, a player, or a folder of games or videos to fill your library.</p>
+        <button type="button" id="emptyAddBtn" class="primary" data-nav>Add</button>
       </div>
+    </section>
+
+    <section id="addChoiceScreen" class="screen hidden" aria-label="Add">
+      <h1>What are you adding?</h1>
+      <div class="choices">
+        <button type="button" id="addSingleBtn" class="choice" data-nav>
+          <strong>Single app</strong>
+          <span class="muted">One program, like a game, a game launcher or a player. It runs on its own.</span>
+        </button>
+        <button type="button" id="addFolderBtn" class="choice" data-nav>
+          <strong>Folder</strong>
+          <span class="muted">Movies, or a folder of ROMs. Everything inside is found and added, one platform per subfolder.</span>
+        </button>
+      </div>
+      <div class="actions">
+        <button type="button" class="back-btn" data-nav>Back</button>
+      </div>
+    </section>
+
+    <section id="addAppScreen" class="screen hidden" aria-label="Add a single app">
+      <h1>Add a single app</h1>
+      <form id="addAppForm" class="add-app-form">
+        <label class="field">
+          <span>Program</span>
+          <span class="path-pick">
+            <input id="appExe" type="text" readonly placeholder="No program chosen" />
+            <button type="button" id="appBrowseBtn" data-nav>Browse</button>
+          </span>
+        </label>
+        <label class="field"><span>Name</span><input id="appName" type="text" maxlength="120" data-nav /></label>
+        <label class="field">
+          <span>Library</span>
+          <select id="appLibrary" data-nav>
+            <option value="games">Games</option>
+            <option value="videos">Videos</option>
+          </select>
+        </label>
+        <label class="field" id="appPlatformField">
+          <span>Platform (the row it shows in)</span>
+          <select id="appPlatform" data-nav></select>
+        </label>
+        <p class="muted small">It runs the program itself, so no player or emulator is needed. Play time isn't tracked for single apps.</p>
+        <p id="appErrors" class="error" role="alert"></p>
+        <div class="actions">
+          <button type="button" class="back-btn" data-nav>Back</button>
+          <button type="submit" id="appAddBtn" class="primary" data-nav disabled>Add to library</button>
+        </div>
+      </form>
     </section>
 
     <section id="addScreen" class="screen hidden" aria-label="Add library folder">
@@ -77,8 +130,18 @@
       </div>
     </section>
 
-    <section id="profilesScreen" class="screen hidden" aria-label="Players and emulators">
-      <h1>Players and emulators</h1>
+    <section id="settingsScreen" class="screen hidden" aria-label="Settings">
+      <h1>Settings</h1>
+      <div class="settings">
+        <nav class="settings-nav" aria-label="Settings sections">
+          <button type="button" data-section="profiles" data-nav>Players and emulators</button>
+          <button type="button" data-section="colors" data-nav>Colors</button>
+          <button type="button" data-section="controller" data-nav>Controller</button>
+          <button type="button" data-section="library" data-nav>Library</button>
+        </nav>
+        <div class="settings-pane">
+    <section id="profilesSection" class="settings-section" aria-label="Players and emulators">
+      <h2>Players and emulators</h2>
       <p class="muted">Set up once. Every game or video on a platform uses its default.</p>
       <div class="profiles">
         <div class="profile-list">
@@ -122,22 +185,10 @@
           </div>
         </form>
       </div>
-      <div class="actions">
-        <button type="button" class="back-btn" data-nav>Back</button>
-      </div>
     </section>
 
-    <section id="customizeScreen" class="screen hidden" aria-label="Customize art">
-      <h1 id="customizeTitle">Customize</h1>
-      <p class="muted">Choose a file, drop one on a slot, or paste an image address. PNG or JPEG. Art you set here is kept when the library is scraped.</p>
-      <div id="slotGrid" class="slot-grid"></div>
-      <div class="actions">
-        <button type="button" class="back-btn" data-nav>Back</button>
-      </div>
-    </section>
-
-    <section id="controllerScreen" class="screen hidden" aria-label="Controller setup">
-      <h1>Controller setup</h1>
+    <section id="controllerSection" class="settings-section hidden" aria-label="Controller">
+      <h2>Controller</h2>
       <p id="padName" class="muted"></p>
       <div class="controller">
         <div class="table-wrap grow">
@@ -156,6 +207,44 @@
           <button type="button" id="resetMapBtn" data-nav>Reset this controller to defaults</button>
         </div>
       </div>
+    </section>
+
+    <section id="colorsSection" class="settings-section hidden" aria-label="Colors">
+      <h2>Colors</h2>
+      <p class="muted">Every colour in Media. Changes show at once and are kept for next time. Media's accent is separate from the rest of Launchpad's; until you change it here, it follows the accent set in Launchpad's Settings.</p>
+      <p id="contrastWarn" class="contrast-warn small" role="status"></p>
+      <div id="colorRows" class="color-rows"></div>
+      <button type="button" id="resetColorsBtn" data-nav>Reset all colours</button>
+    </section>
+
+    <section id="librarySection" class="settings-section hidden" aria-label="Library">
+      <h2>Library</h2>
+      <p class="muted">What the Folder choice under + starts with.</p>
+      <div class="library-prefs">
+        <label class="field">
+          <span>Folders hold</span>
+          <select id="libDefaultType" data-nav>
+            <option value="games">Games</option>
+            <option value="videos">Videos</option>
+          </select>
+        </label>
+        <label class="field check">
+          <input id="libDefaultRecursive" type="checkbox" data-nav />
+          <span>Include subfolders</span>
+        </label>
+      </div>
+    </section>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" class="back-btn" data-nav>Back</button>
+      </div>
+    </section>
+
+    <section id="customizeScreen" class="screen hidden" aria-label="Customize art">
+      <h1 id="customizeTitle">Customize</h1>
+      <p class="muted">Choose a file, drop one on a slot, or paste an image address. PNG or JPEG. Art you set here is kept when the library is scraped.</p>
+      <div id="slotGrid" class="slot-grid"></div>
       <div class="actions">
         <button type="button" class="back-btn" data-nav>Back</button>
       </div>
