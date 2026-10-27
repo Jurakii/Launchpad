@@ -1155,6 +1155,13 @@ button.danger { background: transparent; border-color: var(--danger); color: var
 .context-menu button:hover { background: var(--bg); border-color: transparent; }
 .context-menu button.danger { color: var(--danger); }
 .context-menu .menu-sep { height: 1px; background: var(--border); margin: 4px 2px; }
+.context-menu button:disabled { opacity: 0.55; cursor: default; background: none; }
+
+/* "Move to" and other nested lists (openContextMenu's `submenu`). */
+.context-menu .menu-sub-trigger::after { content: '›'; float: right; margin-left: 16px; color: var(--muted, inherit); }
+.context-menu .menu-sub:hover > .menu-sub-trigger { background: var(--bg); }
+.context-submenu { z-index: 51; overflow-y: auto; max-width: 320px; }
+.context-submenu button { overflow: hidden; text-overflow: ellipsis; }
 
 /* "Snap to" picker in a running window's menu: one thumbnail per layout,
    each zone a button. The .context-menu prefix is needed to beat the
@@ -1858,3 +1865,13 @@ body.file-drag-over::after {
   top: calc(100% + 8px);
   right: 0;
 }
+
+/* ---------- Danger zone and the reset dialog ---------- */
+
+.settings-danger-card { border-color: var(--danger); }
+button.danger-solid { background: var(--danger); border-color: var(--danger); color: #fff; }
+button.danger-solid:disabled { opacity: 0.45; cursor: not-allowed; }
+.reset-modal { width: 440px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow-y: auto; }
+.reset-list { margin: 0 0 10px; padding-left: 20px; font-size: 13px; line-height: 1.6; }
+.reset-step { display: flex; align-items: center; gap: 10px; margin: 12px 0 8px; }
+.reset-confirm { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }

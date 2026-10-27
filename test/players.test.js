@@ -102,6 +102,28 @@ test('detectInstalled returns presets whose program exists', () => {
   assert.deepStrictEqual(found.map((p) => [p.id, p.exe]), [['vlc', 'C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe']]);
 });
 
+test('Dolphin and RetroArch (mGBA) presets sit beside the SNES one, on platform ids the scanner uses', () => {
+  const { players } = setup();
+  const scan = require('../lib/media/scan');
+  const known = new Set(scan.PLATFORMS.map((p) => p.id));
+  const byId = Object.fromEntries(players.PRESETS.map((p) => [p.id, p]));
+  assert.ok(byId['retroarch-snes'], 'the SNES preset is kept');
+  assert.deepStrictEqual(byId.dolphin.platforms, ['gamecube', 'wii']);
+  assert.deepStrictEqual(byId.dolphin.args, ['-b', '-e', '{file}']);
+  assert.deepStrictEqual(byId['retroarch-gba'].platforms, ['gba']);
+  assert.ok(byId['retroarch-gba'].args.includes('cores\\mgba_libretro.dll'));
+  for (const preset of players.PRESETS) {
+    for (const id of preset.platforms) assert.ok(id === players.VIDEOS || known.has(id), `${preset.id}: ${id}`);
+  }
+});
+
+test('an installed RetroArch is offered as both presets, and Dolphin is found in Program Files', () => {
+  const { players } = setup();
+  const found = players.detectInstalled((p) => p === 'C:\\RetroArch-Win64\\retroarch.exe' || p === 'C:\\Program Files\\Dolphin\\Dolphin.exe');
+  assert.deepStrictEqual(found.map((p) => p.id).sort(), ['dolphin', 'retroarch-gba', 'retroarch-snes']);
+  assert.ok(found.every((p) => p.candidates === undefined));
+});
+
 test('missing profiles.json loads as empty, and save round-trips', () => {
   const { players, file } = setup();
   assert.deepStrictEqual(players.load(), { profiles: [], defaults: {} });

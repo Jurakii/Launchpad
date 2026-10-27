@@ -119,3 +119,17 @@ test('loads backfill positions for old entries', () => {
   assert.strictEqual(typeof a.gridX, 'number');
   assert.strictEqual(JSON.parse(fs.readFileSync(file, 'utf-8'))[0].gridX, a.gridX);
 });
+
+test('an item moved in without a cell never lands on a newer sibling, and stacked items are pulled apart', () => {
+  const { store } = setup();
+  const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  store.save([
+    { id: id(1), kind: 'app', name: 'Old', createdAt: 1 }, // just moved here: no cell yet
+    { id: id(2), kind: 'app', name: 'New', createdAt: 2, gridX: 0, gridY: 0 },
+    { id: id(3), kind: 'app', name: 'Stacked', createdAt: 3, gridX: 0, gridY: 0 },
+  ]);
+  const apps = store.load();
+  const cells = apps.map((a) => `${a.gridX},${a.gridY}`);
+  assert.strictEqual(new Set(cells).size, 3, cells.join(' '));
+  assert.deepStrictEqual([apps[1].gridX, apps[1].gridY], [0, 0]); // the older of the stacked pair stays
+});

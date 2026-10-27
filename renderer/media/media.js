@@ -1,15 +1,9 @@
-// Media's screens: the library (Home), Add library folder, Players and
-// emulators, and the screen shown while something runs. Everything goes
-// through window.mediaAPI (media-preload.js); focus moves with
-// window.MediaFocus (focus.js).
-
-// Same look as the main window: its theme and accent live in localStorage,
-// which this page shares (same file:// origin).
-try {
-  if (localStorage.getItem('launchpad-theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');
-  const accent = localStorage.getItem('launchpad-accent');
-  if (accent) document.documentElement.style.setProperty('--accent', accent);
-} catch {}
+// Media's screens: the library (Home), Add (a single app, or a library
+// folder), Settings (players and emulators, colours, controller, library
+// defaults), Customize art, and the screen shown while something runs.
+// Everything goes through window.mediaAPI (media-preload.js); focus moves
+// with window.MediaFocus (focus.js). Theme and colours are applied before
+// first paint by theme.js (window.MediaTheme).
 
 const api = window.mediaAPI;
 const $ = (id) => document.getElementById(id);
@@ -25,6 +19,8 @@ const state = {
   running: null, // { id, name, startedAt }
   add: { root: null, library: 'games', recursive: true, platforms: {} },
   editing: null, // profile being edited, or null
+  settingsSection: 'profiles', // the Settings section shown
+  addApp: { target: null }, // the Single app form
   customizing: null, // id of the entry on the Customize screen
   controller: { deadZone: 0.35, pads: {} }, // settings.json `controller`
   capturing: null, // action waiting for a button on the Controller screen
@@ -46,10 +42,11 @@ function toast(text) {
 
 const SCREENS = {
   home: 'homeScreen',
+  addChoice: 'addChoiceScreen',
+  addApp: 'addAppScreen',
   add: 'addScreen',
-  profiles: 'profilesScreen',
+  settings: 'settingsScreen',
   customize: 'customizeScreen',
-  controller: 'controllerScreen',
   running: 'runningScreen',
 };
 
@@ -97,10 +94,11 @@ document.addEventListener('drop', (e) => e.preventDefault());
 
 for (const btn of document.querySelectorAll('.back-btn')) btn.addEventListener('click', () => showScreen('home'));
 $('exitBtn').addEventListener('click', () => api.close());
+$('addBtn').addEventListener('click', openAddChoice);
+$('emptyAddBtn').addEventListener('click', openAddChoice);
+$('addSingleBtn').addEventListener('click', openAddApp);
 $('addFolderBtn').addEventListener('click', openAdd);
-$('emptyAddBtn').addEventListener('click', openAdd);
-$('profilesBtn').addEventListener('click', openProfiles);
-$('controllerBtn').addEventListener('click', openController);
+$('settingsBtn').addEventListener('click', () => openSettings());
 
 function tickClock() {
   $('clock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -369,11 +367,17 @@ async function refreshAfterLaunch() {
 
 // ---------- Add library folder ----------
 
+// + in the top bar: a single app or a folder.
+function openAddChoice() {
+  showScreen('addChoice');
+}
+
 function openAdd() {
-  state.add = { root: null, library: 'games', recursive: true, platforms: {} };
+  const defaults = libraryDefaults();
+  state.add = { root: null, library: defaults.library, recursive: defaults.recursive, platforms: {} };
   $('addRoot').value = '';
-  $('addType').value = 'games';
-  $('addRecursive').checked = true;
+  $('addType').value = defaults.library;
+  $('addRecursive').checked = defaults.recursive;
   $('addStatus').textContent = 'Choose a folder to see what is in it.';
   $('addTable').classList.add('hidden');
   $('addConfirmBtn').disabled = true;
@@ -455,7 +459,7 @@ function renderPreview({ count, groups }) {
     const launchWith = document.createElement('td');
     const key = videos ? 'videos' : g.platform;
     const name = key ? defaultProfileName(key) : null;
-    launchWith.textContent = name || (key ? 'Set up in Players and emulators' : 'Choose a platform');
+    launchWith.textContent = name || (key ? 'Set up in Settings' : 'Choose a platform');
     if (!name) launchWith.className = 'warn-text';
 
     tr.append(folder, platform, files, launchWith);
@@ -482,14 +486,219 @@ $('addConfirmBtn').addEventListener('click', async () => {
   }
 });
 
-// ---------- Players and emulators ----------
+// ---------- Add a single app ----------
 
-async function openProfiles() {
-  await loadProfiles();
-  state.editing = null;
-  renderProfiles();
-  showScreen('profiles');
+function fillAppPlatforms() {
+  const select = $('appPlatform');
+  select.replaceChildren(new Option('Other games', ''));
+  for (const [id, name] of state.platforms) select.add(new Option(name, id));
 }
+
+function openAddApp() {
+  state.addApp = { target: null };
+  $('appExe').value = '';
+  $('appName').value = '';
+  $('appLibrary').value = libraryDefaults().library;
+  fillAppPlatforms();
+  $('appPlatform').value = '';
+  $('appErrors').textContent = '';
+  updateAddApp();
+  showScreen('addApp');
+}
+
+function updateAddApp() {
+  $('appPlatformField').classList.toggle('hidden', $('appLibrary').value !== 'games');
+  $('appAddBtn').disabled = !state.addApp.target;
+}
+
+$('appBrowseBtn').addEventListener('click', async () => {
+  const exe = await api.pickProgram();
+  if (!exe) return;
+  state.addApp.target = exe;
+  $('appExe').value = exe;
+  if (!$('appName').value.trim()) $('appName').value = exe.replace(/^.*[\\/]/, '').replace(/\.exe$/i, '');
+  $('appErrors').textContent = '';
+  updateAddApp();
+});
+$('appLibrary').addEventListener('change', updateAddApp);
+
+$('addAppForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!state.addApp.target) return;
+  $('appAddBtn').disabled = true;
+  const lib = $('appLibrary').value;
+  try {
+    const entry = await api.addApp({
+      target: state.addApp.target,
+      name: $('appName').value,
+      library: lib,
+      platform: lib === 'games' ? $('appPlatform').value || null : null,
+    });
+    toast(`Added ${entry.name}`);
+    await loadLibrary();
+    state.tab = lib;
+    state.homeFocus = null;
+    renderHome();
+    showScreen('home');
+    const tile = document.querySelector(`#rows .tile[data-id="${entry.id}"]`);
+    if (tile) MediaFocus.focus(tile);
+  } catch (err) {
+    $('appErrors').textContent = message(err);
+    updateAddApp();
+  }
+});
+
+// ---------- Settings ----------
+
+const SETTINGS_SECTIONS = ['profiles', 'colors', 'controller', 'library'];
+const SECTION_IDS = { profiles: 'profilesSection', colors: 'colorsSection', controller: 'controllerSection', library: 'librarySection' };
+const sectionButton = (section) => document.querySelector(`.settings-nav [data-section="${section}"]`);
+
+for (const btn of document.querySelectorAll('.settings-nav [data-section]')) {
+  btn.addEventListener('click', () => showSection(btn.dataset.section));
+}
+
+async function openSettings(section = state.settingsSection) {
+  await showSection(section);
+  showScreen('settings');
+  MediaFocus.focus(sectionButton(state.settingsSection));
+}
+
+// Loads and draws one section, keeping the focus on its button in the list
+// when Settings is already open (a click there, or LB / RB).
+async function showSection(section) {
+  if (!SETTINGS_SECTIONS.includes(section)) section = 'profiles';
+  if (state.capturing) cancelCapture();
+  state.settingsSection = section;
+  if (section === 'profiles') {
+    await loadProfiles();
+    state.editing = null;
+    $('profileForm').classList.add('hidden');
+    renderProfiles();
+  } else if (section === 'controller') {
+    state.controller = await api.controller();
+    $('captureStatus').textContent = '';
+    renderController();
+  } else if (section === 'colors') {
+    renderColors();
+  } else {
+    renderLibraryPrefs();
+  }
+  for (const [key, id] of Object.entries(SECTION_IDS)) $(id).classList.toggle('hidden', key !== section);
+  for (const btn of document.querySelectorAll('.settings-nav [data-section]')) {
+    const on = btn.dataset.section === section;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-current', on ? 'true' : 'false');
+  }
+  if (state.screen === 'settings') MediaFocus.focus(sectionButton(section));
+}
+
+// LB / RB on Settings, wrapping at the ends like the Home tabs.
+function switchSection(step) {
+  const i = SETTINGS_SECTIONS.indexOf(state.settingsSection);
+  showSection(SETTINGS_SECTIONS[(i + step + SETTINGS_SECTIONS.length) % SETTINGS_SECTIONS.length]);
+}
+
+// ---------- Settings: colours ----------
+
+function renderColors(focusToken) {
+  const overrides = MediaTheme.load();
+  const values = MediaTheme.current();
+  const rows = $('colorRows');
+  rows.replaceChildren();
+  for (const { token, label } of MediaTheme.TOKENS) {
+    const row = document.createElement('div');
+    row.className = 'color-row';
+    const name = document.createElement('span');
+    name.className = 'color-label';
+    name.textContent = label;
+    const changed = document.createElement('span');
+    changed.className = 'changed';
+    changed.textContent = overrides[token] ? 'Changed' : '';
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.dataset.nav = '';
+    input.dataset.token = token;
+    input.value = values[token];
+    input.setAttribute('aria-label', label);
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.dataset.nav = '';
+    reset.textContent = 'Reset';
+    reset.disabled = !overrides[token];
+    reset.setAttribute('aria-label', `Reset ${label}`);
+    // Live: each change is applied and kept as the picker moves.
+    input.addEventListener('input', () => {
+      MediaTheme.save({ ...MediaTheme.load(), [token]: input.value });
+      reset.disabled = false;
+      changed.textContent = 'Changed';
+      renderContrast();
+    });
+    reset.addEventListener('click', () => {
+      const next = { ...MediaTheme.load() };
+      delete next[token];
+      MediaTheme.save(next);
+      renderColors(token);
+    });
+    row.append(name, changed, input, reset);
+    rows.appendChild(row);
+  }
+  renderContrast();
+  if (focusToken) {
+    const input = rows.querySelector(`[data-token="${focusToken}"]`);
+    if (input) MediaFocus.focus(input);
+  }
+}
+
+// A warning, not a block: low contrast can be a deliberate choice.
+function renderContrast() {
+  const low = MediaTheme.lowContrast(MediaTheme.current());
+  $('contrastWarn').textContent = low.length
+    ? `Hard to read: ${low.map((p) => `${p.label} (${p.ratio.toFixed(1)}:1)`).join(', ')}. 4.5:1 or more reads well.`
+    : '';
+  $('resetColorsBtn').disabled = Object.keys(MediaTheme.load()).length === 0;
+}
+
+$('resetColorsBtn').addEventListener('click', () => {
+  MediaTheme.save({});
+  renderColors();
+  MediaFocus.focus(sectionButton('colors'));
+  toast('Colours are back to the defaults');
+});
+
+// ---------- Settings: library defaults ----------
+// A per-viewer convenience like the colours, so localStorage rather than
+// settings.json: main never needs it.
+
+const LIBRARY_DEFAULTS_KEY = 'launchpad-media-library-defaults';
+
+function libraryDefaults() {
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(LIBRARY_DEFAULTS_KEY) || '{}') || {};
+  } catch {}
+  return { library: saved.library === 'videos' ? 'videos' : 'games', recursive: saved.recursive !== false };
+}
+
+function saveLibraryDefaults() {
+  try {
+    localStorage.setItem(
+      LIBRARY_DEFAULTS_KEY,
+      JSON.stringify({ library: $('libDefaultType').value, recursive: $('libDefaultRecursive').checked })
+    );
+  } catch {}
+}
+
+function renderLibraryPrefs() {
+  const d = libraryDefaults();
+  $('libDefaultType').value = d.library;
+  $('libDefaultRecursive').checked = d.recursive;
+}
+
+$('libDefaultType').addEventListener('change', saveLibraryDefaults);
+$('libDefaultRecursive').addEventListener('change', saveLibraryDefaults);
+
+// ---------- Settings: players and emulators ----------
 
 function renderProfiles() {
   const { profiles, defaults, presets, detected } = state.profiles;
@@ -617,7 +826,7 @@ $('pfDeleteBtn').addEventListener('click', async () => {
     state.editing = null;
     $('profileForm').classList.add('hidden');
     renderProfiles();
-    MediaFocus.enter($('profilesScreen'));
+    MediaFocus.enter($('profilesSection'));
   }
 });
 
@@ -753,7 +962,7 @@ function renderCustomize(focusSlot) {
   }
 }
 
-// ---------- Controller setup ----------
+// ---------- Settings: controller ----------
 
 const BUTTON_NAMES = ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'Back', 'Start', 'Left stick', 'Right stick', 'D-pad up', 'D-pad down', 'D-pad left', 'D-pad right', 'Guide'];
 const buttonName = (i) => BUTTON_NAMES[i] || `Button ${Number(i) + 1}`;
@@ -766,7 +975,7 @@ const ACTION_LABELS = {
   tabNext: 'Next tab',
   pageUp: 'Page up',
   pageDown: 'Page down',
-  menu: 'Menu (Players and emulators)',
+  menu: 'Menu (Settings)',
   up: 'Move up',
   down: 'Move down',
   left: 'Move left',
@@ -809,12 +1018,6 @@ function applyController() {
 async function saveController() {
   state.controller = await api.saveController(state.controller);
   applyController();
-}
-
-async function openController() {
-  state.controller = await api.controller();
-  renderController();
-  showScreen('controller');
 }
 
 function renderController(focusAction) {
@@ -907,7 +1110,7 @@ $('resetMapBtn').addEventListener('click', async () => {
 });
 
 window.addEventListener('gamepadconnected', () => {
-  if (state.screen === 'controller') renderController();
+  if (state.screen === 'settings' && state.settingsSection === 'controller') renderController();
   renderPrompts();
 });
 
@@ -956,11 +1159,14 @@ function onPadAction(action) {
       back();
       break;
     case 'tabPrev':
-    case 'tabNext':
-      if (state.screen === 'home') switchTab(action === 'tabNext' ? 1 : -1);
+    case 'tabNext': {
+      const step = action === 'tabNext' ? 1 : -1;
+      if (state.screen === 'home') switchTab(step);
+      else if (state.screen === 'settings' && !state.capturing) switchSection(step);
       break;
+    }
     case 'menu':
-      if (state.screen === 'home') openProfiles();
+      if (state.screen === 'home') openSettings();
       break;
     case 'customize': {
       const el = document.activeElement;

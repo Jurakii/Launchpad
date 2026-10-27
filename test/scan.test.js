@@ -153,3 +153,11 @@ test('mergeScan stores a video year in meta', () => {
   assert.deepStrictEqual(entries[0].meta, { year: 2016 });
   assert.strictEqual(entries[0].library, 'videos');
 });
+
+test('mergeScan leaves single apps alone even when they sit inside the scanned folder', () => {
+  const { scan } = setup();
+  const app = { id: 'a', library: 'games', name: 'Tool', type: 'path', target: 'D:\\ROMs\\tools\\Tool.exe', available: true };
+  const result = scan.mergeScan([app], [], { root: 'D:\\ROMs' });
+  assert.strictEqual(result.entries[0], app);
+  assert.strictEqual(result.missing, 0);
+});

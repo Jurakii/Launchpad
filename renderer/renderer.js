@@ -976,6 +976,15 @@ grid.addEventListener('drop', async (e) => {
   const gridX = Math.max(0, Math.round(relX / CELL - 0.5));
   const gridY = Math.max(0, Math.round(relY / CELL - 0.5));
 
+  // Dragged out of an expanded island's card (its mini icons belong to the
+  // island, not this level): a move to this level, at the cell it was
+  // dropped on, rather than a reposition inside the island.
+  const dragged = apps.find((a) => a.id === draggedId);
+  if (dragged && (dragged.parentId || null) !== currentFolderId) {
+    await refreshFromServer(window.launcherAPI.moveItem(draggedId, currentFolderId, gridX, gridY));
+    return;
+  }
+
   const groupData = e.dataTransfer.getData('application/x-launchpad-ids');
   if (groupData) {
     // Move the whole selection together: every id shifts by the same
@@ -2374,6 +2383,81 @@ function closeContextMenu() {
 
 const MENU_CHECK_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
 
+function buildMenuButton(it) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  // `checked` (true/false) marks a radio-style choice: true shows a check,
+  // false still reserves the same space so a group's labels line up.
+  if (it.icon || it.checked !== undefined) {
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'menu-item-icon';
+    iconSpan.innerHTML = it.checked ? MENU_CHECK_SVG : it.icon || '';
+    btn.appendChild(iconSpan);
+  }
+  btn.appendChild(document.createTextNode(it.label));
+  if (it.danger) btn.classList.add('danger');
+  if (it.disabled) btn.disabled = true;
+  btn.addEventListener('click', () => {
+    closeContextMenu();
+    it.action();
+  });
+  return btn;
+}
+
+// `submenu` items open a nested list beside the row, on hover or on a
+// click/Enter/→ (so the keyboard reaches it too). It flips to the left
+// when there's no room on the right, and scrolls when it's taller than
+// the window.
+function buildSubmenu(it) {
+  const wrap = document.createElement('div');
+  wrap.className = 'menu-sub';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'menu-sub-trigger';
+  btn.setAttribute('aria-haspopup', 'menu');
+  btn.setAttribute('aria-expanded', 'false');
+  btn.appendChild(document.createTextNode(it.label));
+  const list = document.createElement('div');
+  list.className = 'context-menu context-submenu hidden';
+  list.setAttribute('role', 'menu');
+  for (const sub of it.submenu) list.appendChild(sub.sep ? Object.assign(document.createElement('div'), { className: 'menu-sep' }) : buildMenuButton(sub));
+  wrap.append(btn, list);
+
+  const open = () => {
+    if (!list.classList.contains('hidden')) return;
+    for (const other of contextMenu.querySelectorAll('.context-submenu')) other.classList.add('hidden');
+    list.classList.remove('hidden');
+    btn.setAttribute('aria-expanded', 'true');
+    const row = btn.getBoundingClientRect();
+    list.style.maxHeight = `${window.innerHeight - 16}px`;
+    const { width, height } = list.getBoundingClientRect();
+    const right = row.right + 4 + width <= window.innerWidth - 8;
+    list.style.left = `${right ? row.right + 4 : Math.max(8, row.left - 4 - width)}px`;
+    list.style.top = `${Math.max(8, Math.min(row.top - 6, window.innerHeight - height - 8))}px`;
+  };
+  const close = () => {
+    list.classList.add('hidden');
+    btn.setAttribute('aria-expanded', 'false');
+  };
+  wrap.addEventListener('mouseenter', open);
+  wrap.addEventListener('mouseleave', close);
+  btn.addEventListener('click', open);
+  btn.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'Enter') return;
+    e.preventDefault();
+    open();
+    const first = list.querySelector('button:not(:disabled)');
+    if (first) first.focus();
+  });
+  list.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft') return;
+    e.preventDefault();
+    close();
+    btn.focus();
+  });
+  return wrap;
+}
+
 function openContextMenu(x, y, menuItems) {
   contextMenu.innerHTML = '';
   for (const it of menuItems) {
@@ -2388,23 +2472,7 @@ function openContextMenu(x, y, menuItems) {
       contextMenu.appendChild(sep);
       continue;
     }
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    // `checked` (true/false) marks a radio-style choice: true shows a check,
-    // false still reserves the same space so a group's labels line up.
-    if (it.icon || it.checked !== undefined) {
-      const iconSpan = document.createElement('span');
-      iconSpan.className = 'menu-item-icon';
-      iconSpan.innerHTML = it.checked ? MENU_CHECK_SVG : it.icon || '';
-      btn.appendChild(iconSpan);
-    }
-    btn.appendChild(document.createTextNode(it.label));
-    if (it.danger) btn.classList.add('danger');
-    btn.addEventListener('click', () => {
-      closeContextMenu();
-      it.action();
-    });
-    contextMenu.appendChild(btn);
+    contextMenu.appendChild(it.submenu ? buildSubmenu(it) : buildMenuButton(it));
   }
 
   // Shown first, then measured, so the clamp uses the menu's real size
@@ -2449,6 +2517,7 @@ function showItemContextMenu(x, y, item) {
     menuItems.push({ label: 'Save arrangement for this island', action: () => saveIslandScene(item) });
     menuItems.push({ sep: true });
   }
+  menuItems.push({ label: 'Move to', submenu: moveTargets(item) });
   menuItems.push({ label: 'Move to Island…', action: () => openMoveModal(item) });
   menuItems.push({
     label: item.pinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
@@ -2688,6 +2757,23 @@ function openBulkMoveModal(ids) {
   }
 
   moveModalOverlay.classList.remove('hidden');
+}
+
+// The context menu's Move to list: Home, then every island in the move
+// dialog's order, leaving out the item itself and (for an island) anything
+// inside it, which main would refuse anyway. Main puts it on a free cell.
+function moveTargets(item) {
+  const excluded = item.kind === 'island' ? descendantIslandIds(item.id) : new Set();
+  const currentParent = item.parentId || null;
+  const go = (parentId) => () => refreshFromServer(window.launcherAPI.moveItem(item.id, parentId));
+  const entries = [{ label: 'Home', checked: currentParent === null, disabled: currentParent === null, action: go(null) }];
+  const islands = apps
+    .filter((a) => a.kind === 'island' && a.id !== item.id && !excluded.has(a.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  for (const f of islands) {
+    entries.push({ label: getPathLabel(f.id), checked: currentParent === f.id, disabled: currentParent === f.id, action: go(f.id) });
+  }
+  return entries;
 }
 
 function buildMoveRow(label, parentId, isCurrent) {
@@ -3238,6 +3324,135 @@ ${ipcErrorMessage(err)}`);
     restoreDefaultsBtn.disabled = false;
     restoreDefaultsBtn.textContent = originalLabel;
   }
+});
+
+const repairDefaultsBtn = document.getElementById('repairDefaultsBtn');
+repairDefaultsBtn.addEventListener('click', async () => {
+  repairDefaultsBtn.disabled = true;
+  const originalLabel = repairDefaultsBtn.textContent;
+  repairDefaultsBtn.textContent = 'Repairing…';
+  try {
+    const res = await window.launcherAPI.repairDefaults();
+    apps = res.apps;
+    render();
+    renderPinned();
+    const parts = [];
+    if (res.repaired) parts.push(`repaired ${res.repaired}`);
+    if (res.added) parts.push(`added ${res.added}`);
+    await showAlert(parts.length ? `Default apps: ${parts.join(', ')}.` : 'Nothing to repair.');
+  } catch (err) {
+    await showAlert(`Couldn't repair the default apps:
+${ipcErrorMessage(err)}`);
+  } finally {
+    repairDefaultsBtn.disabled = false;
+    repairDefaultsBtn.textContent = originalLabel;
+  }
+});
+
+const reinstallBtn = document.getElementById('reinstallBtn');
+reinstallBtn.addEventListener('click', async () => {
+  const version = await window.launcherAPI.getVersion();
+  if (!(await showConfirm(`Download Launchpad ${version} from GitHub and reinstall it? Launchpad closes while it installs and starts again afterwards. Your apps and settings are kept.`))) return;
+  reinstallBtn.disabled = true;
+  const originalLabel = reinstallBtn.textContent;
+  reinstallBtn.textContent = 'Downloading…';
+  try {
+    const res = await window.launcherAPI.reinstallApp();
+    if (!res || !res.ok) await showAlert(`Couldn't reinstall:
+${(res && res.error) || 'Unknown error.'}`);
+  } catch (err) {
+    await showAlert(`Couldn't reinstall:
+${ipcErrorMessage(err)}`);
+  } finally {
+    reinstallBtn.disabled = false;
+    reinstallBtn.textContent = originalLabel;
+  }
+});
+
+// ---------- reset (Settings → Danger zone) ----------
+// The confirm button needs both a backup decision (backed up in this dialog,
+// or "I don't want a backup") and RESET typed.
+
+const resetModalOverlay = document.getElementById('resetModalOverlay');
+const resetBackupBtn = document.getElementById('resetBackupBtn');
+const resetBackupStatus = document.getElementById('resetBackupStatus');
+const resetNoBackupToggle = document.getElementById('resetNoBackupToggle');
+const resetConfirmInput = document.getElementById('resetConfirmInput');
+const resetConfirmBtn = document.getElementById('resetConfirmBtn');
+let resetBackedUp = false;
+
+function updateResetConfirm() {
+  resetConfirmBtn.disabled = !((resetBackedUp || resetNoBackupToggle.checked) && resetConfirmInput.value.trim() === 'RESET');
+}
+
+function closeResetModal() {
+  resetModalOverlay.classList.add('hidden');
+}
+
+document.getElementById('resetLaunchpadBtn').addEventListener('click', () => {
+  resetBackedUp = false;
+  resetBackupStatus.textContent = '';
+  resetNoBackupToggle.checked = false;
+  resetConfirmInput.value = '';
+  updateResetConfirm();
+  resetModalOverlay.classList.remove('hidden');
+  resetBackupBtn.focus();
+});
+
+resetBackupBtn.addEventListener('click', async () => {
+  resetBackupBtn.disabled = true;
+  try {
+    const res = await window.launcherAPI.exportBackup();
+    if (res && res.ok) {
+      resetBackedUp = true;
+      resetBackupStatus.textContent = `Saved to ${res.path}`;
+    }
+  } catch (err) {
+    resetBackupStatus.textContent = `Backup failed: ${ipcErrorMessage(err)}`;
+  } finally {
+    resetBackupBtn.disabled = false;
+    updateResetConfirm();
+  }
+});
+
+resetNoBackupToggle.addEventListener('change', updateResetConfirm);
+resetConfirmInput.addEventListener('input', updateResetConfirm);
+document.getElementById('resetCancelBtn').addEventListener('click', closeResetModal);
+resetModalOverlay.addEventListener('click', (e) => {
+  if (e.target === resetModalOverlay) closeResetModal();
+});
+
+// Launchpad's own visual prefs (launchpad-*) go; Media's (launchpad-media-*)
+// stay with the rest of Media.
+function clearLocalPrefs() {
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i));
+    for (const key of keys) {
+      if (key && key.startsWith('launchpad-') && !key.startsWith('launchpad-media-')) localStorage.removeItem(key);
+    }
+  } catch {}
+}
+
+resetConfirmBtn.addEventListener('click', async () => {
+  updateResetConfirm();
+  if (resetConfirmBtn.disabled) return;
+  resetConfirmBtn.disabled = true;
+  resetConfirmBtn.textContent = 'Resetting…';
+  try {
+    const res = await window.launcherAPI.resetLaunchpad();
+    if (res && res.ok) {
+      clearLocalPrefs(); // main relaunches the app a moment after answering
+      return;
+    }
+    await showAlert(`Couldn't reset Launchpad:
+${(res && res.error) || 'Unknown error.'}`);
+  } catch (err) {
+    await showAlert(`Couldn't reset Launchpad:
+${ipcErrorMessage(err)}`);
+  }
+  resetConfirmBtn.textContent = 'Reset and Restart';
+  updateResetConfirm();
 });
 
 exportBtn.addEventListener('click', async () => {
@@ -3915,7 +4130,8 @@ document.addEventListener('keydown', (e) => {
   if (!scenesModalOverlay.classList.contains('hidden')) closeScenesModal();
   if (!nameModalOverlay.classList.contains('hidden')) nameModalOverlay.classList.add('hidden');
   if (!moveModalOverlay.classList.contains('hidden')) moveModalOverlay.classList.add('hidden');
-  if (!settingsModalOverlay.classList.contains('hidden')) settingsModalOverlay.classList.add('hidden');
+  if (!resetModalOverlay.classList.contains('hidden')) closeResetModal();
+  else if (!settingsModalOverlay.classList.contains('hidden')) settingsModalOverlay.classList.add('hidden');
   closeContextMenu();
   searchResults.classList.add('hidden');
   recentPopout.classList.add('hidden');

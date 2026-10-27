@@ -14,7 +14,20 @@
   // Distance along the direction, plus a penalty for drifting sideways, so
   // moving down a column prefers the tile right below over a closer one off
   // to the side.
+  // Only elements past the current one's edge count (with a little slack for
+  // a focused tile's scale): without this, a wide button's centre could sit
+  // "right of" a narrow one above it, and Right from Settings' section list
+  // jumped up to the tabs instead of into the section.
+  const EDGE_SLACK = 8;
+  function beyond(from, to, dir) {
+    if (dir === 'right') return to.left >= from.right - EDGE_SLACK;
+    if (dir === 'left') return to.right <= from.left + EDGE_SLACK;
+    if (dir === 'down') return to.top >= from.bottom - EDGE_SLACK;
+    return to.bottom <= from.top + EDGE_SLACK;
+  }
+
   function score(from, to, dir) {
+    if (!beyond(from, to, dir)) return Infinity;
     const fx = from.left + from.width / 2;
     const fy = from.top + from.height / 2;
     const tx = to.left + to.width / 2;
@@ -27,14 +40,7 @@
     return along + across * 2;
   }
 
-  function move(dir) {
-    const items = candidates();
-    if (!items.length) return false;
-    const current = document.activeElement;
-    if (!current || !items.includes(current)) {
-      focus(items[0]);
-      return true;
-    }
+  function nearest(items, current, dir) {
     const from = current.getBoundingClientRect();
     let best = null;
     let bestScore = Infinity;
@@ -46,6 +52,24 @@
         bestScore = s;
       }
     }
+    return best;
+  }
+
+  // The area the focus is in (the current screen, or the top bar) is tried
+  // first, and the rest of the page only when nothing in it lies that way:
+  // Right from Settings' section list goes into the section, not up to the
+  // tabs, while Up from the first row of tiles still reaches them.
+  function move(dir) {
+    const items = candidates();
+    if (!items.length) return false;
+    const current = document.activeElement;
+    if (!current || !items.includes(current)) {
+      focus(items[0]);
+      return true;
+    }
+    const area = current.closest('.screen, .topbar');
+    const local = area ? items.filter((el) => area.contains(el)) : [];
+    const best = nearest(local, current, dir) || nearest(items, current, dir);
     if (best) focus(best);
     return !!best;
   }

@@ -4,8 +4,20 @@ const picker = require('../lib/picker');
 
 const fg = (kind, snappable) => ({ ev: 'foreground', hwnd: 10, kind, visible: true, title: 't', exe: 'a.exe', snappable });
 
-test('panelAction snaps a snappable window straight away', () => {
+test('panelAction (the grid button) opens the grid on a snappable window straight away', () => {
   assert.strictEqual(picker.panelAction(fg('app', true), true), 'snap');
+});
+
+test('zoneClickAction always opens the picker for a panel zone, even with a snappable window in front', () => {
+  assert.strictEqual(picker.zoneClickAction(true), 'pick');
+  assert.strictEqual(picker.zoneClickAction(true, null), 'pick');
+  assert.strictEqual(picker.zoneClickAction(false), 'wait');
+});
+
+test('zoneClickAction moves the window the open grid placer is moving', () => {
+  assert.strictEqual(picker.zoneClickAction(true, fg('app', true)), 'snap');
+  assert.strictEqual(picker.zoneClickAction(true, fg('app', false)), 'pick');
+  assert.strictEqual(picker.zoneClickAction(false, fg('app', true)), 'wait');
 });
 
 test('panelAction opens the picker when there is nothing to move', () => {

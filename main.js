@@ -20,6 +20,9 @@ const icons = require('./lib/icons');
 const launcher = require('./lib/launcher');
 const fileStore = require('./lib/file-store');
 const layout = require('./lib/layout');
+const defaults = require('./lib/defaults');
+const reinstall = require('./lib/reinstall');
+const resetData = require('./lib/reset');
 const settings = require('./lib/settings');
 const volume = require('./lib/volume');
 const audioDevices = require('./lib/audio-devices');
@@ -170,11 +173,51 @@ function decorate(apps) {
   });
 }
 
-function showWindow() {
+// `{ focus: false }` (the panel's top-bar buttons): an open window is left
+// where it is in the z-order, and a hidden one is shown without being made
+// the foreground, so on a single monitor the app the user was in isn't
+// buried under a full-screen Launchpad for a breadcrumb click.
+function showWindow({ focus = true } = {}) {
   if (!mainWindow) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!focus) {
+    if (!mainWindow.isVisible()) mainWindow.showInactive();
+    return;
+  }
+  rememberForeground();
   mainWindow.show();
   mainWindow.focus();
+}
+
+// The window the user was in before Launchpad came forward, given the
+// focus back when Launchpad hides (the usual launcher behaviour). Only an
+// app window counts; the shell and Launchpad's own windows don't.
+let returnFocusTo = null;
+
+function rememberForeground() {
+  if (mainWindow && mainWindow.isVisible() && mainWindow.isFocused()) return; // already in front
+  const fg = windowmgr.currentForeground();
+  // Launchpad's own window in front (shown again before Windows reported the
+  // focus change): keep the app remembered last time rather than forget it.
+  if (fg && fg.kind === 'own') return;
+  returnFocusTo = fg && fg.kind === 'app' && Number.isSafeInteger(fg.hwnd) && fg.hwnd ? fg.hwnd : null;
+}
+
+// Resolves once the helper has handed the focus back (or after 400 ms):
+// callers hide the window only then, because Windows lets the helper move
+// the foreground only while Launchpad still holds it, as with the grid.
+function restorePreviousFocus() {
+  const hwnd = returnFocusTo;
+  returnFocusTo = null;
+  if (!hwnd || (mediaWindow && !mediaWindow.isDestroyed() && mediaWindow.isVisible())) return Promise.resolve();
+  return Promise.race([windowmgr.focus(hwnd).catch(() => {}), new Promise((r) => setTimeout(r, 400))]);
+}
+
+// Hides the main window, giving the focus back to where the user was first.
+function hideMainWindow() {
+  restorePreviousFocus().then(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
+  });
 }
 
 function toggleWindow() {
@@ -187,7 +230,7 @@ function toggleWindow() {
   }
   if (!mainWindow) return;
   if (mainWindow.isVisible() && mainWindow.isFocused()) {
-    mainWindow.hide();
+    hideMainWindow();
   } else {
     showWindow();
   }
@@ -269,7 +312,7 @@ function createWindow() {
     const minimizeToTray = settings.load().minimizeToTrayOnClose !== false;
     if (!isQuitting && minimizeToTray) {
       e.preventDefault();
-      mainWindow.hide();
+      hideMainWindow();
     }
   });
   // Closed for real: quit. The organizer's panels, overlays and grids are
@@ -414,69 +457,21 @@ function autoFetchIcon(id, entry) {
     : icons.extractAndSaveIcon(id, entry.target);
 }
 
-// File Explorer and Recycle Bin - the two things every fresh Windows
-// install already has, so they're a sane default rather than an empty
-// launcher. Recycle Bin isn't a real file (it's a virtual shell folder), so
-// it's a custom command opening the special shell namespace path, with its
-// icon pulled from the matching CLSID rather than a target file.
-const EXPLORER_PATH = 'C:\\Windows\\explorer.exe';
-const RECYCLE_BIN_CLSID = '::{645FF040-5081-101B-9F08-00AA002F954E}';
+// File Explorer and Recycle Bin (lib/defaults.js), with their icons. The
+// Recycle Bin's is drawn by the renderer (`special`), so only Explorer's is
+// fetched.
+async function fetchDefaultIcons(entries) {
+  for (const entry of entries) {
+    if (entry.special || entry.type !== 'path' || !entry.target || !fs.existsSync(entry.target)) continue;
+    entry.iconPath = (await autoFetchIcon(entry.id, entry)) || entry.iconPath || null;
+    entry.iconIsCustom = false;
+  }
+}
 
 async function buildDefaultAppEntries() {
-  const now = Date.now();
-
-  const explorerId = store.newId();
-  const explorerEntry = {
-    id: explorerId,
-    kind: 'app',
-    name: 'File Explorer',
-    type: 'path',
-    target: EXPLORER_PATH,
-    args: '',
-    cwd: '',
-    interpreter: '',
-    command: '',
-    parentId: null,
-    pinned: false,
-    createdAt: now,
-    lastLaunched: null,
-    launchCount: 0,
-    color: null,
-    iconPath: null,
-    iconIsCustom: false,
-  };
-  if (fs.existsSync(EXPLORER_PATH)) {
-    explorerEntry.iconPath = await autoFetchIcon(explorerId, explorerEntry);
-  }
-
-  const binId = store.newId();
-  const binEntry = {
-    id: binId,
-    kind: 'app',
-    name: 'Recycle Bin',
-    type: 'command',
-    target: '',
-    args: '',
-    cwd: '',
-    interpreter: '',
-    command: `explorer.exe ${RECYCLE_BIN_CLSID}`,
-    parentId: null,
-    pinned: false,
-    createdAt: now + 1,
-    lastLaunched: null,
-    launchCount: 0,
-    color: null,
-    iconPath: null,
-    iconIsCustom: false,
-    // Windows won't hand over its real recycle-bin icon through any path
-    // form app.getFileIcon understands (tried the CLSID, shell: URI, the
-    // registry-documented imageres.dll,-55 resource, and the raw $Recycle.Bin
-    // folder - all just return a generic file/folder icon). The renderer
-    // draws a proper trash-can glyph for any item flagged like this instead.
-    special: 'recycleBin',
-  };
-
-  return [explorerEntry, binEntry];
+  const entries = defaults.buildEntries(store.newId);
+  await fetchDefaultIcons(entries);
+  return entries;
 }
 
 function inferTypeFromExt(target) {
@@ -499,19 +494,6 @@ function descendantIslandIds(apps, islandId) {
     }
   }
   return ids;
-}
-
-// Cell footprints currently occupied among siblings sharing `parentId`
-// (null = Home/root, or an island's id), excluding one entry (typically the
-// item being placed/repositioned itself). Every parent is its own
-// independent coordinate space.
-function siblingOccupiedFootprints(apps, parentId, excludeId) {
-  const key = parentId || null;
-  return apps
-    .filter(
-      (a) => (a.parentId || null) === key && a.id !== excludeId && typeof a.gridX === 'number' && typeof a.gridY === 'number'
-    )
-    .map((a) => ({ ...layout.footprintOf(a), x: a.gridX, y: a.gridY }));
 }
 
 ipcMain.handle('apps:list', () => decorate(store.load()));
@@ -542,9 +524,7 @@ ipcMain.handle('apps:add', async (_e, formData) => {
   };
   applyShortcutResolution(entry);
 
-  const pos0 = layout.findFirstFreeCell(siblingOccupiedFootprints(apps, entry.parentId, id), 1, 1);
-  entry.gridX = pos0.x;
-  entry.gridY = pos0.y;
+  layout.placeFree(apps, entry);
 
   if (formData.customIconPath) {
     entry.iconPath = icons.saveCustomIcon(id, formData.customIconPath);
@@ -711,9 +691,7 @@ ipcMain.handle('folder:add', (_e, { name, parentId, color }) => {
     h: layout.EXPANDED_ISLAND_H,
     createdAt: Date.now(),
   };
-  const pos1 = layout.findFirstFreeCell(siblingOccupiedFootprints(apps, entry.parentId, entry.id), 1, 1);
-  entry.gridX = pos1.x;
-  entry.gridY = pos1.y;
+  layout.placeFree(apps, entry);
   apps.push(entry);
   store.save(apps);
   return decorate(apps);
@@ -735,7 +713,9 @@ ipcMain.handle('item:setColor', (_e, { id, color }) => {
   return decorate(apps);
 });
 
-ipcMain.handle('item:move', (_e, { id, parentId }) => {
+// gridX/gridY (optional): the cell it was dropped on in its new parent;
+// it lands there or on the nearest free cell. Without them, the first free one.
+ipcMain.handle('item:move', (_e, { id, parentId, gridX, gridY }) => {
   const apps = store.load();
   const entry = apps.find((a) => a.id === id);
   if (!entry) return decorate(apps);
@@ -752,7 +732,8 @@ ipcMain.handle('item:move', (_e, { id, parentId }) => {
     delete entry.gridY;
   }
   entry.parentId = parentId || null;
-  store.assignMissingPositions(apps);
+  if (Number.isFinite(gridX) && Number.isFinite(gridY)) layout.placeFree(apps, entry, gridX, gridY);
+  else if (typeof entry.gridX !== 'number') layout.placeFree(apps, entry);
   store.save(apps);
   return decorate(apps);
 });
@@ -762,16 +743,7 @@ ipcMain.handle('item:setPosition', (_e, { id, gridX, gridY }) => {
   const entry = apps.find((a) => a.id === id);
   if (!entry) return decorate(apps);
 
-  const fp = layout.footprintOf(entry);
-  const pos = layout.findNearestFreeCell(
-    siblingOccupiedFootprints(apps, entry.parentId, entry.id),
-    Math.round(gridX),
-    Math.round(gridY),
-    fp.w,
-    fp.h
-  );
-  entry.gridX = pos.x;
-  entry.gridY = pos.y;
+  layout.placeFree(apps, entry, Number(gridX) || 0, Number(gridY) || 0);
   store.save(apps);
   return decorate(apps);
 });
@@ -783,16 +755,7 @@ ipcMain.handle('item:setCollapsed', (_e, { id, collapsed }) => {
     entry.collapsed = !!collapsed;
     // Footprint just changed size (1x1 <-> its expanded WxH) - nudge to the
     // nearest free spot among siblings if it now overlaps one.
-    const fp = layout.footprintOf(entry);
-    const pos = layout.findNearestFreeCell(
-      siblingOccupiedFootprints(apps, entry.parentId, entry.id),
-      entry.gridX,
-      entry.gridY,
-      fp.w,
-      fp.h
-    );
-    entry.gridX = pos.x;
-    entry.gridY = pos.y;
+    layout.placeFree(apps, entry, entry.gridX || 0, entry.gridY || 0);
   }
   store.save(apps);
   return decorate(apps);
@@ -813,16 +776,7 @@ ipcMain.handle('item:setSize', (_e, { id, w, h }) => {
     entry.w = Math.max(layout.MIN_ISLAND_W, Math.min(layout.MAX_ISLAND_W, Math.round(w)));
     entry.h = Math.max(layout.MIN_ISLAND_H, Math.min(layout.MAX_ISLAND_H, Math.round(h)));
     if (entry.collapsed === false) {
-      const fp = layout.footprintOf(entry);
-      const pos = layout.findNearestFreeCell(
-        siblingOccupiedFootprints(apps, entry.parentId, entry.id),
-        entry.gridX,
-        entry.gridY,
-        fp.w,
-        fp.h
-      );
-      entry.gridX = pos.x;
-      entry.gridY = pos.y;
+      layout.placeFree(apps, entry, entry.gridX || 0, entry.gridY || 0);
     }
   }
   store.save(apps);
@@ -849,13 +803,73 @@ ipcMain.handle('apps:detectMissingIcons', async () => {
 
 ipcMain.handle('apps:restoreDefaults', async () => {
   const apps = store.load();
-  const existingNames = new Set(apps.map((a) => a.name.toLowerCase()));
-  const defaults = await buildDefaultAppEntries();
-  const toAdd = defaults.filter((d) => !existingNames.has(d.name.toLowerCase()));
-  apps.push(...toAdd);
-  store.assignMissingPositions(apps); // new entries have no gridX/gridY yet - find them a free cell
+  const existingNames = new Set(apps.map((a) => String(a.name || '').toLowerCase()));
+  const toAdd = (await buildDefaultAppEntries()).filter((d) => !existingNames.has(d.name.toLowerCase()));
+  // In the first-run order, each on the free cell nearest its first-run spot.
+  for (const entry of toAdd) {
+    layout.placeFree(apps, entry, entry.gridX, entry.gridY);
+    apps.push(entry);
+  }
   store.save(apps);
   return { apps: decorate(apps), added: toAdd.length };
+});
+
+// Puts the stock apps back as this version ships them (lib/defaults.js):
+// targets and commands reset, icons fetched again unless the user chose
+// one, missing ones added. Names, islands, positions and pins stay.
+ipcMain.handle('apps:repairDefaults', async () => {
+  const apps = store.load();
+  const { repaired, added } = defaults.repair(apps, store.newId);
+  await fetchDefaultIcons([...repaired.filter((e) => !e.iconIsCustom), ...added]);
+  store.save(apps);
+  return { apps: decorate(apps), repaired: repaired.length, added: added.length };
+});
+
+// Downloads this version's installer from its release tag (lib/reinstall.js)
+// and runs it silently, the way an update installs; it starts Launchpad
+// again when it's done.
+ipcMain.handle('app:reinstall', async () => {
+  if (!app.isPackaged) return { ok: false, error: 'Reinstalling only works in the installed app, not a dev build.' };
+  try {
+    const { net } = require('electron');
+    const installer = await reinstall.download({
+      version: app.getVersion(),
+      fetchImpl: (url) => net.fetch(url),
+      tempDir: path.join(app.getPath('temp'), 'launchpad-reinstall'),
+    });
+    require('child_process').spawn(installer, ['/S', '--force-run'], { detached: true, stdio: 'ignore' }).unref();
+    isQuitting = true;
+    setTimeout(() => app.quit(), 200);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// Settings → Danger zone. lib/reset.js writes pre-reset-<time>.json first,
+// then clears everything but Media. The other windows are closed first and
+// the app relaunched straight after, so no cache, helper or docked panel is
+// left half-reset (the relaunch gives the panels' AppBar space back).
+ipcMain.handle('settings:reset', async () => {
+  organizer.configure({ ...settings.organizerOptions(), enabled: false });
+  if (mediaWindow && !mediaWindow.isDestroyed()) mediaWindow.destroy();
+  let result;
+  try {
+    result = resetData.reset();
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+  // The page clears its localStorage prefs once this answers; give it a
+  // moment, and flush them, since app.exit() doesn't wait for Chromium to.
+  setTimeout(() => {
+    isQuitting = true;
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.session.flushStorageData();
+    } catch {}
+    app.relaunch();
+    app.exit(0);
+  }, 600);
+  return result;
 });
 
 ipcMain.handle('system:emptyRecycleBin', () => {
@@ -1123,8 +1137,9 @@ ipcMain.handle('panel:hover', (e, zone) => {
 });
 
 // The toolbar buttons on the panel carrying Launchpad's top bar. Everything
-// but fullscreen is done by the main window, which comes to the front for it:
-// the click went to Launchpad, so Windows lets it take the foreground.
+// but fullscreen and Media is done by the main window. Only the ones that
+// open a dialog bring it to the front (the click went to Launchpad, so
+// Windows lets it take the foreground); see showWindow({ focus }).
 const TOPBAR_ACTIONS = ['crumb', 'crumbMenu', 'drop', 'layouts', 'settings', 'newIsland', 'addApp', 'fullscreen', 'media'];
 
 ipcMain.handle('panel:launchpad', (e, request) => {
@@ -1139,7 +1154,11 @@ ipcMain.handle('panel:launchpad', (e, request) => {
     openMediaWindow();
     return { ok: true };
   }
-  showWindow();
+  // Navigation and data actions only need the window open, not in front:
+  // an open window keeps its place in the z-order and a hidden one is shown
+  // without taking the foreground. The dialogs need the keyboard, so they
+  // bring it forward.
+  showWindow({ focus: action === 'layouts' || action === 'settings' || action === 'addApp' || action === 'newIsland' });
   const message = { action, id: typeof id === 'string' ? id : null };
   if (action === 'drop') message.ids = Array.isArray(ids) ? ids.filter((v) => typeof v === 'string') : [];
   if (action === 'crumbMenu') {
@@ -1312,16 +1331,7 @@ ipcMain.handle('item:setPositions', (_e, updates) => {
   for (const { id, gridX, gridY } of updates) {
     const entry = apps.find((a) => a.id === id);
     if (!entry) continue;
-    const fp = layout.footprintOf(entry);
-    const pos = layout.findNearestFreeCell(
-      siblingOccupiedFootprints(apps, entry.parentId, entry.id),
-      Math.round(gridX),
-      Math.round(gridY),
-      fp.w,
-      fp.h
-    );
-    entry.gridX = pos.x;
-    entry.gridY = pos.y;
+    layout.placeFree(apps, entry, Number(gridX) || 0, Number(gridY) || 0);
   }
   store.save(apps);
   return decorate(apps);
@@ -1542,6 +1552,22 @@ mediaHandle('media:addLibrary', async (_e, request) => {
   );
   settings.save({ libraries: [...others, req] });
   return { added: result.added, missing: result.missing, restored: result.restored };
+});
+
+// One program on its own (Media's + → Single app). library.singleAppEntry
+// checks it like libraryRequest checks a folder: an existing absolute .exe,
+// a known library and platform.
+mediaHandle('media:addApp', (_e, request) => {
+  const target = request && typeof request.target === 'string' ? request.target : '';
+  const entry = library.singleAppEntry(request, {
+    exists: (p) => fs.existsSync(p) && fs.statSync(p).isFile(),
+    platforms: new Set(mediaScan.PLATFORMS.map((p) => p.id)),
+  });
+  const entries = library.load();
+  const dupe = entries.find((e) => e.type === 'path' && e.target.toLowerCase() === target.toLowerCase());
+  if (dupe) throw new Error(`${dupe.name} is already in the library`);
+  library.save([...entries, entry]);
+  return withArt(entry);
 });
 
 mediaHandle('media:launch', async (e, id) => {

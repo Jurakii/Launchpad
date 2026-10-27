@@ -113,3 +113,8 @@ html, body {
   font-size: 11px;
   line-height: 1.4;
 }
+
+/* The menu holds the focus until a row is picked (window-picker.js). */
+.menu:focus {
+  outline: none;
+}

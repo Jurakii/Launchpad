@@ -21,6 +21,9 @@ contextBridge.exposeInMainWorld('launcherAPI', {
   fetchFaviconPreview: (url) => ipcRenderer.invoke('icon:fetchFaviconPreview', url),
   detectMissingIcons: () => ipcRenderer.invoke('apps:detectMissingIcons'),
   restoreDefaults: () => ipcRenderer.invoke('apps:restoreDefaults'),
+  repairDefaults: () => ipcRenderer.invoke('apps:repairDefaults'), // -> { apps, repaired, added }
+  reinstallApp: () => ipcRenderer.invoke('app:reinstall'), // -> { ok, error }; quits to run the installer
+  resetLaunchpad: () => ipcRenderer.invoke('settings:reset'), // -> { ok, preReset, error }; relaunches
   emptyRecycleBin: () => ipcRenderer.invoke('system:emptyRecycleBin'),
   getVolume: () => ipcRenderer.invoke('system:getVolume'),
   setVolume: (pct) => ipcRenderer.invoke('system:setVolume', pct),
@@ -75,7 +78,8 @@ contextBridge.exposeInMainWorld('launcherAPI', {
   addIsland: (name, parentId, color) => ipcRenderer.invoke('folder:add', { name, parentId, color }),
   renameItem: (id, name) => ipcRenderer.invoke('item:rename', { id, name }),
   setColor: (id, color) => ipcRenderer.invoke('item:setColor', { id, color }),
-  moveItem: (id, parentId) => ipcRenderer.invoke('item:move', { id, parentId }),
+  // gridX/gridY (optional): the cell it was dropped on in the new parent.
+  moveItem: (id, parentId, gridX, gridY) => ipcRenderer.invoke('item:move', { id, parentId, gridX, gridY }),
   togglePin: (id) => ipcRenderer.invoke('item:togglePin', id),
   setPinned: (id, pinned) => ipcRenderer.invoke('item:setPinned', { id, pinned }),
   setPinOrder: (orderedIds) => ipcRenderer.invoke('item:setPinOrder', orderedIds),

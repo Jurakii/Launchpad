@@ -6,20 +6,24 @@
     pad: { select: 'A', move: 'D-pad', back: 'B', tabs: 'LB / RB', menu: 'Start', customize: 'Y' },
   };
 
-  // [action, label]; an action with no glyph for the current input is left out.
+  // [action, label]; an action with no glyph for the current input is left
+  // out. Only Home (its tabs) and Settings (its sections) offer the bumpers,
+  // so no other screen promises something they don't do.
+  const BASIC = [['select', 'Select'], ['move', 'Move'], ['back', 'Back']];
   const SCREENS = {
     home: [
       ['select', 'Launch'],
       ['move', 'Move'],
       ['customize', 'Customize art'],
       ['tabs', 'Switch tab'],
-      ['menu', 'Players and emulators'],
+      ['menu', 'Settings'],
       ['back', 'Exit Media'],
     ],
-    add: [['select', 'Select'], ['move', 'Move'], ['back', 'Back']],
-    profiles: [['select', 'Select'], ['move', 'Move'], ['back', 'Back']],
-    customize: [['select', 'Select'], ['move', 'Move'], ['back', 'Back']],
-    controller: [['select', 'Change'], ['move', 'Move'], ['back', 'Back']],
+    addChoice: BASIC,
+    addApp: BASIC,
+    add: BASIC,
+    settings: [['select', 'Select'], ['move', 'Move'], ['tabs', 'Switch section'], ['back', 'Back']],
+    customize: BASIC,
     running: [['select', 'Close it'], ['back', 'Back to library']],
   };
 
