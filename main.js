@@ -197,14 +197,27 @@ let returnFocusTo = null;
 function rememberForeground() {
   if (mainWindow && mainWindow.isVisible() && mainWindow.isFocused()) return; // already in front
   const fg = windowmgr.currentForeground();
+  // Launchpad's own window in front (shown again before Windows reported the
+  // focus change): keep the app remembered last time rather than forget it.
+  if (fg && fg.kind === 'own') return;
   returnFocusTo = fg && fg.kind === 'app' && Number.isSafeInteger(fg.hwnd) && fg.hwnd ? fg.hwnd : null;
 }
 
+// Resolves once the helper has handed the focus back (or after 400 ms):
+// callers hide the window only then, because Windows lets the helper move
+// the foreground only while Launchpad still holds it, as with the grid.
 function restorePreviousFocus() {
   const hwnd = returnFocusTo;
   returnFocusTo = null;
-  if (!hwnd || (mediaWindow && !mediaWindow.isDestroyed() && mediaWindow.isVisible())) return;
-  windowmgr.focus(hwnd).catch(() => {});
+  if (!hwnd || (mediaWindow && !mediaWindow.isDestroyed() && mediaWindow.isVisible())) return Promise.resolve();
+  return Promise.race([windowmgr.focus(hwnd).catch(() => {}), new Promise((r) => setTimeout(r, 400))]);
+}
+
+// Hides the main window, giving the focus back to where the user was first.
+function hideMainWindow() {
+  restorePreviousFocus().then(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
+  });
 }
 
 function toggleWindow() {
@@ -217,10 +230,7 @@ function toggleWindow() {
   }
   if (!mainWindow) return;
   if (mainWindow.isVisible() && mainWindow.isFocused()) {
-    // Handed back while Launchpad still has the foreground: Windows only
-    // lets the foreground process (or the helper it started) pass it on.
-    restorePreviousFocus();
-    mainWindow.hide();
+    hideMainWindow();
   } else {
     showWindow();
   }
@@ -302,8 +312,7 @@ function createWindow() {
     const minimizeToTray = settings.load().minimizeToTrayOnClose !== false;
     if (!isQuitting && minimizeToTray) {
       e.preventDefault();
-      restorePreviousFocus();
-      mainWindow.hide();
+      hideMainWindow();
     }
   });
   // Closed for real: quit. The organizer's panels, overlays and grids are
