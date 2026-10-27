@@ -2,7 +2,7 @@
 
 A personal Windows desktop-replacement launcher (Electron 44). It runs as a full-screen-capable window with a custom taskbar, an app/folder grid, and a set of system-tray widgets (volume, USB, Bluetooth, Wi-Fi, clock, power). It is meant for apps that don't behave well with the native taskbar or Start Menu.
 
-- **Version:** 1.0.4 (`package.json`)
+- **Version:** 1.2.1 (`package.json`)
 - **Repo:** `Jurakii/Launchpad` on GitHub, branch `main`
 - **Platform:** Windows only (PowerShell helpers, `Clear-RecycleBin`, `shutdown.exe`, `ms-settings:`, etc.)
 - **Size:** ~1,300 lines in `main.js`, ~3,400 in `renderer/renderer.js`, ~1,550 in `renderer/styles.css`. User-facing docs are in `README.md`.
