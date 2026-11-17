@@ -1,0 +1,9 @@
+[package]
+name = "launchpad-core"
+version = "2.0.0-dev"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# preserve_order: keys we don't know about go back to disk where they were.
+serde_json = { version = "1", features = ["preserve_order"] }

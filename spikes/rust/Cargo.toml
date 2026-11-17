@@ -1,0 +1,12 @@
+# Phase 0 spikes for the Rust port (RUST_PORT_PLAN.md §5). Throwaway: nothing here ships.
+[workspace]
+resolver = "2"
+members = ["main-window", "shell-windows"]
+
+# The profile the real app will use, so sizes measured here mean something.
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

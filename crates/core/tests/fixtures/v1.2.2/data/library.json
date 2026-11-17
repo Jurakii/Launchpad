@@ -1,0 +1,75 @@
+[
+  {
+    "id": "00000000-0000-4000-8000-000000000040",
+    "library": "games",
+    "name": "Chrono Trigger",
+    "platform": "snes",
+    "type": "profile",
+    "profile": null,
+    "target": "D:\\Games\\SNES\\Chrono Trigger (USA).sfc",
+    "launchCount": 2,
+    "lastLaunched": 1767323045005,
+    "playSeconds": 3600,
+    "createdAt": 1767323045000,
+    "media": {
+      "cover": {
+        "path": "cover.jpg",
+        "source": "user",
+        "updatedAt": 1767323045000
+      },
+      "banner": null,
+      "logo": {
+        "path": "logo.png",
+        "source": "scraper:steamgriddb",
+        "updatedAt": 1767323045001
+      },
+      "screenshot": null,
+      "video": null
+    },
+    "futureEntryKey": true,
+    "available": true,
+    "meta": {}
+  },
+  {
+    "id": "00000000-0000-4000-8000-000000000041",
+    "library": "videos",
+    "name": "Amélie",
+    "type": "path",
+    "target": "E:\\Vidéos\\Amélie (2001).mkv",
+    "meta": {
+      "year": 2001
+    },
+    "available": false,
+    "createdAt": 1767323045001,
+    "platform": null,
+    "profile": null,
+    "launchCount": 0,
+    "media": {
+      "cover": null,
+      "banner": null,
+      "logo": null,
+      "screenshot": null,
+      "video": null
+    }
+  },
+  {
+    "id": "00000000-0000-4000-8000-000000000042",
+    "library": "games",
+    "name": "Steam game 🎮",
+    "type": "url",
+    "target": "steam://rungameid/123",
+    "createdAt": 1767323045002,
+    "platform": null,
+    "profile": null,
+    "available": true,
+    "launchCount": 0,
+    "media": {
+      "cover": null,
+      "banner": null,
+      "logo": null,
+      "screenshot": null,
+      "video": null
+    },
+    "meta": {}
+  }
+]

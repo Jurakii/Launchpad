@@ -1,0 +1,11 @@
+{
+  "hotkey": 5,
+  "organizerPanel": "sideways",
+  "controller": "not an object",
+  "libraries": { "root": "D:\\Games" },
+  "fileStoreLimit": 1e3,
+  "float": 2.0,
+  "negativeZero": -0,
+  "big": 12345678901234567890,
+  "nested": { "b": 1, "a": [true, null, { "x": "\u2028" }] }
+}

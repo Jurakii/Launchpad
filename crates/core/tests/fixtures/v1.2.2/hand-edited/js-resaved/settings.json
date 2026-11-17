@@ -1,0 +1,22 @@
+{
+  "hotkey": 5,
+  "organizerPanel": "sideways",
+  "controller": "not an object",
+  "libraries": {
+    "root": "D:\\Games"
+  },
+  "fileStoreLimit": 1000,
+  "float": 2,
+  "negativeZero": 0,
+  "big": 12345678901234567000,
+  "nested": {
+    "b": 1,
+    "a": [
+      true,
+      null,
+      {
+        "x": " "
+      }
+    ]
+  }
+}

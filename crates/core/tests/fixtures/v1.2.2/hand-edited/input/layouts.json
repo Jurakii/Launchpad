@@ -1,0 +1,18 @@
+{
+  "version": 0,
+  "futureKey": { "x": 1 },
+  "gap": "8",
+  "hidden": ["halves", "halves", "nope", "00000000-0000-4000-8000-000000000060"],
+  "layouts": [
+    { "id": "00000000-0000-4000-8000-000000000060", "name": "  Spaced name  ", "cols": 2.0, "rows": 1, "zones": [{ "id": "z", "name": "Z", "x": 0, "y": 0, "w": 2, "h": 1, "zoneExtra": "kept?" }], "layoutExtra": 1 },
+    { "id": "halves", "name": "Not a built-in", "cols": 1, "rows": 1, "zones": [{ "id": "z", "name": "Z", "x": 0, "y": 0, "w": 1, "h": 1 }] },
+    { "id": "broken", "name": "Overlap", "cols": 1, "rows": 1, "zones": [{ "id": "a", "x": 0, "y": 0, "w": 1, "h": 1 }, { "id": "b", "x": 0, "y": 0, "w": 1, "h": 1 }] }
+  ],
+  "scenes": [
+    { "sceneExtra": "first", "id": "00000000-0000-4000-8000-000000000061", "name": "Scene", "islandId": null, "savedAt": 1.5, "windows": [
+      { "exe": "C:\\a.exe", "title": "t", "display": { "id": 1, "bounds": { "x": 0, "y": 0, "width": 100, "height": 100, "boundsExtra": 1 }, "displayExtra": 2 }, "rect": { "x": 0, "y": 0, "w": 1, "h": 1, "rectExtra": 3 }, "maximized": false, "windowExtra": 4 }
+    ] },
+    { "id": "00000000-0000-4000-8000-000000000062", "name": "No island key", "windows": [{ "exe": "C:\\b.exe", "title": "", "display": { "id": 1, "bounds": { "x": 0, "y": 0, "width": 1, "height": 1 } }, "rect": { "x": 0, "y": 0, "w": 1, "h": 1 }, "maximized": true }] },
+    { "id": "00000000-0000-4000-8000-000000000063", "name": "", "windows": [] }
+  ]
+}

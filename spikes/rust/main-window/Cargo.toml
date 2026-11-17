@@ -1,0 +1,16 @@
+[package]
+name = "spike-main-window"
+version = "0.0.0"
+edition = "2021"
+
+[features]
+default = ["sw"]
+sw = ["slint/renderer-software"]
+femtovg = ["slint/renderer-femtovg"]
+skia = ["slint/renderer-skia"]
+
+[dependencies]
+slint = { version = "1.19", default-features = false, features = ["std", "compat-1-2", "backend-winit"] }
+
+[build-dependencies]
+slint-build = "1.19"

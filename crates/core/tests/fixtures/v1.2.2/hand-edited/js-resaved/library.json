@@ -1,0 +1,50 @@
+[
+  {
+    "id": "00000000-0000-4000-8000-000000000070",
+    "name": "",
+    "library": "games",
+    "type": "profile",
+    "media": {
+      "cover": {
+        "path": "c.jpg",
+        "extra": 1
+      },
+      "banner": null,
+      "logo": null,
+      "screenshot": null,
+      "video": null
+    },
+    "meta": {},
+    "launchCount": 0,
+    "createdAt": 1,
+    "extra": {
+      "k": []
+    },
+    "platform": null,
+    "profile": null,
+    "target": "",
+    "available": true
+  },
+  {
+    "id": "00000000-0000-4000-8000-000000000071",
+    "library": "videos",
+    "media": {
+      "cover": null,
+      "banner": null,
+      "logo": null,
+      "screenshot": null,
+      "video": null
+    },
+    "meta": {
+      "year": 1999
+    },
+    "name": "",
+    "platform": null,
+    "type": "profile",
+    "profile": null,
+    "target": "",
+    "available": true,
+    "launchCount": 0,
+    "createdAt": 0
+  }
+]

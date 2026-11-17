@@ -1,0 +1,19 @@
+{
+  "profiles": [
+    {
+      "id": "good",
+      "name": "Good",
+      "kind": "player",
+      "exe": "C:\\p\\good.exe",
+      "args": [
+        "{file}"
+      ],
+      "platforms": [
+        "videos"
+      ]
+    }
+  ],
+  "defaults": {
+    "videos": "good"
+  }
+}

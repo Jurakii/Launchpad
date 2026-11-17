@@ -1,0 +1,9 @@
+{
+  "profiles": [
+    { "id": "good", "name": "Good", "kind": "player", "exe": "C:\\p\\good.exe", "args": ["{file}"], "platforms": ["videos"], "extra": "dropped by both" },
+    { "id": "good", "name": "Duplicate", "kind": "player", "exe": "C:\\p\\dup.exe", "args": [], "platforms": [] },
+    { "id": "bat", "name": "Batch", "kind": "player", "exe": "C:\\p\\run.bat", "args": [], "platforms": [] }
+  ],
+  "defaults": { "videos": "good", "snes": "missing", "BAD KEY": "good" },
+  "topExtra": true
+}

@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "futureKey": {
+    "x": 1
+  },
+  "gap": 8,
+  "hidden": [
+    "halves",
+    "00000000-0000-4000-8000-000000000060"
+  ],
+  "layouts": [
+    {
+      "id": "00000000-0000-4000-8000-000000000060",
+      "name": "  Spaced name  ",
+      "cols": 2,
+      "rows": 1,
+      "zones": [
+        {
+          "id": "z",
+          "name": "Z",
+          "x": 0,
+          "y": 0,
+          "w": 2,
+          "h": 1,
+          "zoneExtra": "kept?"
+        }
+      ],
+      "layoutExtra": 1
+    }
+  ],
+  "scenes": [
+    {
+      "sceneExtra": "first",
+      "id": "00000000-0000-4000-8000-000000000061",
+      "name": "Scene",
+      "islandId": null,
+      "savedAt": 1.5,
+      "windows": [
+        {
+          "exe": "C:\\a.exe",
+          "title": "t",
+          "display": {
+            "id": 1,
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 100,
+              "height": 100,
+              "boundsExtra": 1
+            },
+            "displayExtra": 2
+          },
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1,
+            "rectExtra": 3
+          },
+          "maximized": false,
+          "windowExtra": 4
+        }
+      ]
+    }
+  ]
+}

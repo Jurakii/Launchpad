@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "gap": 12,
+  "hidden": [
+    "thirds"
+  ],
+  "layouts": [
+    {
+      "id": "00000000-0000-4000-8000-000000000030",
+      "name": "Wide 日本",
+      "cols": 3,
+      "rows": 2,
+      "zones": [
+        {
+          "id": "a",
+          "name": "Left",
+          "x": 0,
+          "y": 0,
+          "w": 2,
+          "h": 2
+        },
+        {
+          "id": "b",
+          "name": "Right",
+          "x": 2,
+          "y": 0,
+          "w": 1,
+          "h": 2
+        }
+      ]
+    }
+  ],
+  "scenes": [
+    {
+      "id": "00000000-0000-4000-8000-000000000031",
+      "name": "Morning",
+      "islandId": null,
+      "savedAt": 1767323045000,
+      "windows": [
+        {
+          "exe": "C:\\Windows\\explorer.exe",
+          "title": "Downloads",
+          "display": {
+            "id": 1,
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 2560,
+              "height": 1440
+            }
+          },
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "w": 0.5,
+            "h": 1
+          },
+          "maximized": false
+        },
+        {
+          "exe": "C:\\Program Files\\App\\app.exe",
+          "title": "Ünïcode — 🎵",
+          "display": {
+            "id": 2,
+            "bounds": {
+              "x": -1920,
+              "y": 0,
+              "width": 1920,
+              "height": 1080
+            }
+          },
+          "rect": {
+            "x": 0.3333,
+            "y": 0.25,
+            "w": 0.6667,
+            "h": 0.75
+          },
+          "maximized": true
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000032",
+      "name": "Tools scene",
+      "islandId": "00000000-0000-4000-8000-000000000010",
+      "savedAt": 1767323045001,
+      "windows": [
+        {
+          "exe": "C:\\scripts\\tool.exe",
+          "title": "",
+          "display": {
+            "id": 1,
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "width": 2560,
+              "height": 1440
+            }
+          },
+          "rect": {
+            "x": 0.1,
+            "y": 0.1,
+            "w": 0.8,
+            "h": 0.8
+          },
+          "maximized": false
+        }
+      ]
+    }
+  ],
+  "futureLayoutsKey": [
+    1,
+    "two"
+  ]
+}

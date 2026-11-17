@@ -1,0 +1,181 @@
+// Phase 0 spike: Launchpad main window in Slint. Throwaway.
+export struct TileData { name: string, icon: image, col: int, row: int }
+
+export component MainWindow inherits Window {
+    title: "spike-main-window";
+    preferred-width: 1280px;
+    preferred-height: 800px;
+    background: black;
+
+    in property <image> wallpaper;
+    in-out property <[TileData]> tiles;
+    in property <string> clock;
+    in property <bool> auto-drag;
+    in property <bool> auto-scroll; // --auto-scroll: animates the grid scroll offset, i.e. a full-area repaint per frame
+    in-out property <string> status;
+    out property <string> query <=> input.text;
+    callback frame();
+
+    property <length> cell: 112px;
+    property <length> bar-height: 56px;
+    property <int> menu-tile;
+    property <length> menu-x;
+    property <length> menu-y;
+
+    // --auto-drag: tile 0 follows animation-tick(); `frame` fires once per tick change so Rust can time frames.
+    property <duration> tick: auto-drag || auto-scroll ? animation-tick() : 0ms;
+    property <length> auto-dx: auto-drag ? 420px + 400px * Math.sin(tick / 2s * 360deg) : 0px;
+    property <length> auto-dy: auto-drag ? 250px + 240px * Math.cos(tick / 1.3s * 360deg) : 0px;
+    changed tick => { root.frame(); }
+
+    Image {
+        width: 100%;
+        height: 100%;
+        source: root.wallpaper;
+        image-fit: cover;
+    }
+
+    Flickable {
+        x: 0; y: 0;
+        width: parent.width;
+        height: parent.height - root.bar-height;
+        content-y: root.auto-scroll ? -700px + 700px * Math.cos(root.tick / 3s * 360deg) : 0px;
+        interactive: false; // wheel scrolls; mouse drags belong to the tiles
+        content-width: 10 * root.cell + 16px;
+        content-height: 20 * root.cell + 16px;
+
+        for t[i] in root.tiles: Rectangle {
+            property <length> dx;
+            property <length> dy;
+            x: 8px + t.col * root.cell + dx + (i == 0 ? root.auto-dx : 0px);
+            y: 8px + t.row * root.cell + dy + (i == 0 ? root.auto-dy : 0px);
+            z: ta.pressed || (i == 0 && root.auto-drag) ? 1 : 0;
+            width: root.cell - 8px;
+            height: root.cell - 8px;
+            border-radius: 12px;
+            background: ta.pressed ? #ffffff50 : ta.has-hover ? #ffffff28 : transparent;
+            border-width: ta.has-hover ? 1px : 0px;
+            border-color: #ffffff60;
+
+            Image {
+                y: 8px;
+                width: 64px;
+                height: 64px;
+                source: t.icon;
+            }
+            Text {
+                y: 76px;
+                width: parent.width - 6px;
+                text: t.name;
+                color: white;
+                font-size: 12px;
+                horizontal-alignment: center;
+                overflow: elide;
+            }
+            ta := TouchArea {
+                moved => {
+                    if (self.pressed) {
+                        // the tile moves under the cursor, so mouse-x is relative to the already-moved tile: accumulate
+                        dx += self.mouse-x - self.pressed-x;
+                        dy += self.mouse-y - self.pressed-y;
+                    }
+                }
+                pointer-event(e) => {
+                    if (e.button == PointerEventButton.left && e.kind == PointerEventKind.up) {
+                        // shortcut: no collision check, tiles may stack on one cell; add occupancy when this is real
+                        t.col = Math.max(0, Math.round((t.col * root.cell + dx) / root.cell));
+                        t.row = Math.max(0, Math.round((t.row * root.cell + dy) / root.cell));
+                        dx = 0;
+                        dy = 0;
+                    }
+                    if (e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
+                        root.menu-tile = i;
+                        root.menu-x = self.absolute-position.x + self.mouse-x;
+                        root.menu-y = self.absolute-position.y + self.mouse-y;
+                        menu.show();
+                    }
+                }
+            }
+        }
+    }
+
+    // Plain translucency, no blur.
+    Rectangle {
+        x: 0;
+        y: parent.height - root.bar-height;
+        width: parent.width;
+        height: root.bar-height;
+        background: #0c0c18a0;
+
+        HorizontalLayout {
+            padding: 10px;
+            spacing: 14px;
+            Rectangle {
+                horizontal-stretch: 1;
+                border-radius: 8px;
+                background: #ffffff28;
+                Text {
+                    x: 12px;
+                    visible: input.text == "";
+                    text: "Type to search";
+                    color: #ffffff80;
+                    font-size: 16px;
+                    vertical-alignment: center;
+                }
+                input := TextInput {
+                    x: 12px;
+                    width: parent.width - 24px;
+                    height: parent.height;
+                    color: white;
+                    font-size: 16px;
+                    single-line: true;
+                    vertical-alignment: center;
+                }
+            }
+            Text {
+                text: root.status;
+                color: #ffffffc0;
+                font-size: 13px;
+                vertical-alignment: center;
+            }
+            Text {
+                text: root.clock;
+                color: white;
+                font-size: 16px;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    menu := PopupWindow {
+        x: root.menu-x;
+        y: root.menu-y;
+        width: 170px;
+        Rectangle {
+            background: #20202cf4;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: #ffffff40;
+            VerticalLayout {
+                padding: 4px;
+                for label in ["Open", "Rename", "Remove"]: Rectangle {
+                    height: 30px;
+                    border-radius: 5px;
+                    background: mta.has-hover ? #ffffff30 : transparent;
+                    Text {
+                        x: 10px;
+                        text: label;
+                        color: white;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                    mta := TouchArea {
+                        clicked => {
+                            root.status = label + ": " + root.tiles[root.menu-tile].name;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

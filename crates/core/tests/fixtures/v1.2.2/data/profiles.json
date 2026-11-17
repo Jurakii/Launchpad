@@ -1,0 +1,52 @@
+{
+  "profiles": [
+    {
+      "id": "mpv",
+      "name": "mpv",
+      "kind": "player",
+      "exe": "C:\\Program Files\\mpv\\mpv.exe",
+      "args": [
+        "--fs",
+        "{file}"
+      ],
+      "platforms": [
+        "videos"
+      ]
+    },
+    {
+      "id": "retroarch-snes",
+      "name": "RetroArch (Snes9x)",
+      "kind": "emulator",
+      "exe": "C:\\RetroArch-Win64\\retroarch.exe",
+      "args": [
+        "-L",
+        "cores\\snes9x_libretro.dll",
+        "-f",
+        "{file}"
+      ],
+      "platforms": [
+        "snes"
+      ]
+    },
+    {
+      "id": "custom-emu",
+      "name": "My Emu",
+      "kind": "emulator",
+      "exe": "C:\\Emus\\emu.exe",
+      "args": [
+        "--rom",
+        "{file}",
+        "--dir",
+        "{dir}"
+      ],
+      "platforms": [
+        "gba"
+      ]
+    }
+  ],
+  "defaults": {
+    "videos": "mpv",
+    "snes": "retroarch-snes",
+    "gba": "custom-emu"
+  }
+}

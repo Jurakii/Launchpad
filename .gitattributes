@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Byte-for-byte compatibility fixtures: never convert line endings.
+crates/core/tests/fixtures/** -text

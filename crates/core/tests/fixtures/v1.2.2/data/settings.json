@@ -1,0 +1,48 @@
+{
+  "hotkey": "Alt+Space",
+  "startFullscreen": false,
+  "minimizeToTrayOnClose": true,
+  "notifyUpdates": true,
+  "disableHotkeyInApps": false,
+  "googleFaviconFallback": false,
+  "organizerEnabled": true,
+  "organizerPanel": "autoHide",
+  "organizerSnapOnDrag": true,
+  "organizerHotkey": "CommandOrControl+Alt+H",
+  "fileStoreOnDrop": "copy",
+  "fileStoreLimit": 2147483648,
+  "libraries": [
+    {
+      "root": "D:\\Games",
+      "library": "games",
+      "recursive": true,
+      "platforms": [
+        "snes",
+        "gba"
+      ]
+    },
+    {
+      "root": "E:\\Vidéos",
+      "library": "videos",
+      "recursive": false,
+      "platforms": []
+    }
+  ],
+  "futureSetting": {
+    "a": 1,
+    "list": [
+      "x"
+    ]
+  },
+  "controller": {
+    "deadZone": 0.4,
+    "pads": {
+      "Xbox 360 Controller (XInput STANDARD GAMEPAD)": {
+        "0": "select",
+        "1": "back",
+        "3": "quick",
+        "9": "menu"
+      }
+    }
+  }
+}

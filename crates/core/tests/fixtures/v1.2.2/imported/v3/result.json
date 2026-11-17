@@ -1,0 +1,18 @@
+{
+  "storedMissing": [],
+  "layoutsError": null,
+  "mediaError": null,
+  "files": [
+    "apps.json",
+    "files/00000000-0000-4000-8000-000000000015/Notes.txt",
+    "files/00000000-0000-4000-8000-000000000016/Photos été/inside.txt",
+    "files/thumbs/00000000-0000-4000-8000-000000000015.png",
+    "files/thumbs/00000000-0000-4000-8000-000000000016.png",
+    "icons/00000000-0000-4000-8000-000000000001.png",
+    "icons/00000000-0000-4000-8000-000000000012.png",
+    "icons/00000000-0000-4000-8000-000000000014.png",
+    "layouts.json",
+    "library.json",
+    "profiles.json"
+  ]
+}
