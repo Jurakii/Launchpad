@@ -51,7 +51,7 @@ Stop and report at the first layer that fails badly; later layers aren't worth r
 4. **Budgets (section B).** Reach the state, wait 30 s, then:
 
    ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .claude\skills\test-launchpad\measure.ps1 -Name launchpad -Path target\release\launchpad.exe,dist\Launchpad-Setup-2.0.0.exe
+   powershell -NoProfile -ExecutionPolicy Bypass -File .claude\skills\test-launchpad\measure.ps1 -Name launchpad -Path target\release\launchpad.exe,dist\Launchpad-Setup-1.3.0.exe
    ```
 
    `totalPrivateMB` is the number the targets use; `processCount` must be 1 for the Rust build. Use `-Name electron` for the reference numbers. For B2, seed 200 items by writing them into `apps.json` before starting rather than adding them by hand.

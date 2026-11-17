@@ -186,11 +186,13 @@ Turn on Settings → Window organizer first. Use Notepad windows as the subjects
 | D5 | Corrupt settings / layouts | Moved aside to `*.corrupt-*.json`, defaults used |
 | D6 | Atomic save | Kill the process during heavy editing: `apps.json` always parses |
 | D7 | Old data | A data folder written by 1.2.2 opens unchanged: same items, places, pins, layouts, scenes, library |
-| D8 | Update check | Settings shows the current version and whether a newer release exists |
+| D8 | Update check | Settings shows the current version and whether a newer release exists (reads `launchpad-update.yml`); with notifications on, a newer one is announced at start |
 | D9 | Install update | Download and install from Settings **[confirm]** |
 | D10 | Reinstall | Settings → reinstall this version **[confirm]** |
 | D11 | Reset | Danger zone: needs the typed confirmation, writes `pre-reset-*.json`, keeps Media; only ever run against the throwaway data folder **[confirm]** |
 | D12 | Installer | Installs, starts, uninstalls cleanly; data folder is left alone **[confirm]** |
+| D13 | Over 1.2.2 | Installing 1.3 by hand over a 1.2.2 install removes the Electron app, keeps the data folder, and keeps theme, accent, wallpaper and bar layout **[confirm]** |
+| D14 | Not offered to 1.2.2 | With 1.3 as the newest release, 1.2.2's Settings → Check for updates does not offer it |
 
 ## B. Budgets (Rust build; record the Electron numbers for comparison)
 

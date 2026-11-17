@@ -1,6 +1,6 @@
-# Launchpad 2.0: Rust Port Plan
+# Launchpad 1.3: Rust Port Plan
 
-Written 2026-11-16 against v1.2.2. Goal: the same Launchpad, as one native Rust process, using a fraction of the memory and disk. `CODEBASE_SUMMARY.md` stays the reference for what each feature does; this file says how it moves.
+Written 2026-11-16 against v1.2.2. Goal: Launchpad 1.3, the same app as one native Rust process, using a fraction of the memory and disk. `CODEBASE_SUMMARY.md` stays the reference for what each feature does; this file says how it moves.
 
 ## 1. Where we are (measured)
 
@@ -138,10 +138,13 @@ The Electron code stays at the repo root, runnable, until Phase 7: it is the ref
 
 ### 4.4 Data and upgrade compatibility
 
-- Same folder (`%APPDATA%\launchpad`), same files, same JSON. 2.0 must read every file a 1.2.2 install wrote, and a backup written by either must import in the other. Checked by fixture tests in `crates/core`.
-- **Visual prefs live in Chromium's localStorage today** (§4.3 of the summary: theme, accent, wallpaper, bar layout, tray order, Media colours). Rust can't sensibly read that. So: a last Electron release (**1.2.3, "bridge"**) writes those keys to `ui.json` at startup and on change. 2.0 reads `ui.json` and keeps using it. A user who jumps from ≤1.2.2 straight to 2.0 gets default looks, nothing else.
-- After a successful first run, 2.0 deletes the Chromium folders in the data folder (`Cache`, `GPUCache`, `Local Storage`, …). They are caches, usually tens of MB.
-- **In-app update from 1.2.x must work.** The 2.0 release publishes `latest.yml` and `Launchpad-Setup-2.0.0.exe` as today; the NSIS script accepts `/S`, `--updated` and `--force-run`, removes the Electron install (its uninstaller, silently, files only) and installs to the same place. No `.blockmap`: electron-updater falls back to a full download, which is 4 MB.
+- **1.3 is a manual download; every release after it updates itself from inside the app**, as 1.2 did (decided 2026-11-17). 1.2.2's Settings already tells people to get 1.3 from GitHub Releases.
+- Same folder (`%APPDATA%\launchpad`), same files, same JSON. 1.3 must read every file a 1.2.2 install wrote, and a backup written by either must import in the other. Checked by fixture tests in `crates/core`.
+- **Visual prefs live in Chromium's localStorage today** (§4.3 of the summary: theme, accent, wallpaper, bar layout, tray order, Media colours). There is no later Electron release to hand them over, so on its first run 1.3 reads them once from Chromium's `Local Storage\leveldb` in the data folder (keys under the `file://` origin; the `.log` file plus any `.ldb` tables, which need a small Snappy decoder) and writes `ui.json`, which it uses from then on. Best effort: if anything about it fails, 1.3 starts with default looks and nothing else is affected. Phase 3 task, tested against a copy of a real 1.2.2 profile.
+- After a first run that has written `ui.json`, 1.3 deletes the Chromium folders in the data folder (`Cache`, `GPUCache`, `Local Storage`, …). They are caches, usually tens of MB.
+- **Installing 1.3 over 1.2.x:** the person runs `Launchpad-Setup-1.3.0.exe` by hand. It finds the Electron install (its uninstall registry entry), quits a running Launchpad, runs the old uninstaller silently (files only, never the data folder) and installs to the same place.
+- **Updates from 1.3 on** (`crates/core/src/update.rs`): each release carries the installer and `launchpad-update.yml` (electron-builder's `latest.yml` format: `version`, `path`, `sha512`). The app checks it, offers the update in Settings and optionally as a notification (`notifyUpdates`, as in 1.2), downloads the installer, checks its SHA-512, runs it with `/S --force-run` and quits. "Reinstall this version" is the same path aimed at the running version's tag. No `.blockmap`: the installer is a few MB.
+- **The manifest is not called `latest.yml`**, so 1.2.2's electron-updater never offers 1.3 (it reads that name from the newest release). The cost: a manual "Check for updates" in 1.2.2 shows an error once 1.3 is the newest release, which its Settings note explains.
 - "Start with Windows": remove the Run value Electron wrote, write our own if it was on. Check the old value's name on a real install.
 - Controller maps are keyed by Chromium's Gamepad id strings and button numbers. They won't match XInput; they reset to defaults once. Dead zone carries over.
 
@@ -168,9 +171,9 @@ Each phase ends with something that runs. Sizes are relative.
 
 **Phase 5 — Media (M).** Window, spatial focus, gamepad, library screens, add folder/app, profiles, tracked launches, art, colours, controller setup. Done when section M passes.
 
-**Phase 6 — Packaging and updates (S).** `installer/launchpad.nsi`, updater, release workflow (`cargo build --release` → `makensis` → `latest.yml` → `gh release create`), `test.yml` running `cargo test` plus the size gate, bridge release 1.2.3. Done when a 1.2.3 install updates itself to a 2.0 pre-release and keeps its data, and an uninstall leaves nothing but the data folder.
+**Phase 6 — Packaging and updates (S).** `installer/launchpad.nsi`, updater, release workflow (`cargo build --release` → `makensis` → `latest.yml` → `gh release create`), `test.yml` running `cargo test` plus the size gate. Done when: installing 1.3 by hand over a 1.2.2 install keeps its data, autostart and hotkey; a 1.3.0 install updates itself from inside the app to a test 1.3.1 release; 1.2.2 does not offer 1.3; an uninstall leaves nothing but the data folder.
 
-**Phase 7 — Parity pass and cut-over (S).** Full run of the testing skill on both builds side by side, fix what differs, check every budget in §2, then delete the Electron tree (`main.js`, `lib/`, `renderer/`, preloads, `scripts/`, `package*.json`, `test/`), rewrite `CODEBASE_SUMMARY.md` and the README's build section, release 2.0.0.
+**Phase 7 — Parity pass and cut-over (S).** Full run of the testing skill on both builds side by side, fix what differs, check every budget in §2, then delete the Electron tree (`main.js`, `lib/`, `renderer/`, preloads, `scripts/`, `package*.json`, `test/`), rewrite `CODEBASE_SUMMARY.md` and the README's build section, release 1.3.0 (a manual download; see §4.4).
 
 Phases 3, 4 and 5 don't depend on each other once 2 is done.
 
@@ -184,7 +187,7 @@ One checklist, in `.claude/skills/test-launchpad/features.md`, is the list of ev
 | 2. Probes | `--probe` output per system area compared with what Windows itself shows | End of Phase 2, then each release |
 | 3. Features | The checklist, driven through the real UI with a throwaway data folder. Run on Electron 1.2.2 first to record what "correct" looks like, then on Rust. A row passes when both behave the same, or the difference is written down as intended. | End of Phases 3, 4, 5; full run in 7 |
 | 4. Budgets | `measure.ps1` in each state of §2; size gate in CI | Phase 0, then every phase |
-| 5. Upgrade | Install 1.2.3 with real data → in-app update to 2.0 → every data file intact, autostart and hotkey still work; backup from one build imports in the other | Phase 6 |
+| 5. Upgrade | 1.2.2 with real data → install 1.3 by hand → every data file intact, looks carried over, autostart and hotkey still work; 1.3.0 → in-app update to a test 1.3.1; backup from one build imports in the other | Phase 6 |
 | 6. Soak | Organizer on, 24 h of normal use: memory flat, no leaked AppBar space after quit, kill and crash | Phase 7 |
 
 Rows that change the machine (shutdown, sleep, eject, Bluetooth and Wi-Fi disconnect, empty Recycle Bin, reset, installing an update) are tested up to their confirmation, then completed only with a person saying yes. Rows that need hardware this PC may not have (a real controller, monitors at different scaling, an elevated window, Windows 11 Snap Layouts) are marked and listed in the run's report rather than skipped silently; most are already untested today (summary §11).
@@ -207,5 +210,4 @@ Rows that change the machine (shutdown, sleep, eject, Bluetooth and Wi-Fi discon
 ## 8. Open questions
 
 1. Slint under its royalty-free licence (attribution in About), or make the repo GPLv3?
-2. Is shipping the 1.2.3 bridge release first acceptable, or should 2.0 just start with default looks?
-3. Keep per-user install only, or keep the installer's per-machine choice?
+2. Keep per-user install only, or keep the installer's per-machine choice?

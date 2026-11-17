@@ -9,6 +9,12 @@ use std::path::{Path, PathBuf};
 
 pub const REPO: &str = "Jurakii/Launchpad";
 
+/// The update manifest each release carries, in electron-builder's latest.yml
+/// format. Not called latest.yml: 1.2.2's electron-updater reads that name
+/// from the newest release, and 1.3 must not show up there as an update
+/// (it is a manual download; 1.2.2's Settings says so).
+pub const MANIFEST: &str = "launchpad-update.yml";
+
 pub fn release_base(version: &str) -> Result<String> {
     let (core, pre) = match version.split_once('-') {
         Some((core, pre)) => (core, Some(pre)),
@@ -24,9 +30,9 @@ pub fn release_base(version: &str) -> Result<String> {
     Ok(format!("https://github.com/{REPO}/releases/download/v{version}/"))
 }
 
-/// Where the newest release's latest.yml is (GitHub redirects to its tag).
+/// Where the newest release's manifest is (GitHub redirects to its tag).
 pub fn latest_yml_url() -> String {
-    format!("https://github.com/{REPO}/releases/latest/download/latest.yml")
+    format!("https://github.com/{REPO}/releases/latest/download/{MANIFEST}")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -225,7 +231,7 @@ pub fn download(
     temp_dir: &Path,
 ) -> Result<PathBuf> {
     let base = release_base(version)?;
-    let yml = fetch_ok(&mut fetch, &format!("{base}latest.yml"))?;
+    let yml = fetch_ok(&mut fetch, &format!("{base}{MANIFEST}"))?;
     let info = parse_latest_yml(&String::from_utf8_lossy(&yml))?;
     if let Some(theirs) = info.version.as_deref().filter(|v| *v != version) {
         return Err(Error::msg(format!("That release is for version {theirs}.")));
@@ -307,7 +313,7 @@ mod tests {
     fn download_fetches_from_v_version_checks_the_checksum_and_saves_the_installer() {
         let exe = b"MZfake!";
         let sha = base64(&fake_sha512(exe));
-        let files = HashMap::from([("latest.yml", yml(&sha).into_bytes()), ("Launchpad-Setup-1.0.4.exe", exe.to_vec())]);
+        let files = HashMap::from([(MANIFEST, yml(&sha).into_bytes()), ("Launchpad-Setup-1.0.4.exe", exe.to_vec())]);
         let mut urls = Vec::new();
         let dir = temp_dir();
         let temp = dir.path().join("launchpad-reinstall");
@@ -321,7 +327,7 @@ mod tests {
     #[test]
     fn download_refuses_a_mismatched_checksum_and_reports_a_missing_release() {
         let dir = temp_dir();
-        let files = HashMap::from([("latest.yml", yml("nope").into_bytes()), ("Launchpad-Setup-1.0.4.exe", b"MZ".to_vec())]);
+        let files = HashMap::from([(MANIFEST, yml("nope").into_bytes()), ("Launchpad-Setup-1.0.4.exe", b"MZ".to_vec())]);
         let result = download("1.0.4", fake_fetch(&files, &mut Vec::new()), fake_sha512, dir.path());
         assert_eq!(message(result), "The downloaded installer doesn't match the release's checksum. Try again.");
         assert!(crate::test_util::list_dir(dir.path()).is_empty());
@@ -430,11 +436,11 @@ mod tests {
     #[test]
     fn download_refuses_a_release_for_another_version() {
         let dir = temp_dir();
-        let files = HashMap::from([("latest.yml", yml("x").into_bytes())]);
+        let files = HashMap::from([(MANIFEST, yml("x").into_bytes())]);
         let mut urls = Vec::new();
         let result = download("1.0.5", fake_fetch(&files, &mut urls), fake_sha512, dir.path());
         assert_eq!(message(result), "That release is for version 1.0.4.");
-        assert_eq!(urls, ["https://github.com/Jurakii/Launchpad/releases/download/v1.0.5/latest.yml"]);
+        assert_eq!(urls, ["https://github.com/Jurakii/Launchpad/releases/download/v1.0.5/launchpad-update.yml"]);
 
         let mut urls = Vec::new();
         let result = download("latest", fake_fetch(&files, &mut urls), fake_sha512, dir.path());
@@ -452,7 +458,7 @@ mod tests {
 
         // The installer itself missing from the release.
         let sha = base64(&fake_sha512(b"MZ"));
-        let files = HashMap::from([("latest.yml", yml(&sha).into_bytes())]);
+        let files = HashMap::from([(MANIFEST, yml(&sha).into_bytes())]);
         let result = download("1.0.4", fake_fetch(&files, &mut Vec::new()), fake_sha512, dir.path());
         assert_eq!(message(result), "This version's release isn't on GitHub (a dev build, or the release was removed).");
     }
@@ -461,7 +467,7 @@ mod tests {
     fn download_escapes_the_installer_name_in_the_url() {
         let exe = b"MZ";
         let text = format!("path: Launchpad Setup #1.exe\nsha512: {}\n", base64(&fake_sha512(exe)));
-        let files = HashMap::from([("latest.yml", text.into_bytes()), ("Launchpad%20Setup%20%231.exe", exe.to_vec())]);
+        let files = HashMap::from([(MANIFEST, text.into_bytes()), ("Launchpad%20Setup%20%231.exe", exe.to_vec())]);
         let mut urls = Vec::new();
         let dir = temp_dir();
         let dest = download("2.0.0", fake_fetch(&files, &mut urls), fake_sha512, dir.path()).unwrap();
@@ -502,17 +508,17 @@ mod tests {
 
     #[test]
     fn check_for_update_reports_only_newer_releases() {
-        let files = HashMap::from([("latest.yml", yml("x").into_bytes())]);
+        let files = HashMap::from([(MANIFEST, yml("x").into_bytes())]);
         let mut urls = Vec::new();
         assert_eq!(check_for_update("1.0.3", fake_fetch(&files, &mut urls)).unwrap().as_deref(), Some("1.0.4"));
-        assert_eq!(urls, ["https://github.com/Jurakii/Launchpad/releases/latest/download/latest.yml"]);
+        assert_eq!(urls, ["https://github.com/Jurakii/Launchpad/releases/latest/download/launchpad-update.yml"]);
         assert_eq!(check_for_update("1.0.4", fake_fetch(&files, &mut Vec::new())).unwrap(), None);
         assert_eq!(check_for_update("1.0.5", fake_fetch(&files, &mut Vec::new())).unwrap(), None);
         assert_eq!(check_for_update("1.0.4-beta.1", fake_fetch(&files, &mut Vec::new())).unwrap().as_deref(), Some("1.0.4"));
 
         let none = HashMap::new();
         assert_eq!(message(check_for_update("1.0.3", fake_fetch(&none, &mut Vec::new()))), "Download failed (404).");
-        let unversioned = HashMap::from([("latest.yml", b"path: a.exe\nsha512: x\n".to_vec())]);
+        let unversioned = HashMap::from([(MANIFEST, b"path: a.exe\nsha512: x\n".to_vec())]);
         assert_eq!(
             message(check_for_update("1.0.3", fake_fetch(&unversioned, &mut Vec::new()))),
             "The release's latest.yml doesn't say which version it is."
