@@ -906,6 +906,11 @@ ipcMain.handle('system:setMuted', async (_e, muted) => {
   }
 });
 
+ipcMain.handle('system:openReleasesPage', () => {
+  shell.openExternal('https://github.com/Jurakii/Launchpad/releases');
+  return { ok: true };
+});
+
 ipcMain.handle('system:openNetworkSettings', () => {
   shell.openExternal('ms-settings:network-status');
   return { ok: true };

@@ -3355,6 +3355,8 @@ ${ipcErrorMessage(err)}`);
   }
 });
 
+document.getElementById('releasesBtn').addEventListener('click', () => window.launcherAPI.openReleasesPage());
+
 const reinstallBtn = document.getElementById('reinstallBtn');
 reinstallBtn.addEventListener('click', async () => {
   const version = await window.launcherAPI.getVersion();
