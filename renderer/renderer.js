@@ -1586,6 +1586,12 @@ function renderTrayOrder() {
 
 trayRow.querySelectorAll('[data-tray-id]').forEach((el) => {
   el.addEventListener('dragstart', (e) => {
+    // The popout lives inside the draggable widget, so a drag on its slider
+    // or list would otherwise pick the whole widget up. Locked while open.
+    if (el.querySelector(':is(.volume-popout, .usb-popout, .power-popout):not(.hidden)')) {
+      e.preventDefault();
+      return;
+    }
     e.dataTransfer.setData('application/x-launchpad-tray-id', el.dataset.trayId);
     e.dataTransfer.effectAllowed = 'move';
   });
