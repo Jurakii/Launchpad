@@ -1,0 +1,63 @@
+[package]
+name = "launchpad"
+version = "1.3.0-dev"
+edition = "2021"
+description = "Launchpad, the native build (RUST_PORT_PLAN.md)"
+
+[dependencies]
+launchpad-core = { path = "../core" }
+serde_json = { version = "1", features = ["preserve_order"] }
+# Named directly so `#[windows::core::implement]` (COM callbacks) resolves:
+# its expansion refers to `::windows_core`. Already in the tree via `windows`.
+windows-core = "0.62"
+
+# One list for the whole app: the Phase 2 modules are written in parallel,
+# so features are added here, not by each module.
+[dependencies.windows]
+version = "0.62"
+features = [
+    "Win32_Devices_Bluetooth",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_Devices_Properties",
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_NetworkManagement_WiFi",
+    "Win32_Networking_WinHttp",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_EnhancedStorage",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_JobObjects",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_Power",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
+    "Win32_System_Shutdown",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_Accessibility",
+    "Win32_UI_Controls",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+]
