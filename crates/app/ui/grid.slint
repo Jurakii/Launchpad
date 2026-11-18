@@ -275,7 +275,6 @@ export component TopBar inherits Rectangle {
             }
         }
         Rectangle { horizontal-stretch: 1; }
-        // shortcut: Media is Phase 5; the button shows but does nothing yet.
         BarButton { text: "Media"; clicked => { GridState.media(); } }
         BarButton { text: "Layouts"; clicked => { GridState.layouts(); } }
         IconButton {
