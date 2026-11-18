@@ -1,6 +1,8 @@
-# Runs the unit tests (npm test) on every push to main and on pull requests.
-# Windows runner on purpose: the app is Windows-only, and lib/safe-file.js
-# relies on Windows rename-over-existing behaviour that the store tests cover.
+# Runs the tests on every push to main and on pull requests: the Rust
+# workspace with the exe size gate, and the Electron app's npm tests while it
+# is still the reference build (until Phase 7 of RUST_PORT_PLAN.md).
+# Windows runners on purpose: the app is Windows-only, and the store tests
+# rely on Windows rename-over-existing behaviour.
 name: Test
 
 on:
@@ -9,7 +11,31 @@ on:
   pull_request:
 
 jobs:
-  test:
+  rust:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --release -p launchpad
+
+      - name: Size gate
+        run: bash installer/size-gate.sh target/release/launchpad.exe
+
+  electron:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

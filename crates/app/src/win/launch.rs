@@ -228,14 +228,15 @@ pub fn spawn_tracked(
 
 // ---- The shell ----
 
-fn shell_execute(file: &str, verb: PCWSTR) -> windows::core::Result<()> {
+fn shell_execute(file: &str, verb: PCWSTR, params: &str) -> windows::core::Result<()> {
     let _com = Com::init();
-    let file_w = wide(file);
+    let (file_w, params_w) = (wide(file), wide(params));
     let mut sei = SHELLEXECUTEINFOW {
         cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
         fMask: SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI,
         lpVerb: verb,
         lpFile: PCWSTR(file_w.as_ptr()),
+        lpParameters: PCWSTR(params_w.as_ptr()),
         nShow: SW_SHOWNORMAL.0,
         ..Default::default()
     };
@@ -245,8 +246,8 @@ fn shell_execute(file: &str, verb: PCWSTR) -> windows::core::Result<()> {
 /// Electron's shell.openPath: the default action (files with their app,
 /// folders in Explorer); a type with no app gets Windows' "Open with" dialog.
 pub fn open_path(path: &str) -> Result<()> {
-    match shell_execute(path, PCWSTR::null()) {
-        Err(e) if e.code() == ERROR_NO_ASSOCIATION.to_hresult() => shell_execute(path, w!("openas")),
+    match shell_execute(path, PCWSTR::null(), "") {
+        Err(e) if e.code() == ERROR_NO_ASSOCIATION.to_hresult() => shell_execute(path, w!("openas"), ""),
         r => r,
     }
     .map_err(|e| Error::msg(format!("Failed to open {path}: {}", e.message())))
@@ -255,7 +256,13 @@ pub fn open_path(path: &str) -> Result<()> {
 /// Electron's shell.openExternal: a URL (or `ms-settings:`, `steam://`…)
 /// with its registered handler.
 pub fn open_external(url: &str) -> Result<()> {
-    shell_execute(url, w!("open")).map_err(|e| Error::msg(format!("Failed to open {url}: {}", e.message())))
+    shell_execute(url, w!("open"), "").map_err(|e| Error::msg(format!("Failed to open {url}: {}", e.message())))
+}
+
+/// Runs a downloaded installer. Through the shell, not CreateProcess: the
+/// installer asks for admin rights, and only the shell shows the UAC prompt.
+pub fn run_installer(path: &str, params: &str) -> Result<()> {
+    shell_execute(path, w!("open"), params).map_err(|e| Error::msg(format!("Couldn't start the installer: {}", e.message())))
 }
 
 /// What a .lnk points at (Electron's readShortcutLink, the fields main.js used).

@@ -111,7 +111,14 @@ pub const UPDATE_TIMEOUT_MS: u64 = 10 * 60 * 1000;
 
 /// The `fetch` for `update::check_for_update` and `update::download`.
 pub fn update_fetch(url: &str) -> Result<HttpResponse> {
-    let r = http::get(url, UPDATE_MAX_BYTES, UPDATE_TIMEOUT_MS)?;
+    // Test hook (debug builds): LAUNCHPAD_DEBUG_RELEASES=http://127.0.0.1:port/
+    // serves the releases instead of GitHub (…/latest/download/x and …/download/v1.2.3/x).
+    let local = cfg!(debug_assertions).then(|| std::env::var("LAUNCHPAD_DEBUG_RELEASES").ok()).flatten();
+    let url = match local {
+        Some(base) => url.replacen(&format!("https://github.com/{}/releases/", launchpad_core::update::REPO), &base, 1),
+        None => url.to_string(),
+    };
+    let r = http::get(&url, UPDATE_MAX_BYTES, UPDATE_TIMEOUT_MS)?;
     Ok(HttpResponse { status: r.status, body: r.body })
 }
 

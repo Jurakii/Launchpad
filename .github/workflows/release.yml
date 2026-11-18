@@ -1,11 +1,12 @@
 # Builds the Windows installer and publishes it as a GitHub release - run by
-# hand from the Actions tab ("Release" -> "Run workflow") after bumping the
-# version in package.json. The release is tagged v<package.json version>, so
-# bump the version first; the run refuses to overwrite an existing release.
+# hand from the Actions tab ("Release" -> "Run workflow") after setting the
+# version in crates/app/Cargo.toml. The release is tagged v<that version>;
+# the run refuses a -dev version and an existing release.
 #
-# The three uploaded files are exactly what electron-updater needs to find
-# and install an update: the installer, its .blockmap, and latest.yml
-# (scripts/build.js has already renamed the installer to match latest.yml).
+# Uploads the installer and launchpad-update.yml (electron-builder's
+# latest.yml format), which is what the in-app updater reads. Not called
+# latest.yml on purpose: 1.2.2's electron-updater must not offer 1.3
+# (RUST_PORT_PLAN.md §4.4).
 name: Release
 
 on:
@@ -28,48 +29,63 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Read version
         id: version
-        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/app/Cargo.toml | head -1)
+          case "$version" in
+            ""|*-dev*) echo "::error::Set a release version in crates/app/Cargo.toml (now: '$version')."; exit 1 ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Make sure this version isn't already released
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "v${{ steps.version.outputs.version }}" > /dev/null 2>&1; then
-            echo "::error::Release v${{ steps.version.outputs.version }} already exists - bump the version in package.json first."
+            echo "::error::Release v${{ steps.version.outputs.version }} already exists - bump the version first."
             exit 1
           fi
 
-      - name: Install dependencies
-        run: npm ci
-
       - name: Run tests
-        run: npm test
+        run: cargo test --workspace
 
-      # --publish never: upload is done below with gh, so electron-builder's
-      # own CI auto-publish logic never kicks in.
+      - name: Build
+        run: cargo build --release -p launchpad
+
       - name: Build installer
-        run: npm run dist -- --publish never
-
-      - name: Check build output
         id: files
         run: |
           version="${{ steps.version.outputs.version }}"
           installer="dist/Launchpad-Setup-${version}.exe"
-          for f in "$installer" "$installer.blockmap" dist/latest.yml; do
-            if [ ! -f "$f" ]; then
-              echo "::error::Expected build output missing: $f"
-              ls -la dist
-              exit 1
-            fi
-          done
+          mkdir -p dist
+          makensis=$(command -v makensis || echo "/c/Program Files (x86)/NSIS/makensis.exe")
+          root=$(cygpath -w "$PWD")
+          "$makensis" -V2 "-DVERSION=${version}" "-DEXE=${root}\\target\\release\\launchpad.exe" "-DOUT=${root}\\dist\\Launchpad-Setup-${version}.exe" installer/launchpad.nsi
           echo "installer=$installer" >> "$GITHUB_OUTPUT"
+
+      - name: Size gate
+        run: bash installer/size-gate.sh target/release/launchpad.exe "${{ steps.files.outputs.installer }}"
+
+      - name: Write launchpad-update.yml
+        run: |
+          installer="${{ steps.files.outputs.installer }}"
+          name=$(basename "$installer")
+          sha=$(openssl dgst -sha512 -binary "$installer" | base64 -w0)
+          size=$(stat -c %s "$installer")
+          {
+            echo "version: ${{ steps.version.outputs.version }}"
+            echo "files:"
+            echo "  - url: ${name}"
+            echo "    sha512: ${sha}"
+            echo "    size: ${size}"
+            echo "path: ${name}"
+            echo "sha512: ${sha}"
+            echo "releaseDate: '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+          } > dist/launchpad-update.yml
+          cat dist/launchpad-update.yml
 
       - name: Create release
         env:
@@ -80,8 +96,7 @@ jobs:
           if [ "${{ inputs.draft }}" = "true" ]; then draft_flag="--draft"; fi
           gh release create "v${version}" \
             "${{ steps.files.outputs.installer }}" \
-            "${{ steps.files.outputs.installer }}.blockmap" \
-            dist/latest.yml \
+            dist/launchpad-update.yml \
             --target "${{ github.sha }}" \
             --title "Launchpad ${version}" \
             --generate-notes \

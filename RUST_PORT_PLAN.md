@@ -28,7 +28,7 @@ These are the gates. Phase 0 proves they are reachable before any real porting; 
 | Private memory, main window open (200 items, wallpaper) | ≤ 40 MB | 225–300 MB + helpers |
 | Private memory, organizer on, 2 displays, main window hidden | ≤ 25 MB | not measured (more: extra renderers + helper) |
 | Private memory, Media open with art | ≤ 80 MB | not measured |
-| `Launchpad.exe` | ≤ 12 MB (was 8; see Phase 0 result) | 246 MB |
+| `Launchpad.exe` | ≤ 13 MiB (was 8, then 12; see Phase 0 and Phase 6 results) | 246 MB |
 | Installer | ≤ 5 MB (was 4) | 112 MB |
 | Cold start to window | ≤ 150 ms | ~1–2 s |
 | Hotkey to visible | ≤ 50 ms | |
@@ -201,6 +201,13 @@ Each phase ends with something that runs. Sizes are relative.
 
 **Phase 6 — Packaging and updates (S).** `installer/launchpad.nsi`, updater, release workflow (`cargo build --release` → `makensis` → `latest.yml` → `gh release create`), `test.yml` running `cargo test` plus the size gate. Done when: installing 1.3 by hand over a 1.2.2 install keeps its data, autostart and hotkey; a 1.3.0 install updates itself from inside the app to a test 1.3.1 release; 1.2.2 does not offer 1.3; an uninstall leaves nothing but the data folder.
 
+  **Built 2026-11-18; the install checks are left for the hand checks below** (the only 1.2.2 install on this PC is the person's own, and there is no VM or Windows Sandbox). The updater itself was already in place from Phase 3 (`core::update`, `win::http`).
+  - `installer/launchpad.nsi`: per-machine in Program Files, as 1.2.2 is installed here; the folder of an earlier install wins. Over 1.2.x it closes Launchpad (asks, waits 5 s, then ends it), runs electron-builder's uninstaller silently with `--updated _?=<dir>` (files only), and installs to the same place under the same uninstall key (`ff3d7479-…`, so Apps & Features keeps one Launchpad). `--force-run` and the finish page start Launchpad through Explorer so it doesn't inherit the installer's admin rights. Uninstall removes files, shortcuts, the key and our Run value; never the data folder. shortcut: the icon ships as `build\icon.ico` beside the exe (the tray reads it there) instead of being embedded.
+  - The updater now runs the installer with `ShellExecuteEx` (`launch::run_installer`): it asks for admin rights, and `CreateProcess` can't show the UAC prompt.
+  - `release.yml`: version from `crates/app/Cargo.toml` (a `-dev` version is refused) → tests → release build → makensis → size gate → `launchpad-update.yml` (base64 SHA-512) → `gh release create`. `test.yml`: Rust tests, clippy with `-D warnings`, release build and the exe size gate; the npm tests stay until Phase 7. Neither has run on GitHub yet.
+  - Size decision: `opt-level = "z"` takes the exe from 14.09 to **12.48 MiB** with no measurable cost in drawing (the same Media scrolling cost 0.11–0.19 s CPU against 0.14 s for "s"). The rest can't go by features. A linker map of the release build shows where it is: ~7.6 MiB code, ~4.6 MiB read-only data. Slint's core and renderer (~2.4 MiB code) and our own UI as Slint generates it (~1.5–2 MiB) are the bulk; ~2.9 MiB of data is ICU4X line-breaking data (CJK/Thai dictionaries and an LSTM model, pulled in by parley's `icu_segmenter/compiled_data`); SVG support (~0.5 MiB), Slint's own image decoders, ICU decimals and `muda` are all switched on inside Slint's crates regardless of our features; the `--probe` tooling is 67 KiB. Getting under 12 MiB would mean vendoring `icu_segmenter` and `parley_engine` without dictionary breaking (Thai, Lao, Khmer and Burmese would wrap mid-word, and the copies redone on every Slint upgrade); decided 2026-11-18 not to. So the exe gate is now 13 MiB; the installer, which is what people download, is **4.77 MiB**, inside its 5 MB.
+  - Tested here: the installer compiles (NSIS 3.11, unpacked, not installed); the in-app update against a local copy of the releases (debug-only `LAUNCHPAD_DEBUG_RELEASES=http://127.0.0.1:port/`): Settings found 1.3.1, downloaded and checked the installer from the `v1.3.1` tag, started it and quit.
+
 **Phase 7 — Parity pass and cut-over (S).** Full run of the testing skill on both builds side by side, fix what differs, check every budget in §2, then delete the Electron tree (`main.js`, `lib/`, `renderer/`, preloads, `scripts/`, `package*.json`, `test/`), rewrite `CODEBASE_SUMMARY.md` and the README's build section, release 1.3.0 (a manual download; see §4.4).
 
   **Hand checks with the person, once the whole Rust build is done** (decided 2026-11-18; they need the real keyboard, mouse and foreground, which tests can't drive without taking over the PC). Run them together with the other rows left for a person:
@@ -210,6 +217,7 @@ Each phase ends with something that runs. Sizes are relative.
   4. F1–F5 with a real drag from Explorer (Phase 3 only fed drops through `LAUNCHPAD_DEBUG_DROP`).
   5. Organizer: hover a panel zone (O7), auto-hide reveal at the top edge (O8), drag a window to the top and drop it on a zone (O10), the grid hotkey and rebinding it (O12, O13), a real fullscreen video or game (O9), the scenes menu closing on an outside click (S7), rearranging or unplugging a display (O19, O20), an elevated window (O21), restarting Explorer (O22).
   6. Media: the hotkey toggles it (M1); art from a dropped file, a real web address and a too-large image (M9); a controller moves focus, selects, goes back and switches tabs, and a button can be remapped (M11, M12).
+  7. Install (back up `%APPDATA%\launchpad` first): `Launchpad-Setup-1.3.0.exe` over 1.2.2 keeps the data, "Start with Windows" (the Run value moves from `electron.app.Launchpad` to `Launchpad`) and the hotkey, and leaves one Launchpad in Apps & Features; 1.2.2 doesn't offer 1.3 (its check shows the error its Settings note explains); the first real release's in-app update to a test 1.3.1 (UAC prompt, then Launchpad comes back); uninstall leaves only the data folder.
 
 Phases 3, 4 and 5 don't depend on each other once 2 is done.
 

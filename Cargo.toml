@@ -5,9 +5,10 @@ resolver = "2"
 members = ["crates/core", "crates/app"]
 exclude = ["spikes"]
 
-# Measured in Phase 0: keep in step with spikes/rust/Cargo.toml.
+# Phase 6: "z" over Phase 0's "s" takes the exe from 14.09 to 12.48 MiB with no
+# measurable cost in drawing (same CPU for the same Media scrolling).
 [profile.release]
-opt-level = "s"
+opt-level = "z"
 lto = "fat"
 codegen-units = 1
 panic = "abort"

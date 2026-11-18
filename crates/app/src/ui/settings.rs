@@ -880,10 +880,8 @@ fn download_and_run(version: String, done: impl FnOnce(&Rc<App>, launchpad_core:
         let temp = std::env::temp_dir().join("launchpad-update");
         let res = update::download(&version, services::update_fetch, services::sha512, &temp);
         super::post(move |app| {
-            let run = res.and_then(|installer| {
-                let args = ["/S".to_string(), "--force-run".to_string()];
-                launch::spawn(&installer.to_string_lossy(), &args, "", true).map(|_| ())
-            });
+            // /S: silent; --force-run: start Launchpad again when it's done.
+            let run = res.and_then(|installer| launch::run_installer(&installer.to_string_lossy(), "/S --force-run"));
             match run {
                 Ok(()) => app.quit(),
                 Err(e) => done(app, e),
