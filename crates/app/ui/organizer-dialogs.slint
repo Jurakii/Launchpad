@@ -1,0 +1,339 @@
+// The organizer's two dialogs in the main window (renderer.js's layouts
+// and scenes modals in 1.2). Rust side: src/ui/organizer/dialogs.rs.
+import { Theme } from "theme.slint";
+import { LpButton, SwitchRow, Caption, Field, Overlay, Heading } from "modals-widgets.slint";
+import { ComboBox, LineEdit, ScrollView } from "std-widgets.slint";
+
+export struct LayoutCell { id: string, name: string, x: int, y: int, w: int, h: int, selected: bool }
+export struct LayoutRow { id: string, name: string, tags: string, hidden: bool, selected: bool, sep-before: bool, cols: int, rows: int, zones: [LayoutCell] }
+export struct SceneRow { id: string, name: string, meta: string }
+
+export global OrganizerState {
+    // ---------- Window layouts ----------
+    in property <bool> lay-open;
+    in property <[LayoutRow]> lay-list;
+    in property <bool> lay-editable;
+    in-out property <string> lay-name;
+    in property <int> lay-cols: 4;
+    in property <int> lay-rows: 2;
+    // The canvas: zones as shown (unnamed ones labelled), the selected flagged.
+    in property <[LayoutCell]> lay-zones;
+    in property <string> lay-hint;
+    in property <bool> lay-shown: true;
+    in-out property <string> lay-gap;
+    in property <bool> can-merge;
+    in property <bool> can-split;
+    in property <bool> zone-name-enabled;
+    in-out property <string> zone-name;
+    in property <string> zone-placeholder: "Select one zone";
+    // Bumped when the name field should take the focus (a new layout).
+    in property <int> lay-focus-name;
+    callback lay-select(string);
+    callback lay-cell-down(int, int);
+    callback lay-cell-move(int, int);
+    callback lay-merge();
+    callback lay-split();
+    callback lay-zone-name(string);
+    callback lay-name-changed(string);
+    callback lay-size(int, int);
+    callback lay-shown-toggled(bool);
+    callback lay-new();
+    callback lay-duplicate();
+    callback lay-delete();
+    callback lay-gap-changed(string);
+    callback lay-scenes();
+    callback lay-close();
+
+    // ---------- Scenes ----------
+    in property <bool> sc-open;
+    in property <[SceneRow]> sc-rows;
+    callback sc-rename(string, string);
+    callback sc-apply(string);
+    callback sc-save-again(string);
+    callback sc-delete(string);
+    callback sc-save();
+    callback sc-close();
+
+    out property <bool> any-open: lay-open || sc-open;
+}
+
+// A layout's zones in a box, as the panel draws them.
+component Thumb inherits Rectangle {
+    in property <int> cols;
+    in property <int> rows;
+    in property <[LayoutCell]> zones;
+    width: 48px;
+    height: 30px;
+    border-radius: 3px;
+    background: Theme.bg;
+    for z in root.zones: Rectangle {
+        x: root.width * z.x / max(1, root.cols) + 1px;
+        y: root.height * z.y / max(1, root.rows) + 1px;
+        width: root.width * z.w / max(1, root.cols) - 2px;
+        height: root.height * z.h / max(1, root.rows) - 2px;
+        border-radius: 2px;
+        background: Theme.muted.mix(Theme.panel, 0.45);
+    }
+}
+
+component LayoutsModal inherits FocusScope {
+    key-pressed(e) => {
+        if e.text == Key.Escape {
+            OrganizerState.lay-close();
+            return accept;
+        }
+        reject
+    }
+    init => { self.focus(); }
+    property <int> focus-name: OrganizerState.lay-focus-name;
+    changed focus-name => {
+        name.focus-field();
+        name.select-field();
+    }
+    property <[string]> sizes: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+
+    Overlay {
+        card-width: 760px;
+        // Fixed, so the list and the canvas give way on a small window.
+        card-height: 640px;
+        backdrop-clicked => { OrganizerState.lay-close(); }
+        VerticalLayout {
+            spacing: 14px;
+            Heading { text: "Window layouts"; }
+            HorizontalLayout {
+                spacing: 18px;
+                vertical-stretch: 1;
+                // The list, and + New Layout under it.
+                VerticalLayout {
+                    width: 220px;
+                    spacing: 8px;
+                    ScrollView {
+                        min-height: 80px;
+                        vertical-stretch: 1;
+                        content-height: list.preferred-height;
+                        list := VerticalLayout {
+                            spacing: 2px;
+                            for r in OrganizerState.lay-list: VerticalLayout {
+                                spacing: 2px;
+                                if r.sep-before: Rectangle { height: 1px; background: Theme.border; }
+                                Rectangle {
+                                    height: 42px;
+                                    border-radius: 8px;
+                                    background: r.selected ? Theme.accent.with-alpha(0.18) : rta.has-hover ? Theme.bg : transparent;
+                                    opacity: r.hidden ? 0.55 : 1;
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 10px;
+                                        alignment: start;
+                                        VerticalLayout { alignment: center; Thumb { cols: r.cols; rows: r.rows; zones: r.zones; } }
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Text { text: r.name; font-size: 13px; color: Theme.text; overflow: elide; }
+                                            if r.tags != "": Text { text: r.tags; font-size: 11px; color: Theme.muted; }
+                                        }
+                                    }
+                                    rta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { OrganizerState.lay-select(r.id); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    LpButton { text: "+ New Layout"; clicked => { OrganizerState.lay-new(); } }
+                }
+                // The selected layout.
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 10px;
+                    name := Field {
+                        label: "Name";
+                        text <=> OrganizerState.lay-name;
+                        enabled: OrganizerState.lay-editable;
+                        accepted => { OrganizerState.lay-name-changed(OrganizerState.lay-name); }
+                        edited(t) => { OrganizerState.lay-name-changed(t); }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        alignment: start;
+                        VerticalLayout {
+                            spacing: 4px;
+                            Caption { text: "Columns"; }
+                            ComboBox {
+                                width: 80px;
+                                model: root.sizes;
+                                enabled: OrganizerState.lay-editable;
+                                current-index: OrganizerState.lay-cols - 1;
+                                selected => { OrganizerState.lay-size(self.current-index + 1, OrganizerState.lay-rows); }
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: 4px;
+                            Caption { text: "Rows"; }
+                            ComboBox {
+                                width: 80px;
+                                model: root.sizes;
+                                enabled: OrganizerState.lay-editable;
+                                current-index: OrganizerState.lay-rows - 1;
+                                selected => { OrganizerState.lay-size(OrganizerState.lay-cols, self.current-index + 1); }
+                            }
+                        }
+                    }
+                    if OrganizerState.lay-editable: HorizontalLayout {
+                        spacing: 8px;
+                        VerticalLayout {
+                            alignment: end;
+                            LpButton { text: "Merge"; enabled: OrganizerState.can-merge; opacity: self.enabled ? 1 : 0.45; clicked => { OrganizerState.lay-merge(); } }
+                        }
+                        VerticalLayout {
+                            alignment: end;
+                            LpButton { text: "Split"; enabled: OrganizerState.can-split; opacity: self.enabled ? 1 : 0.45; clicked => { OrganizerState.lay-split(); } }
+                        }
+                        Field {
+                            horizontal-stretch: 1;
+                            label: "Zone name";
+                            text <=> OrganizerState.zone-name;
+                            placeholder: OrganizerState.zone-placeholder;
+                            enabled: OrganizerState.zone-name-enabled;
+                            accepted => { OrganizerState.lay-zone-name(OrganizerState.zone-name); }
+                            edited(t) => { OrganizerState.lay-zone-name(t); }
+                        }
+                    }
+                    // The cells: drag across them to select zones.
+                    canvas := Rectangle {
+                        min-height: 90px;
+                        preferred-height: 220px;
+                        vertical-stretch: 1;
+                        border-radius: 8px;
+                        background: Theme.bg;
+                        property <length> gap: 4px;
+                        for z in OrganizerState.lay-zones: Rectangle {
+                            x: canvas.width * z.x / max(1, OrganizerState.lay-cols) + canvas.gap / 2;
+                            y: canvas.height * z.y / max(1, OrganizerState.lay-rows) + canvas.gap / 2;
+                            width: canvas.width * z.w / max(1, OrganizerState.lay-cols) - canvas.gap;
+                            height: canvas.height * z.h / max(1, OrganizerState.lay-rows) - canvas.gap;
+                            border-radius: 6px;
+                            border-width: z.selected ? 2px : 1px;
+                            border-color: z.selected ? Theme.accent : Theme.border;
+                            background: z.selected ? Theme.accent.with-alpha(0.25) : Theme.panel;
+                            Text { text: z.name; font-size: 12px; color: Theme.muted; overflow: elide; }
+                        }
+                        cta := TouchArea {
+                            enabled: OrganizerState.lay-editable;
+                            mouse-cursor: OrganizerState.lay-editable ? crosshair : default;
+                            function cx() -> int { return max(0, min(OrganizerState.lay-cols - 1, floor(self.mouse-x / self.width * OrganizerState.lay-cols))); }
+                            function cy() -> int { return max(0, min(OrganizerState.lay-rows - 1, floor(self.mouse-y / self.height * OrganizerState.lay-rows))); }
+                            pointer-event(e) => {
+                                if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { OrganizerState.lay-cell-down(cx(), cy()); }
+                            }
+                            moved => { if self.pressed { OrganizerState.lay-cell-move(cx(), cy()); } }
+                        }
+                    }
+                    Text { text: OrganizerState.lay-hint; font-size: 12px; color: Theme.muted; wrap: word-wrap; }
+                    SwitchRow {
+                        text: "Show in the panel, the drag strip and the taskbar's Snap to menu";
+                        checked: OrganizerState.lay-shown;
+                        toggled(v) => { OrganizerState.lay-shown-toggled(v); }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        LpButton { text: "Duplicate"; clicked => { OrganizerState.lay-duplicate(); } }
+                        if OrganizerState.lay-editable: LpButton { text: "Delete"; danger: true; clicked => { OrganizerState.lay-delete(); } }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "Gap between snapped windows"; font-size: 13px; color: Theme.muted; vertical-alignment: center; }
+                LineEdit {
+                    width: 64px;
+                    input-type: number;
+                    text <=> OrganizerState.lay-gap;
+                    accepted => { OrganizerState.lay-gap-changed(self.text); }
+                    changed has-focus => { if !self.has-focus { OrganizerState.lay-gap-changed(self.text); } }
+                }
+                Text { text: "px"; font-size: 13px; color: Theme.muted; vertical-alignment: center; }
+                Rectangle { horizontal-stretch: 1; }
+                LpButton { text: "Scenes…"; clicked => { OrganizerState.lay-scenes(); } }
+                LpButton { text: "Close"; clicked => { OrganizerState.lay-close(); } }
+            }
+        }
+    }
+}
+
+component ScenesModal inherits FocusScope {
+    key-pressed(e) => {
+        if e.text == Key.Escape {
+            OrganizerState.sc-close();
+            return accept;
+        }
+        reject
+    }
+    init => { self.focus(); }
+
+    Overlay {
+        card-width: 560px;
+        backdrop-clicked => { OrganizerState.sc-close(); }
+        VerticalLayout {
+            spacing: 12px;
+            Heading { text: "Scenes"; }
+            Text {
+                text: "A scene remembers where your app windows are, on every screen. Apply it to put each of those windows that's open back in place. Save one from an island (right-click it) and the island can open as that scene, starting whichever of its apps aren't running.";
+                font-size: 12px;
+                color: Theme.muted;
+                wrap: word-wrap;
+            }
+            if OrganizerState.sc-rows.length == 0: Text {
+                text: "No scenes yet. Arrange your windows, then save them with the button below or the scenes button on the panel.";
+                font-size: 13px;
+                color: Theme.muted;
+                wrap: word-wrap;
+            }
+            if OrganizerState.sc-rows.length > 0: ScrollView {
+                height: min(rows.preferred-height, 340px);
+                content-height: rows.preferred-height;
+                rows := VerticalLayout {
+                    spacing: 8px;
+                    for r in OrganizerState.sc-rows: Rectangle {
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 6px;
+                            LineEdit {
+                                text: r.name;
+                                accepted => { OrganizerState.sc-rename(r.id, self.text); }
+                                changed has-focus => { if !self.has-focus && self.text != r.name { OrganizerState.sc-rename(r.id, self.text); } }
+                            }
+                            Text { text: r.meta; font-size: 12px; color: Theme.muted; wrap: word-wrap; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                alignment: start;
+                                LpButton { text: "Apply"; small: true; clicked => { OrganizerState.sc-apply(r.id); } }
+                                LpButton { text: "Save again"; small: true; clicked => { OrganizerState.sc-save-again(r.id); } }
+                                LpButton { text: "Delete"; small: true; danger: true; clicked => { OrganizerState.sc-delete(r.id); } }
+                            }
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                LpButton { text: "Save current arrangement"; primary: true; clicked => { OrganizerState.sc-save(); } }
+                Rectangle { horizontal-stretch: 1; }
+                LpButton { text: "Close"; clicked => { OrganizerState.sc-close(); } }
+            }
+        }
+    }
+}
+
+export component OrganizerDialogs inherits Rectangle {
+    width: 100%;
+    height: 100%;
+    visible: OrganizerState.any-open;
+    if OrganizerState.lay-open: LayoutsModal { }
+    if OrganizerState.sc-open: ScenesModal { }
+}

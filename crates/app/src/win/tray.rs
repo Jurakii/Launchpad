@@ -47,6 +47,9 @@ pub enum Event {
     ShowRequest,
     /// Explorer (re)started: call `Tray::readd`.
     TaskbarCreated,
+    /// A display was added, removed or rearranged, its scaling changed, or
+    /// a work area changed (an AppBar docked, the taskbar moved).
+    DisplayChange,
 }
 
 type Callback = Box<dyn Fn(Event)>;
@@ -141,6 +144,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             _ => None,
         },
         m if m == taskbar_created() => Some(Event::TaskbarCreated),
+        WM_DISPLAYCHANGE | WM_DPICHANGED => Some(Event::DisplayChange),
+        WM_SETTINGCHANGE if wparam.0 as u32 == SPI_SETWORKAREA.0 => Some(Event::DisplayChange),
         _ => None,
     };
     match event {

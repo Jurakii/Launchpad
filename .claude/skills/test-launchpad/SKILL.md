@@ -63,6 +63,8 @@ Stop and report at the first layer that fails badly; later layers aren't worth r
 - **Panel space not given back** after a test copy is killed: start the test copy again with the same data folder and quit it normally; it releases what `appbars.json` lists.
 - **Hotkey does nothing:** another app holds it. Pick another in the seeded `settings.json`.
 - **The window opened from a script doesn't really have the foreground** (Windows refuses), so focus hand-back rows (X10, O12, S7) can look broken. Click the subject window with computer use first so it truly has the focus, then test.
+- **`--probe capture type` does nothing in the Rust build:** winit ignores a bare WM_CHAR. Type with `key` and virtual-key codes instead (digits 0x30–0x39, letters 0x41–0x5A, End 0x23, Backspace 0x08).
+- **Hover can't be posted:** Windows answers a posted mouse move with an immediate mouse-leave when the real cursor is elsewhere, so hover-only rows (O7, O8) are hand checks.
 - **Second monitor rows** (O19, O20): check `--probe displays` first; with one display, report them as not run.
 
 ## Report

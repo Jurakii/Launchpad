@@ -6,7 +6,7 @@
 //! events hook, which runs only while the main window exists. A window that
 //! opens or closes without the foreground changing shows up at the next
 //! change (or when its stale button is clicked).
-use super::{modals, post, App, MainWindow, TaskbarItem, TaskbarState, TaskbarWindow};
+use super::{modals, post, App, MainWindow, SnapLayout, SnapZone, TaskbarItem, TaskbarState, TaskbarWindow};
 use crate::win::image::Wic;
 use crate::win::{launch, windowmgr};
 use launchpad_core::store::Entry;
@@ -58,6 +58,17 @@ pub fn bind(app: &Rc<App>, w: &MainWindow) {
         let id = id.to_string();
         // After the menu has closed: the dialogs it opens replace the window's state.
         super::later(move |app| pin_menu(app, &action, &id));
+    });
+    t.on_snap_window(|i, layout, zone| {
+        let (layout, zone) = (layout.to_string(), zone.to_string());
+        super::later(move |app| {
+            let hwnd = WINDOWS.with(|s| s.borrow().list.get(i.max(0) as usize).map(|w| w.0));
+            if let Some(h) = hwnd {
+                if let Err(e) = super::organizer::snap_window(app, h, &layout, &zone) {
+                    super::modals::alert(app, &e);
+                }
+            }
+        });
     });
     t.on_focus_window(|i| {
         super::with(|app| {
@@ -122,6 +133,15 @@ pub fn refresh(app: &App, w: &MainWindow) {
     let pinned: Vec<TaskbarItem> = core_taskbar::pinned(&apps, mirrored(app)).into_iter().map(|e| item(app, &apps, e, px, false)).collect();
     drop(apps);
     t.set_pinned(model(pinned));
+    let snap: Vec<SnapLayout> = super::organizer::visible_layouts(app)
+        .iter()
+        .map(|l| SnapLayout {
+            id: l.id.as_str().into(),
+            name: l.name.as_str().into(),
+            zones: model(l.zones.iter().map(|z| SnapZone { id: z.id.as_str().into(), name: if z.name.is_empty() { &z.id } else { &z.name }.as_str().into() }).collect()),
+        })
+        .collect();
+    t.set_snap_layouts(model(snap));
     push_windows(app, w);
     // An open popout shows what changed (a launch lands in Recent).
     push_results(app, w, &t.get_search_text());

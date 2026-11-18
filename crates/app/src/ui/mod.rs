@@ -14,8 +14,10 @@ pub mod grid;
 pub mod icons;
 pub mod images;
 pub mod modals;
+pub mod organizer;
 pub mod prefs;
 pub mod settings;
+pub mod shell;
 pub mod taskbar;
 pub mod tray;
 
@@ -47,8 +49,8 @@ pub struct App {
     pub images: images::Images,
     /// The main window while it exists (only while shown).
     pub window: RefCell<Option<MainWindow>>,
-    msg: wtray::MsgWindow,
-    tray_icon: RefCell<Option<wtray::Tray>>,
+    pub(crate) msg: wtray::MsgWindow,
+    pub(crate) tray_icon: RefCell<Option<wtray::Tray>>,
     pub hotkey: RefCell<Hotkey>,
     /// The app window the user was in before Launchpad came forward.
     return_focus: Cell<i64>,
@@ -87,6 +89,21 @@ pub fn run(args: &[String]) -> Result<i32> {
     // Every context menu drawn by Slint (dark, like 1.2's) rather than as a
     // native Win32 menu through muda. Set before any thread starts.
     std::env::set_var("SLINT_NO_MUDA", "1");
+    // The organizer's windows (made through shell::make) must never take
+    // the foreground or get a taskbar button, from their very first show.
+    slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .renderer_name("software".into())
+        .with_winit_window_attributes_hook(|a| {
+            if shell::making() {
+                use slint::winit_030::winit::platform::windows::WindowAttributesExtWindows;
+                a.with_active(false).with_skip_taskbar(true)
+            } else {
+                a
+            }
+        })
+        .select()
+        .map_err(|e| Error::msg(format!("Starting the UI: {e}")))?;
     let user_dir = instance::user_data_dir(args);
     let data_dir = instance::data_dir(user_dir.as_deref());
     let key = instance::key(&data_dir);
@@ -138,17 +155,28 @@ pub fn run(args: &[String]) -> Result<i32> {
 
     app.add_tray_icon();
     icons::spawn(&app, first_icons, |_| {});
+    // Before any panel docks: the space a killed run left reserved.
+    organizer::panel::release_leftovers(&app);
     let s = app.settings();
     let accel = s.get("hotkey").and_then(|v| v.as_str()).filter(|a| !a.is_empty()).unwrap_or(DEFAULT_HOTKEY).to_string();
     if !app.hotkey.borrow_mut().set(&accel) {
         eprintln!("Could not register hotkey \"{accel}\" (already in use by another app).");
     }
     app.set_hotkey_follows_focus(launchpad_core::truthy(s.get("disableHotkeyInApps")));
-    app.show(true);
+    // Inside the running loop: winit only makes a window's HWND there, and the
+    // panels and the main window need theirs straight after show().
+    let _ = slint::invoke_from_event_loop(|| {
+        with(|app| {
+            organizer::configure(app);
+            app.show(true);
+        });
+    });
 
     slint::run_event_loop_until_quit().map_err(|e| Error::msg(format!("The event loop failed: {e}")))?;
     APP.with(|a| {
         if let Some(app) = a.get() {
+            organizer::shutdown();
+            organizer::panel::forget_docked(app);
             app.window.borrow_mut().take();
             app.tray_icon.borrow_mut().take();
             app.hotkey.borrow_mut().clear();
@@ -171,6 +199,12 @@ fn on_msg_event(ev: wtray::Event) {
         wtray::Event::Hotkey(HOTKEY_MAIN) | wtray::Event::TrayClick => app.toggle(),
         wtray::Event::ShowRequest => app.show(true),
         wtray::Event::TrayMenu { x, y } => app.tray_menu(x, y),
+        wtray::Event::Hotkey(organizer::HOTKEY_GRID) => organizer::on_grid_hotkey(app),
+        wtray::Event::DisplayChange => {
+            let app = app.clone();
+            // Sent while Windows is still rearranging: look once it's done.
+            slint::Timer::single_shot(Duration::from_millis(200), move || organizer::displays_changed(&app));
+        }
         wtray::Event::TaskbarCreated => {
             if let Some(t) = app.tray_icon.borrow().as_ref() {
                 let _ = t.readd();
@@ -205,13 +239,18 @@ impl App {
 
     /// Re-pushes all state into the window, if there is one.
     pub fn refresh(&self) {
-        let Some(w) = self.window.borrow().as_ref().map(|w| w.clone_strong()) else { return };
-        prefs::apply(self, &w);
-        grid::refresh(self, &w);
-        taskbar::refresh(self, &w);
-        tray::refresh(self, &w);
-        modals::refresh(self, &w);
-        settings::refresh(self, &w);
+        let w = self.window.borrow().as_ref().map(|w| w.clone_strong());
+        if let Some(w) = w {
+            prefs::apply(self, &w);
+            grid::refresh(self, &w);
+            taskbar::refresh(self, &w);
+            tray::refresh(self, &w);
+            modals::refresh(self, &w);
+            settings::refresh(self, &w);
+            organizer::dialogs::refresh(self);
+        }
+        // The panels follow the theme and the breadcrumb with or without the window.
+        organizer::panel::push_content(self);
     }
 
     /// The main window's HWND, while it exists.
@@ -253,13 +292,21 @@ impl App {
         let w = self.window.borrow().as_ref().map(|w| w.clone_strong());
         if let Some(w) = w {
             let _ = w.show();
-            if focus {
-                if let Some(h) = hwnd_of(w.window()) {
+            shell::when_ready(&w, move |h| {
+                // The panel carrying its top bar follows it between displays.
+                shell::subclass(h, |_, msg, _, _| {
+                    if msg == windows::Win32::UI::WindowsAndMessaging::WM_WINDOWPOSCHANGED {
+                        later(organizer::panel::update_host);
+                    }
+                    None
+                });
+                later(organizer::panel::update_host);
+                if focus {
                     unsafe {
                         let _ = SetForegroundWindow(h);
                     }
                 }
-            }
+            });
         }
     }
 
@@ -276,6 +323,7 @@ impl App {
                 let _ = w.hide();
             }
             app.images.clear();
+            organizer::panel::update_host(app);
         });
     }
 
@@ -306,6 +354,7 @@ impl App {
         tray::bind(self, &w);
         modals::bind(self, &w);
         settings::bind(self, &w);
+        organizer::dialogs::bind(self, &w);
         if launchpad_core::truthy(self.settings().get("startFullscreen")) {
             w.window().set_fullscreen(true);
         }

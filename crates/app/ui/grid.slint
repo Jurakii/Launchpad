@@ -48,6 +48,14 @@ export struct GridMenuEntry { id: string, title: string, enabled: bool, checked:
 export global GridState {
     in property <[GridCrumb]> crumbs: [{ id: "", name: "Home" }];
     in property <bool> fullscreen;
+    // The organizer's panel carries the top bar (hosted); an auto-hiding one
+    // is out of sight most of the time, so back and settings stay, floating.
+    in property <bool> hosted;
+    in property <bool> hosted-autohide;
+    // Bumped to show the menu (filled by menu-for) at menu-x/y, window coordinates.
+    in property <int> menu-tick;
+    in property <length> menu-x;
+    in property <length> menu-y;
     in property <[GridItem]> items;
     in property <length> content-w;
     in property <length> content-h;
@@ -199,12 +207,12 @@ component ItemMenu inherits ContextMenuArea {
 }
 
 export component TopBar inherits Rectangle {
-    height: 65px;
-    background: Theme.topbar-style == "transparent" ? transparent : Theme.topbar-style == "translucent" ? Theme.panel.with-alpha(0.55) : Theme.bg;
+    height: GridState.hosted ? 0px : 65px;
+    background: GridState.hosted || Theme.topbar-style == "transparent" ? transparent : Theme.topbar-style == "translucent" ? Theme.panel.with-alpha(0.55) : Theme.bg;
 
     menu := ItemMenu { }
 
-    HorizontalLayout {
+    if !GridState.hosted: HorizontalLayout {
         padding-left: 18px;
         padding-right: 18px;
         padding-top: 14px;
@@ -267,7 +275,7 @@ export component TopBar inherits Rectangle {
             }
         }
         Rectangle { horizontal-stretch: 1; }
-        // shortcut: Media is Phase 5 and Layouts Phase 4; the buttons show but do nothing yet.
+        // shortcut: Media is Phase 5; the button shows but does nothing yet.
         BarButton { text: "Media"; clicked => { GridState.media(); } }
         BarButton { text: "Layouts"; clicked => { GridState.layouts(); } }
         IconButton {
@@ -295,7 +303,7 @@ export component TopBar inherits Rectangle {
             }
         }
     }
-    Rectangle {
+    if !GridState.hosted: Rectangle {
         y: parent.height - 1px;
         height: 1px;
         background: Theme.topbar-style == "transparent" ? transparent : Theme.border;
@@ -387,6 +395,9 @@ export component Grid inherits Rectangle {
     changed height => { GridState.view-h = self.height; }
     property <Point> gpos: { x: self.absolute-position.x, y: self.absolute-position.y };
     changed gpos => { GridState.grid-x = gpos.x; GridState.grid-y = gpos.y; }
+    // An island's menu asked for from the organizer panel's breadcrumb.
+    property <int> menu-tick: GridState.menu-tick;
+    changed menu-tick => { menu.show({ x: GridState.menu-x - self.absolute-position.x, y: GridState.menu-y - self.absolute-position.y }); }
     init => {
         GridState.grid-x = gpos.x;
         GridState.grid-y = gpos.y;
@@ -764,6 +775,34 @@ export component Grid inherits Rectangle {
         border-color: Theme.accent;
         background: #5b8cff14;
         Text { text: "Drop to add to Launchpad"; font-size: 16px; color: Theme.text; }
+    }
+
+    // The organizer's auto-hiding panel carries the top bar: back and
+    // settings stay, floating in the grid's top corners (1.2's data-topbar-autohide).
+    if GridState.hosted && GridState.hosted-autohide && GridState.in-island: IconButton {
+        x: 14px;
+        y: 10px;
+        tip: "Back";
+        clicked => { GridState.back(); }
+        Glyph {
+            width: 19px;
+            height: 19px;
+            d: "M15 5l-7 7 7 7";
+            stroke: Theme.accent;
+            stroke-width: 2.2px;
+        }
+    }
+    if GridState.hosted && GridState.hosted-autohide: IconButton {
+        x: root.width - self.width - 14px;
+        y: 10px;
+        tip: "Settings";
+        clicked => { GridState.settings(); }
+        Glyph {
+            width: 19px;
+            height: 19px;
+            fill: Theme.accent;
+            d: "M21.9,10.59,20,8.69V6a2,2,0,0,0-2-2H15.31l-1.9-1.9a2,2,0,0,0-2.82,0L8.69,4H6A2,2,0,0,0,4,6V8.69l-1.9,1.9a2,2,0,0,0,0,2.82L4,15.31V18a2,2,0,0,0,2,2H8.69l1.9,1.9a2,2,0,0,0,2.82,0l1.9-1.9H18a2,2,0,0,0,2-2V15.31l1.9-1.9A2,2,0,0,0,21.9,10.59ZM12,16a4,4,0,1,1,4-4A4,4,0,0,1,12,16Z";
+        }
     }
 
     menu := ItemMenu { }

@@ -4,13 +4,20 @@
 // so all state lives in Rust and is pushed into the globals on creation.
 import { Theme } from "theme.slint";
 import { TopBar, Grid, GridState } from "grid.slint";
-import { Taskbar, TaskbarState } from "taskbar.slint";
+import { Taskbar, TaskbarState, SnapLayout, SnapZone } from "taskbar.slint";
 import { TrayState } from "tray.slint";
 import { Modals, ModalState } from "modals.slint";
 import { SettingsView, SettingsState } from "settings.slint";
 import { Popouts } from "shared.slint";
+import { OrganizerDialogs, OrganizerState, LayoutCell, LayoutRow, SceneRow } from "organizer-dialogs.slint";
+import { PanelWindow, PanelZone, PanelLayout, PanelCrumb } from "organizer-panel.slint";
+import { OverlayWindow, OverlayZone, OverlayLabel, GridPlacerWindow, MenuWindow, MenuRow } from "organizer-windows.slint";
 
 export { Theme, Popouts, GridState, TaskbarState, TrayState, ModalState, SettingsState }
+// The organizer's own windows, and its dialogs' global.
+export { SnapLayout, SnapZone }
+export { OrganizerState, LayoutCell, LayoutRow, SceneRow, PanelWindow, PanelZone, PanelLayout, PanelCrumb }
+export { OverlayWindow, OverlayZone, OverlayLabel, GridPlacerWindow, MenuWindow, MenuRow }
 
 export component MainWindow inherits Window {
     title: "Launchpad";
@@ -24,6 +31,8 @@ export component MainWindow inherits Window {
 
     // Decoded by Rust at window size (src/ui/images.rs); empty = none.
     in property <image> wallpaper;
+    // Fullscreen under a docked organizer panel: everything starts below it.
+    in property <length> top-inset;
 
     // Popouts keep inside the window (shared.slint).
     init => {
@@ -42,12 +51,14 @@ export component MainWindow inherits Window {
 
     // z: the taskbar draws over the grid (its search box and results reach out over it).
     if !Theme.taskbar-vertical: VerticalLayout {
+        padding-top: root.top-inset;
         if Theme.taskbar-edge == "top": Taskbar { vertical: false; z: 1; }
         TopBar { }
         Grid { vertical-stretch: 1; }
         if Theme.taskbar-edge != "top": Taskbar { vertical: false; z: 1; }
     }
     if Theme.taskbar-vertical: HorizontalLayout {
+        padding-top: root.top-inset;
         if Theme.taskbar-edge == "left": Taskbar { vertical: true; z: 1; }
         VerticalLayout {
             horizontal-stretch: 1;
@@ -60,5 +71,6 @@ export component MainWindow inherits Window {
     // Above everything else, in this order: Settings, then the modals
     // (Settings opens confirms of its own).
     SettingsView { }
+    OrganizerDialogs { }
     Modals { }
 }

@@ -41,7 +41,8 @@ if ($roots.Count -gt 0) {
 if ($Path.Count -gt 0) {
   $out.sizes = @($Path | ForEach-Object {
     if (Test-Path $_) {
-      $bytes = (Get-ChildItem $_ -Recurse -File -Force | Measure-Object Length -Sum).Sum
+      # A file on its own: -Recurse on a file path lists it twice in Windows PowerShell.
+      $bytes = if (Test-Path $_ -PathType Leaf) { (Get-Item $_ -Force).Length } else { (Get-ChildItem $_ -Recurse -File -Force | Measure-Object Length -Sum).Sum }
       [ordered]@{ path = $_; MB = [math]::Round($bytes / 1MB, 2) }
     } else {
       [ordered]@{ path = $_; error = 'not found' }

@@ -13,6 +13,10 @@ import { TaskbarItem, TaskbarWindow, ItemIcon, Glyph, Tile, ResultPanel } from "
 
 export { TaskbarItem, TaskbarWindow }
 
+// The organizer's visible layouts, for an open window's "Snap to" menu.
+export struct SnapZone { id: string, name: string }
+export struct SnapLayout { id: string, name: string, zones: [SnapZone] }
+
 export global TaskbarState {
     // The pinned row as shown (already reversed when mirrored).
     in property <[TaskbarItem]> pinned;
@@ -38,6 +42,9 @@ export global TaskbarState {
     // The pinned tile's menu: "rename", "edit", "move", "unpin", "remove".
     callback pin-menu(string, string);
     callback focus-window(int);
+    in property <[SnapLayout]> snap-layouts;
+    // (window index, layout id, zone id)
+    callback snap-window(int, string, string);
     // The search box's text changed: fills `results`; false for a blank query.
     callback search(string) -> bool;
     // The Recent button opened its popout: fill `recent`.
@@ -224,6 +231,20 @@ component ButtonsZone inherits Rectangle {
             background: Theme.accent;
         }
         clicked => { TaskbarState.focus-window(i); }
+        // 1.2 drew each layout as a thumbnail of zone buttons; here a submenu each.
+        if TaskbarState.snap-layouts.length > 0: ContextMenuArea {
+            Menu {
+                MenuItem { title: win.title; enabled: false; }
+                MenuSeparator { }
+                for l in TaskbarState.snap-layouts: Menu {
+                    title: "Snap to " + l.name;
+                    for z in l.zones: MenuItem {
+                        title: z.name;
+                        activated => { TaskbarState.snap-window(i, l.id, z.id); }
+                    }
+                }
+            }
+        }
     }
 }
 

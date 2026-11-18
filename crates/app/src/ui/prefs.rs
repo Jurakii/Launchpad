@@ -46,7 +46,15 @@ impl App {
 pub fn bind(_app: &App, _w: &MainWindow) {}
 
 pub fn apply(app: &App, w: &MainWindow) {
-    let t = w.global::<Theme>();
+    apply_theme(app, &w.global::<Theme>());
+    // A file name in the data folder (core::ui_prefs).
+    let wp = app.pref("launchpad-wallpaper").and_then(|name| app.images.wallpaper(&app.data_dir.join(name)));
+    w.set_wallpaper(wp.unwrap_or_default());
+}
+
+/// The `Theme` global of any of Launchpad's windows (each window has its
+/// own copy of a global): the main window, the organizer's panels, menus.
+pub fn apply_theme(app: &App, t: &Theme<'_>) {
     t.set_light(app.pref("launchpad-theme").as_deref() == Some("light"));
     t.set_accent_override(app.pref("launchpad-accent").and_then(|c| parse_hex(&c)).unwrap_or(Color::from_argb_u8(0, 0, 0, 0)));
     t.set_taskbar_edge(app.pref("launchpad-taskbar-edge").filter(|e| ["top", "left", "right"].contains(&e.as_str())).unwrap_or("bottom".into()).into());
@@ -54,9 +62,6 @@ pub fn apply(app: &App, w: &MainWindow) {
     t.set_topbar_style(app.pref("launchpad-topbar-style").unwrap_or("solid".into()).into());
     t.set_hide_add_buttons(app.pref("launchpad-hide-add-buttons").as_deref() == Some("1"));
     t.set_hide_app_names(app.pref("launchpad-hide-app-names").as_deref() == Some("1"));
-    // A file name in the data folder (core::ui_prefs).
-    let wp = app.pref("launchpad-wallpaper").and_then(|name| app.images.wallpaper(&app.data_dir.join(name)));
-    w.set_wallpaper(wp.unwrap_or_default());
 }
 
 /// "#rgb" / "#rrggbb", as an <input type=color> or the accent pref holds it.

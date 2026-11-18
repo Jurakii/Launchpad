@@ -481,9 +481,10 @@ fn toggle(app: &Rc<App>, key: &str, v: bool) {
                 alert(app, &format!("Start with Windows: {e}"));
             }
         }
-        "startFullscreen" | "minimizeToTrayOnClose" | "notifyUpdates" | "googleFaviconFallback" | "organizerEnabled" | "organizerSnapOnDrag" => {
-            // shortcut: the organizer itself is Phase 4; only the setting is written.
+        "startFullscreen" | "minimizeToTrayOnClose" | "notifyUpdates" | "googleFaviconFallback" => save(app, json!({ key: v })),
+        "organizerEnabled" | "organizerSnapOnDrag" => {
             save(app, json!({ key: v }));
+            super::organizer::configure(app);
         }
         "disableHotkeyInApps" => {
             save(app, json!({ "disableHotkeyInApps": v }));
@@ -518,6 +519,7 @@ fn select(app: &Rc<App>, key: &str, i: usize) {
         "organizerPanel" => {
             if let Some(mode) = core_settings::PANEL_MODES.get(i) {
                 save(app, json!({ "organizerPanel": mode }));
+                super::organizer::configure(app);
             }
         }
         _ => {}
@@ -561,8 +563,7 @@ fn set_main_hotkey(app: &Rc<App>, s: &core_settings::Settings, accel: &str) -> R
     app.save_settings(json!({ "hotkey": accel })).map(|_| ()).map_err(|e| e.to_string())
 }
 
-/// settings:setOrganizerHotkey. shortcut: only checked against the main
-/// hotkey and written; registering it is the organizer's (Phase 4).
+/// settings:setOrganizerHotkey: the old keys stay registered if the new ones are taken.
 fn set_grid_hotkey(app: &Rc<App>, s: &core_settings::Settings, accel: &str) -> Result<(), String> {
     let main = s.get("hotkey").and_then(Value::as_str).filter(|h| !h.is_empty()).unwrap_or(DEFAULT_HOTKEY);
     if hotkey::same(accel, main) {
@@ -571,6 +572,7 @@ fn set_grid_hotkey(app: &Rc<App>, s: &core_settings::Settings, accel: &str) -> R
     if hotkey::parse(accel).is_none() {
         return Err("Couldn't set that hotkey.".into());
     }
+    super::organizer::set_grid_hotkey(app, accel)?;
     app.save_settings(json!({ "organizerHotkey": accel })).map(|_| ()).map_err(|e| e.to_string())
 }
 
@@ -819,7 +821,7 @@ fn import_from(app: &Rc<App>, file: PathBuf) {
     app.images.clear();
     close(app);
     app.refresh();
-    // shortcut: layouts_changed would tell the organizer (Phase 4).
+    super::organizer::layouts_changed(app);
     if let Some(e) = x.layouts_error {
         alert(app, &format!("Your apps were imported, but the window layouts and scenes in the backup couldn't be:
 {e}"));
@@ -919,7 +921,9 @@ fn run_reset(app: &Rc<App>) {
     }
     st(|s| s.reset.iter_mut().for_each(|r| r.busy = true));
     redraw(app);
-    // shortcut: 1.2 also turned the organizer off and closed Media first (Phases 4, 5).
+    // The panels give their space back first. shortcut: 1.2 also closed Media (Phase 5).
+    super::organizer::shutdown();
+    super::organizer::panel::forget_docked(app);
     match reset::reset(&app.data_dir, time::now_ms()) {
         Ok(_) => {
             clear_prefs(app);

@@ -65,6 +65,8 @@ struct State {
     thumbs: HashSet<String>,
     /// The HWND our drop target is on.
     drop_hwnd: isize,
+    /// The organizer's panel carries the top bar: (hosted, auto-hiding).
+    hosted: (bool, bool),
 }
 
 thread_local! {
@@ -93,6 +95,48 @@ pub fn open_island(app: &App, id: Option<String>) {
     if let Some(w) = win(app) {
         refresh(app, &w);
     }
+}
+
+/// The open island ("" none), for the organizer panel's toolbar.
+pub fn current_island() -> Option<String> {
+    st(|s| s.folder.clone())
+}
+
+/// The island's right-click menu, opened from the organizer panel's breadcrumb.
+pub fn open_island_menu(app: &Rc<App>, id: &str) {
+    let id = id.to_owned();
+    // After the window has laid out (it may have just been made).
+    later(move |app| {
+        let Some(w) = win(app) else { return };
+        let g = w.global::<GridState>();
+        let at = (g.get_grid_x() as f64 + 24.0, g.get_grid_y() as f64 + 8.0);
+        fill_menu(app, &id, at);
+        g.set_menu_x(at.0 as f32);
+        g.set_menu_y(at.1 as f32);
+        g.set_menu_tick(g.get_menu_tick() + 1);
+    });
+    let _ = app;
+}
+
+// shortcut: the Media library is Phase 5; its buttons do nothing until then.
+pub fn open_media(_app: &Rc<App>) {}
+
+/// From the organizer: whether its panel carries the top bar.
+pub fn set_hosted(app: &App, hosted: bool, autohide: bool) {
+    st(|s| s.hosted = (hosted, autohide));
+    if let Some(w) = win(app) {
+        let g = w.global::<GridState>();
+        g.set_hosted(hosted);
+        g.set_hosted_autohide(hosted && autohide);
+    }
+}
+
+/// The breadcrumb as the organizer panel shows it: Home ("") first.
+pub fn refresh_crumbs(app: &App, _w: &MainWindow) {
+    let folder = st(|s| s.folder.clone());
+    let chain = logic::ancestors(&app.apps.borrow(), folder.as_deref());
+    let crumbs = std::iter::once((String::new(), "Home".to_owned())).chain(chain).collect();
+    super::organizer::panel::set_crumbs(app, crumbs);
 }
 
 /// `change` for an edit with nothing to return.
@@ -327,6 +371,9 @@ pub fn refresh(app: &App, w: &MainWindow) {
         .chain(chain.iter().map(|(id, name)| GridCrumb { id: id.into(), name: name.into() }))
         .collect();
     g.set_crumbs(ModelRc::new(VecModel::from(crumbs)));
+    let (hosted, autohide) = st(|s| s.hosted);
+    g.set_hosted(hosted);
+    g.set_hosted_autohide(hosted && autohide);
     g.set_in_island(!chain.is_empty());
     g.set_empty(level.is_empty());
     g.set_empty_title(if folder.is_some() { "This island is empty." } else { "No apps yet." }.into());
@@ -335,6 +382,7 @@ pub fn refresh(app: &App, w: &MainWindow) {
     g.set_focused(-1);
     g.set_fullscreen(w.window().is_fullscreen());
     drop(apps);
+    refresh_crumbs(app, w);
 
     for id in pending {
         if st(|s| s.thumbs.insert(id.clone())) {
@@ -368,9 +416,8 @@ pub fn bind(_app: &Rc<App>, w: &MainWindow) {
     g.on_add_app(|| {
         with(|app| modals::add_app(app, st(|s| s.folder.clone()), None));
     });
-    // shortcut: Media (Phase 5) and Layouts (Phase 4) aren't built yet.
-    g.on_media(|| {});
-    g.on_layouts(|| {});
+    g.on_media(|| later(open_media));
+    g.on_layouts(|| later(super::organizer::dialogs::open_layouts));
     g.on_toggle_fullscreen(|| {
         with(|app| {
             if let Some(w) = win(app) {
@@ -378,6 +425,7 @@ pub fn bind(_app: &Rc<App>, w: &MainWindow) {
                 w.window().set_fullscreen(on);
                 w.global::<GridState>().set_fullscreen(on);
             }
+            later(super::organizer::panel::update_host);
         });
     });
     g.on_resized(|| {
@@ -610,6 +658,14 @@ fn drag_start(app: &App, id: &str, at: (f64, f64)) {
     update_rows(&w);
 }
 
+/// A window point (logical) on the screen (physical), for the organizer panel.
+fn screen_point(w: &MainWindow, at: (f64, f64)) -> Option<launchpad_core::organizer::Point> {
+    let h = super::hwnd_of(w.window())?;
+    let s = w.window().scale_factor() as f64;
+    let mut p = windows::Win32::Foundation::POINT { x: (at.0 * s).round() as i32, y: (at.1 * s).round() as i32 };
+    unsafe { windows::Win32::Graphics::Gdi::ClientToScreen(h, &mut p) }.as_bool().then_some(launchpad_core::organizer::Point { x: p.x as f64, y: p.y as f64 })
+}
+
 /// The island at a canvas point (renderer.js addDropTarget on island tiles and cards).
 fn island_at(p: (f64, f64)) -> Option<String> {
     st(|s| s.level.iter().rev().find(|l| l.2 && logic::contains(l.1, p.0, p.1)).map(|l| l.0.clone()))
@@ -623,6 +679,9 @@ fn drag_move(app: &App, at: (f64, f64)) {
     g.set_drag_dy((at.1 - start.1) as f32);
     g.set_drag_wx(at.0 as f32);
     g.set_drag_wy(at.1 as f32);
+    // Over the organizer panel's breadcrumb, when it carries the top bar.
+    let screen = screen_point(&w, at);
+    super::organizer::panel::set_drop_crumb(app, screen);
     let target = if in_grid(&w, at) { island_at(canvas_point(&w, at)) } else { None };
     g.set_drop_target(target.unwrap_or_default().into());
 }
@@ -636,6 +695,11 @@ fn drag_end(app: &Rc<App>, at: (f64, f64)) {
     let crumb = g.get_drop_crumb();
     g.set_drop_crumb(-1);
     update_rows(&w);
+    let panel_crumb = screen_point(&w, at).and_then(super::organizer::panel::crumb_at);
+    super::organizer::panel::set_drop_crumb(app, None);
+    if let Some(target) = panel_crumb {
+        return move_into(app, &drag.ids, &target);
+    }
 
     if crumb >= 0 {
         let target = g.get_crumbs().row_data(crumb as usize).map(|c| c.id.to_string()).unwrap_or_default();
@@ -846,7 +910,12 @@ fn fill_menu(app: &App, id: &str, at: (f64, f64)) {
         let collapsed = item.get("collapsed") != Some(&serde_json::Value::Bool(false));
         a.push(entry("collapse", if collapsed { "Expand" } else { "Minimize" }));
         a.push(entry("names", if item.truthy("showNames") { "Hide App Names" } else { "Show App Names" }));
-        // shortcut: "Open as scene" / "Save arrangement for this island" are Phase 4.
+        let id = item.str("id").unwrap_or("");
+        let has_scene = launchpad_core::organizer::layouts::load(&app.data_dir).scenes.iter().any(|s| s.island_id.as_deref() == Some(id));
+        if has_scene {
+            a.push(entry("scene-open", "Open as scene"));
+        }
+        a.push(entry("scene-save", "Save arrangement for this island"));
     }
     let mv = logic::move_targets(&apps, item)
         .into_iter()
@@ -901,6 +970,11 @@ fn menu_pick(app: &Rc<App>, action: &str) {
                 items::set_show_names(apps, &id, !on);
                 Ok(())
             });
+        }
+        "scene-open" => super::organizer::scenes::open_island(app, &id, |app, msg| modals::alert(app, &msg)),
+        "scene-save" => {
+            let msg = super::organizer::scenes::save_island(app, &id).unwrap_or_else(|e| e);
+            modals::alert(app, &msg);
         }
         "move-dialog" => modals::move_items(app, vec![id]),
         "pin" => {
