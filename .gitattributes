@@ -1,5 +1,8 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
+# Run by bash, which chokes on CRLF (Windows runners check out with autocrlf).
+*.sh text eol=lf
+
 # Byte-for-byte compatibility fixtures: never convert line endings.
 crates/core/tests/fixtures/** -text
