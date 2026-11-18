@@ -13,6 +13,7 @@
 pub mod grid;
 pub mod icons;
 pub mod images;
+pub mod media;
 pub mod modals;
 pub mod organizer;
 pub mod prefs;
@@ -175,6 +176,7 @@ pub fn run(args: &[String]) -> Result<i32> {
     slint::run_event_loop_until_quit().map_err(|e| Error::msg(format!("The event loop failed: {e}")))?;
     APP.with(|a| {
         if let Some(app) = a.get() {
+            media::discard();
             organizer::shutdown();
             organizer::panel::forget_docked(app);
             app.window.borrow_mut().take();
@@ -249,6 +251,10 @@ impl App {
             settings::refresh(self, &w);
             organizer::dialogs::refresh(self);
         }
+        // Media follows Launchpad's theme and accent.
+        if let Some(app) = with(Rc::clone) {
+            media::theme_changed(&app);
+        }
         // The panels follow the theme and the breadcrumb with or without the window.
         organizer::panel::push_content(self);
     }
@@ -263,6 +269,10 @@ impl App {
     }
 
     pub fn toggle(self: &Rc<Self>) {
+        // While Media is open the hotkey belongs to it.
+        if media::toggle(self) {
+            return;
+        }
         if self.window.borrow().is_some() && self.is_foreground() {
             self.hide();
         } else {

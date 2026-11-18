@@ -921,7 +921,8 @@ fn run_reset(app: &Rc<App>) {
     }
     st(|s| s.reset.iter_mut().for_each(|r| r.busy = true));
     redraw(app);
-    // The panels give their space back first. shortcut: 1.2 also closed Media (Phase 5).
+    // The panels give their space back first, and Media closes.
+    super::media::discard();
     super::organizer::shutdown();
     super::organizer::panel::forget_docked(app);
     match reset::reset(&app.data_dir, time::now_ms()) {

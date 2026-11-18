@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 #[path = "grid_drop.rs"]
-mod drop;
+pub(crate) mod drop;
 #[path = "grid_logic.rs"]
 mod logic;
 use logic::{Rect, CARD_MARGIN, CELL, TILE};
@@ -118,8 +118,9 @@ pub fn open_island_menu(app: &Rc<App>, id: &str) {
     let _ = app;
 }
 
-// shortcut: the Media library is Phase 5; its buttons do nothing until then.
-pub fn open_media(_app: &Rc<App>) {}
+pub fn open_media(app: &Rc<App>) {
+    super::media::open(app);
+}
 
 /// From the organizer: whether its panel carries the top bar.
 pub fn set_hosted(app: &App, hosted: bool, autohide: bool) {

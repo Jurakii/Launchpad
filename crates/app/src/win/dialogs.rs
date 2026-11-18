@@ -17,6 +17,9 @@ use windows::Win32::UI::Shell::*;
 pub type Filter<'a> = (&'a str, &'a [&'a str]);
 
 pub fn open_file(owner: Option<HWND>, filters: &[Filter], folder: Option<&Path>) -> Result<Option<PathBuf>> {
+    if let Some(p) = debug_pick() {
+        return Ok(Some(p));
+    }
     let _com = Com::init();
     let d: IFileOpenDialog = unsafe { CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER) }.ctx("Creating the open dialog")?;
     set_filters(&d, filters)?;
@@ -24,9 +27,25 @@ pub fn open_file(owner: Option<HWND>, filters: &[Filter], folder: Option<&Path>)
 }
 
 pub fn open_folder(owner: Option<HWND>, folder: Option<&Path>) -> Result<Option<PathBuf>> {
+    if let Some(p) = debug_pick() {
+        return Ok(Some(p));
+    }
     let _com = Com::init();
     let d: IFileOpenDialog = unsafe { CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER) }.ctx("Creating the folder dialog")?;
     show(&d, owner, FOS_PICKFOLDERS, folder)
+}
+
+/// Test hook (debug builds): LAUNCHPAD_DEBUG_PICK="path|path…" answers the next
+/// open pickers in turn, since a test can't drive the system dialog.
+fn debug_pick() -> Option<PathBuf> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    use std::sync::Mutex;
+    static LEFT: Mutex<Option<Vec<String>>> = Mutex::new(None);
+    let mut left = LEFT.lock().ok()?;
+    let list = left.get_or_insert_with(|| std::env::var("LAUNCHPAD_DEBUG_PICK").map(|s| s.split('|').rev().map(String::from).collect()).unwrap_or_default());
+    list.pop().map(PathBuf::from)
 }
 
 /// `file_name` pre-fills the name box; a name typed without an extension

@@ -1,0 +1,1452 @@
+// Media: a fullscreen window over the games and videos library
+// (renderer/media/ in 1.2). Rust side: src/ui/media/. Rust owns every
+// screen's state and the focus: each focusable thing is a `Nav` with an id,
+// reports where it is (MediaState.report) and sends its clicks and the
+// window's keys to Rust, which moves the focus to the nearest one the way
+// focus.js did. Sized for a TV or a monitor across the room.
+
+// Every colour Media draws: the tokens of media.css, set from Rust
+// (core::media::theme::effective), so Settings → Colors can change each.
+export global MediaTheme {
+    in property <color> bg: #16181d;
+    in property <color> panel: #1e2128;
+    in property <color> raised: #262a33;
+    in property <color> border: #2b2f38;
+    in property <color> text: #e8e9ec;
+    in property <color> muted: #a3a9b5;
+    in property <color> accent: #5b8cff;
+    in property <color> on-accent: #0b1020;
+    in property <color> warn: #f5c26b;
+    in property <color> danger: #ff5b6b;
+    in property <color> shadow: #000000;
+}
+
+export struct MTile { nav: string, name: string, art: image, has-art: bool, available: bool, wide: bool }
+export struct MRow { title: string, wide: bool, tiles: [MTile] }
+export struct MPrompt { glyph: string, label: string }
+export struct MGroup { folder: string, platform: string, warn: bool, count: string, launch: string, launch-warn: bool }
+export struct MItem { id: string, title: string, sub: string, selected: bool }
+export struct MColor { token: string, label: string, value: string, color: color, changed: bool }
+export struct MMap { action: string, label: string, button: string, capturing: bool }
+export struct MSlot { slot: string, label: string, hint: string, source: string, user: bool, art: image, has-art: bool, cover: bool }
+
+export global MediaState {
+    // home, addChoice, addApp, add, settings, customize, running
+    in property <string> screen: "home";
+    // The focused Nav's id.
+    in property <string> focus;
+    // Bumped when what's on screen changes: every Nav reports again.
+    in property <int> epoch;
+    // The current screen's scroll (its Page is a Flickable).
+    in-out property <length> page-y;
+    in property <[MPrompt]> prompts;
+    in property <string> toast;
+    in property <string> clock;
+
+    // ---------- Home ----------
+    in property <string> tab: "games";
+    in property <[MRow]> rows;
+    in property <bool> empty;
+    in property <string> empty-title: "Nothing here yet";
+    in property <string> hero-name;
+    in property <string> hero-info;
+    in property <image> hero-art;
+    in property <bool> hero-has-art;
+    in property <bool> hero-wide;
+    in property <image> hero-logo;
+    in property <bool> hero-has-logo;
+    in property <image> backdrop;
+
+    // ---------- Add a single app ----------
+    in property <string> app-exe;
+    in-out property <string> app-name;
+    in property <string> app-library;
+    in property <string> app-platform;
+    in property <bool> app-show-platform;
+    in property <string> app-error;
+    in property <bool> app-can-add;
+
+    // ---------- Add library folder ----------
+    in property <string> add-root;
+    in property <string> add-type;
+    in property <bool> add-recursive;
+    in property <string> add-status;
+    in property <[MGroup]> add-groups;
+    in property <bool> add-can-confirm;
+
+    // ---------- Settings ----------
+    in property <string> section: "profiles";
+    in property <[MItem]> profiles;
+    in property <[MItem]> presets;
+    in property <bool> pf-open;
+    in property <bool> pf-new;
+    in-out property <string> pf-name;
+    in property <string> pf-kind;
+    in-out property <string> pf-exe;
+    in-out property <string> pf-args;
+    in-out property <string> pf-platforms;
+    in property <bool> pf-default;
+    in property <string> pf-error;
+    in property <[MColor]> colors;
+    in property <string> contrast-warn;
+    in property <bool> colors-changed;
+    in property <string> pad-name;
+    in property <[MMap]> maps;
+    in property <bool> maps-enabled;
+    in property <string> dead-zone;
+    in property <string> capture-status;
+    in property <bool> map-reset-enabled;
+    in property <string> lib-type;
+    in property <bool> lib-recursive;
+
+    // ---------- Customize ----------
+    in property <string> cz-title;
+    // Cover and banner, then logo and screenshot.
+    in property <[MSlot]> slots-top;
+    in property <[MSlot]> slots-bottom;
+    in property <string> drop-slot;
+
+    // ---------- Running ----------
+    in property <string> run-with;
+    in property <string> run-name;
+    in property <string> run-time;
+    in property <string> run-hotkey;
+
+    // Option lists for the dropdowns, by the Select's id.
+    in property <[string]> platform-options;
+    in property <[string]> group-options;
+
+    callback report(string, length, length, length, length);
+    callback click(string);
+    callback set-focus(string);
+    // A key the focused element didn't use: true if Rust did something with it.
+    callback key(string, bool) -> bool;
+    callback edited(string, string);
+    callback accepted(string);
+    callback pick(string, int);
+}
+
+// Anything focusable. Reports its place whenever it may have moved, so Rust
+// always has the rectangles of what is on screen now (epoch).
+export component Nav inherits Rectangle {
+    in property <string> nav-id;
+    in property <bool> enabled: true;
+    // False for elements that take the mouse themselves (fields, drop zones);
+    // `own` sends a click to `own-click` instead of Rust (dropdowns).
+    in property <bool> clickable: true;
+    in property <bool> own;
+    in property <length> ring-gap: 3px;
+    in property <length> ring: 3px;
+    out property <bool> focused: nav-id != "" && MediaState.focus == nav-id;
+    property <int> epoch: MediaState.epoch;
+    callback own-click();
+    function report() {
+        if root.enabled {
+            MediaState.report(root.nav-id, root.absolute-position.x, root.absolute-position.y, root.width, root.height);
+        } else {
+            MediaState.report(root.nav-id, 0, 0, 0, 0);
+        }
+    }
+    init => { root.report(); }
+    changed absolute-position => { root.report(); }
+    changed width => { root.report(); }
+    changed height => { root.report(); }
+    changed epoch => { root.report(); }
+    changed enabled => { root.report(); }
+    opacity: enabled ? 1 : 0.5;
+    @children
+    Rectangle {
+        x: -root.ring-gap - root.ring;
+        y: -root.ring-gap - root.ring;
+        width: root.width + 2 * (root.ring-gap + root.ring);
+        height: root.height + 2 * (root.ring-gap + root.ring);
+        border-radius: root.border-radius + root.ring-gap + root.ring;
+        border-width: root.ring;
+        border-color: MediaTheme.text;
+        visible: root.focused;
+    }
+    if root.clickable: TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            if root.own {
+                root.own-click();
+            } else {
+                MediaState.click(root.nav-id);
+            }
+        }
+    }
+}
+
+export component MButton inherits Nav {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> danger;
+    in property <bool> subtle;
+    in property <bool> active;
+    in property <length> font-size: 16px;
+    in property <string> font-family;
+    in property <TextHorizontalAlignment> text-align: center;
+    accessible-role: button;
+    accessible-label: text;
+    border-radius: 8px;
+    border-width: 1px;
+    background: primary || active ? MediaTheme.accent : subtle ? transparent : MediaTheme.raised;
+    border-color: primary || active ? MediaTheme.accent : subtle ? transparent : MediaTheme.border;
+    min-height: 44px;
+    min-width: l.preferred-width;
+    l := HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        Text {
+            text: root.text;
+            font-size: root.font-size;
+            font-family: root.font-family;
+            font-weight: root.primary || root.active ? 600 : 400;
+            color: root.primary || root.active ? MediaTheme.on-accent : root.danger ? MediaTheme.danger : root.subtle ? MediaTheme.muted : MediaTheme.text;
+            vertical-alignment: center;
+            horizontal-alignment: root.text-align;
+        }
+    }
+}
+
+// A text field. Up, Down and Tab go to Rust first (it moves the focus,
+// except inside a multi-line field with several lines).
+export component MField inherits Nav {
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <bool> multiline;
+    in property <bool> mono;
+    in property <bool> read-only;
+    clickable: false;
+    border-radius: 8px;
+    border-width: 1px;
+    background: MediaTheme.raised;
+    border-color: ti.has-focus ? MediaTheme.accent : MediaTheme.border;
+    min-height: multiline ? 110px : 44px;
+    min-width: 80px;
+    changed focused => {
+        if root.focused && !ti.has-focus && !root.read-only {
+            ti.focus();
+        }
+    }
+    Text {
+        x: 14px;
+        y: root.multiline ? 10px : (root.height - self.height) / 2;
+        text: root.placeholder;
+        color: MediaTheme.muted;
+        font-size: 16px;
+        visible: root.text == "";
+    }
+    // The TextInput is one line tall; a click anywhere in the box focuses it.
+    if !root.read-only: TouchArea {
+        mouse-cursor: MouseCursor.text;
+        clicked => { ti.focus(); }
+    }
+    ti := TextInput {
+        x: 14px;
+        y: root.multiline ? 10px : (root.height - self.height) / 2;
+        width: root.width - 28px;
+        height: root.multiline ? root.height - 20px : self.preferred-height;
+        text <=> root.text;
+        read-only: root.read-only;
+        enabled: !root.read-only;
+        single-line: !root.multiline;
+        wrap: root.multiline ? word-wrap : no-wrap;
+        color: MediaTheme.text;
+        selection-background-color: MediaTheme.accent;
+        selection-foreground-color: MediaTheme.on-accent;
+        font-size: 16px;
+        font-family: root.mono ? "Consolas" : "Segoe UI";
+        edited => { MediaState.edited(root.nav-id, self.text); }
+        accepted => { MediaState.accepted(root.nav-id); }
+        changed has-focus => {
+            if self.has-focus && !root.focused {
+                MediaState.set-focus(root.nav-id);
+            }
+        }
+        key-pressed(e) => {
+            if e.text == Key.UpArrow || e.text == Key.DownArrow || e.text == Key.Tab || e.text == Key.Backtab {
+                if MediaState.key(e.text == Key.UpArrow ? "up" : e.text == Key.DownArrow ? "down" : e.text == Key.Backtab || e.modifiers.shift ? "backtab" : "tab", e.modifiers.shift) {
+                    return accept;
+                }
+            }
+            reject
+        }
+    }
+}
+
+// A dropdown: the mouse opens its list, Enter (or A) steps to the next option.
+export component MSelect inherits Nav {
+    in property <string> value;
+    in property <[string]> options;
+    in property <bool> warn;
+    own: true;
+    own-click => {
+        MediaState.set-focus(root.nav-id);
+        popup.show();
+    }
+    border-radius: 8px;
+    border-width: 1px;
+    background: MediaTheme.raised;
+    border-color: warn ? MediaTheme.warn : MediaTheme.border;
+    min-height: 44px;
+    min-width: max(160px, l.preferred-width);
+    l := HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+        Text {
+            text: root.value;
+            color: MediaTheme.text;
+            font-size: 16px;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Text {
+            text: "▾";
+            color: MediaTheme.muted;
+            font-size: 16px;
+            vertical-alignment: center;
+        }
+    }
+    popup := PopupWindow {
+        x: 0;
+        y: root.height + 4px;
+        width: max(root.width, 220px);
+        Rectangle {
+            background: MediaTheme.raised;
+            border-width: 1px;
+            border-color: MediaTheme.border;
+            border-radius: 8px;
+            VerticalLayout {
+                padding: 6px;
+                for o[i] in root.options: Rectangle {
+                    height: 38px;
+                    border-radius: 6px;
+                    background: ta.has-hover ? MediaTheme.panel : transparent;
+                    Text {
+                        x: 12px;
+                        text: o;
+                        color: o == root.value ? MediaTheme.accent : MediaTheme.text;
+                        font-size: 16px;
+                        vertical-alignment: center;
+                        height: parent.height;
+                    }
+                    ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { MediaState.pick(root.nav-id, i); }
+                    }
+                    accessible-role: button;
+                    accessible-label: o;
+                }
+            }
+        }
+    }
+}
+
+// A checkbox and its label; the whole row toggles.
+export component MCheck inherits Nav {
+    in property <string> text;
+    in property <bool> checked;
+    border-radius: 8px;
+    min-height: 44px;
+    min-width: l.preferred-width;
+    accessible-role: checkbox;
+    accessible-checked: checked;
+    accessible-label: text;
+    l := HorizontalLayout {
+        spacing: 10px;
+        padding-right: 6px;
+        Rectangle {
+            width: 22px;
+            height: 22px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 5px;
+            border-width: 2px;
+            border-color: root.checked ? MediaTheme.accent : MediaTheme.border;
+            background: root.checked ? MediaTheme.accent : MediaTheme.raised;
+            Text {
+                text: "✓";
+                visible: root.checked;
+                color: MediaTheme.on-accent;
+                font-size: 15px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        Text {
+            text: root.text;
+            color: MediaTheme.text;
+            font-size: 16px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component Muted inherits Text {
+    color: MediaTheme.muted;
+    font-size: 16px;
+    wrap: word-wrap;
+}
+
+component Small inherits Text {
+    color: MediaTheme.muted;
+    font-size: 14px;
+    wrap: word-wrap;
+}
+
+component H1 inherits Text {
+    color: MediaTheme.text;
+    font-size: 30px;
+    font-weight: 700;
+    wrap: word-wrap;
+}
+
+component H2 inherits Text {
+    color: MediaTheme.muted;
+    font-size: 17px;
+    font-weight: 600;
+}
+
+// A captioned field, as `.field` in media.css.
+component Labelled inherits VerticalLayout {
+    in property <string> label;
+    spacing: 6px;
+    Text {
+        text: root.label;
+        color: MediaTheme.muted;
+        font-size: 14px;
+        wrap: word-wrap;
+    }
+    @children
+}
+
+// One screen's scroll area. Rust keeps the focused element inside it.
+component Page inherits Rectangle {
+    property <int> epoch: MediaState.epoch;
+    function report() {
+        MediaState.report("page", root.absolute-position.x, root.absolute-position.y, root.width, root.height);
+    }
+    init => { root.report(); }
+    changed width => { root.report(); }
+    changed height => { root.report(); }
+    changed epoch => { root.report(); }
+    fl := Flickable {
+        width: root.width;
+        height: root.height;
+        content-y <=> MediaState.page-y;
+        content-height: max(self.height, body.preferred-height);
+        body := VerticalLayout {
+            width: fl.width;
+            height: fl.content-height;
+            alignment: start;
+            padding-left: 40px;
+            padding-right: 40px;
+            padding-top: 28px;
+            padding-bottom: 28px;
+            spacing: 0px;
+            @children
+        }
+    }
+}
+
+// ---------- Top bar ----------
+
+component Tab inherits MButton {
+    in property <string> tab;
+    nav-id: "tab:" + tab;
+    border-radius: 22px;
+    subtle: !root.active;
+    active: MediaState.tab == tab;
+}
+
+component TopBar inherits Rectangle {
+    height: 77px;
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: MediaTheme.border;
+    }
+    HorizontalLayout {
+        padding-left: 40px;
+        padding-right: 40px;
+        padding-top: 16px;
+        padding-bottom: 16px;
+        spacing: 24px;
+        Text {
+            text: "Media";
+            font-size: 22px;
+            font-weight: 700;
+            color: MediaTheme.text;
+            vertical-alignment: center;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Tab { tab: "games"; text: "Games"; }
+            Tab { tab: "videos"; text: "Videos"; }
+            Tab { tab: "all"; text: "All"; }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        HorizontalLayout {
+            spacing: 8px;
+            MButton { nav-id: "top:add"; text: "+"; font-size: 24px; accessible-label: "Add"; }
+            MButton { nav-id: "top:settings"; text: "⚙"; font-size: 20px; font-family: "Segoe UI Symbol"; accessible-label: "Settings"; }
+            MButton { nav-id: "top:exit"; text: "Exit"; }
+        }
+        Text {
+            text: MediaState.clock;
+            color: MediaTheme.muted;
+            min-width: 56px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// ---------- Home ----------
+
+component TileView inherits Nav {
+    in property <MTile> tile;
+    // The focused tile grows a little and shows the accent, as 1.2's did.
+    width: tile.wide ? 220px : 150px;
+    height: tile.wide ? 124px : 210px;
+    border-radius: 10px;
+    ring-gap: 4px;
+    ring: 4px;
+    background: MediaTheme.panel;
+    border-width: root.focused ? 1px : 0px;
+    border-color: MediaTheme.accent;
+    clip: false;
+    accessible-role: button;
+    accessible-label: tile.available ? tile.name : tile.name + ", file not found";
+    Rectangle {
+        border-radius: root.border-radius;
+        clip: true;
+        if root.tile.has-art: Image {
+            width: parent.width;
+            height: parent.height;
+            source: root.tile.art;
+            image-fit: cover;
+            opacity: root.tile.available ? 1 : 0.4;
+        }
+        if !root.tile.has-art: Text {
+            x: 12px;
+            y: 12px;
+            width: parent.width - 24px;
+            height: parent.height - 24px;
+            text: root.tile.name;
+            font-weight: 600;
+            color: root.tile.available ? MediaTheme.text : MediaTheme.muted;
+            wrap: word-wrap;
+            overflow: elide;
+        }
+        if !root.tile.available: Rectangle {
+            x: 8px;
+            y: parent.height - self.height - 8px;
+            width: flag.preferred-width + 16px;
+            height: flag.preferred-height + 4px;
+            border-radius: 6px;
+            background: root.tile.has-art ? MediaTheme.bg : transparent;
+            flag := Text {
+                text: "Not found";
+                font-size: 13px;
+                color: MediaTheme.warn;
+            }
+        }
+    }
+}
+
+// One row of tiles; it scrolls sideways to keep the focused tile in view.
+component Strip inherits Rectangle {
+    in property <[MTile]> tiles;
+    in property <bool> wide;
+    property <length> tile-w: wide ? 220px : 150px;
+    property <length> gap: 18px;
+    property <length> pad: 18px;
+    height: (wide ? 124px : 210px) + 2 * pad;
+    function reveal(x: length, w: length) {
+        if x + fl.content-x < root.pad {
+            fl.content-x = min(0px, root.pad - x);
+        } else if x + w + fl.content-x > fl.width - root.pad {
+            fl.content-x = fl.width - root.pad - x - w;
+        }
+    }
+    fl := Flickable {
+        x: -root.pad;
+        width: root.width + 2 * root.pad;
+        content-width: max(self.width, root.tiles.length * (root.tile-w + root.gap) - root.gap + 2 * root.pad);
+        for t[i] in root.tiles: TileView {
+            x: root.pad + i * (root.tile-w + root.gap);
+            y: root.pad;
+            tile: t;
+            nav-id: t.nav;
+            changed focused => {
+                if self.focused {
+                    root.reveal(self.x, self.width);
+                }
+            }
+        }
+    }
+}
+
+component Home inherits Page {
+    if !MediaState.empty: HorizontalLayout {
+        spacing: 32px;
+        padding-bottom: 28px;
+        alignment: start;
+        Rectangle {
+            width: MediaState.hero-wide ? 360px : 180px;
+            height: MediaState.hero-wide ? 202px : 252px;
+            border-radius: 12px;
+            background: MediaTheme.panel;
+            border-width: 1px;
+            border-color: MediaTheme.border;
+            clip: true;
+            if MediaState.hero-has-art: Image {
+                width: parent.width;
+                height: parent.height;
+                source: MediaState.hero-art;
+                image-fit: cover;
+            }
+            if !MediaState.hero-has-art: Text {
+                x: 14px;
+                y: 14px;
+                width: parent.width - 28px;
+                text: MediaState.hero-name;
+                font-weight: 600;
+                color: MediaTheme.text;
+                wrap: word-wrap;
+            }
+        }
+        VerticalLayout {
+            alignment: end;
+            spacing: 8px;
+            if MediaState.hero-has-logo: Image {
+                source: MediaState.hero-logo;
+                height: min(160px, self.preferred-height);
+                width: min(520px, self.preferred-width);
+                image-fit: contain;
+                horizontal-alignment: left;
+                vertical-alignment: bottom;
+            }
+            if !MediaState.hero-has-logo: Text {
+                text: MediaState.hero-name;
+                font-size: 40px;
+                font-weight: 700;
+                color: MediaTheme.text;
+                wrap: word-wrap;
+            }
+            Text {
+                text: MediaState.hero-info;
+                color: MediaTheme.muted;
+                font-size: 16px;
+                wrap: word-wrap;
+                max-width: 760px;
+            }
+        }
+    }
+    if !MediaState.empty: VerticalLayout {
+        spacing: 6px;
+        for row in MediaState.rows: VerticalLayout {
+            spacing: 0px;
+            padding-bottom: 6px;
+            H2 { text: row.title; }
+            Strip {
+                tiles: row.tiles;
+                wide: row.wide;
+            }
+        }
+    }
+    if MediaState.empty: VerticalLayout {
+        padding-top: 140px;
+        spacing: 12px;
+        alignment: start;
+        Text {
+            text: MediaState.empty-title;
+            font-size: 28px;
+            font-weight: 600;
+            color: MediaTheme.text;
+            horizontal-alignment: center;
+        }
+        Muted {
+            text: "Add a game, a player, or a folder of games or videos to fill your library.";
+            horizontal-alignment: center;
+        }
+        HorizontalLayout {
+            alignment: center;
+            MButton { nav-id: "home:add"; text: "Add"; primary: true; }
+        }
+    }
+}
+
+// ---------- Add ----------
+
+component Choice inherits Nav {
+    in property <string> title;
+    in property <string> text;
+    border-radius: 14px;
+    background: MediaTheme.panel;
+    border-width: 1px;
+    border-color: MediaTheme.border;
+    max-width: 480px;
+    min-height: l.preferred-height;
+    horizontal-stretch: 1;
+    accessible-role: button;
+    accessible-label: title;
+    l := VerticalLayout {
+        padding: 28px;
+        spacing: 8px;
+        Text {
+            text: root.title;
+            font-size: 24px;
+            font-weight: 700;
+            color: MediaTheme.text;
+        }
+        Muted { text: root.text; }
+    }
+}
+
+component Actions inherits HorizontalLayout {
+    in property <bool> back: true;
+    padding-top: 20px;
+    spacing: 12px;
+    if root.back: MButton { nav-id: "back"; text: "Back"; }
+    Rectangle { horizontal-stretch: 1; }
+    @children
+}
+
+component AddChoice inherits Page {
+    H1 { text: "What are you adding?"; }
+    HorizontalLayout {
+        padding-top: 20px;
+        spacing: 24px;
+        alignment: start;
+        Choice {
+            nav-id: "choice:single";
+            title: "Single app";
+            text: "One program, like a game, a game launcher or a player. It runs on its own.";
+        }
+        Choice {
+            nav-id: "choice:folder";
+            title: "Folder";
+            text: "Movies, or a folder of ROMs. Everything inside is found and added, one platform per subfolder.";
+        }
+    }
+    Actions { }
+}
+
+component AddApp inherits Page {
+    H1 { text: "Add a single app"; }
+    VerticalLayout {
+        padding-top: 16px;
+        spacing: 16px;
+        max-width: 720px;
+        Labelled {
+            label: "Program";
+            HorizontalLayout {
+                spacing: 8px;
+                MField {
+                    text: MediaState.app-exe;
+                    read-only: true;
+                    mono: true;
+                    placeholder: "No program chosen";
+                    horizontal-stretch: 1;
+                }
+                MButton { nav-id: "app:browse"; text: "Browse"; }
+            }
+        }
+        Labelled {
+            label: "Name";
+            MField { nav-id: "app:name"; text <=> MediaState.app-name; }
+        }
+        Labelled {
+            label: "Library";
+            HorizontalLayout {
+                alignment: start;
+                MSelect { nav-id: "app:library"; value: MediaState.app-library; options: ["Games", "Videos"]; }
+            }
+        }
+        if MediaState.app-show-platform: Labelled {
+            label: "Platform (the row it shows in)";
+            HorizontalLayout {
+                alignment: start;
+                MSelect { nav-id: "app:platform"; value: MediaState.app-platform; options: MediaState.platform-options; }
+            }
+        }
+        Small { text: "It runs the program itself, so no player or emulator is needed. Play time isn't tracked for single apps."; }
+        if MediaState.app-error != "": Text {
+            text: MediaState.app-error;
+            color: MediaTheme.danger;
+            wrap: word-wrap;
+        }
+    }
+    Actions {
+        MButton { nav-id: "app:add"; text: "Add to library"; primary: true; enabled: MediaState.app-can-add; }
+    }
+}
+
+component Cell inherits Rectangle {
+    in property <string> text;
+    in property <bool> mono;
+    in property <color> text-color: MediaTheme.text;
+    in property <length> radius-l;
+    in property <length> radius-r;
+    background: MediaTheme.panel;
+    border-top-left-radius: radius-l;
+    border-bottom-left-radius: radius-l;
+    border-top-right-radius: radius-r;
+    border-bottom-right-radius: radius-r;
+    min-height: 56px;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        Text {
+            text: root.text;
+            color: root.text-color;
+            font-family: root.mono ? "Consolas" : "Segoe UI";
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        @children
+    }
+}
+
+component AddFolder inherits Page {
+    H1 { text: "Add library folder"; }
+    HorizontalLayout {
+        padding-top: 16px;
+        padding-bottom: 16px;
+        spacing: 16px;
+        Labelled {
+            label: "Folder";
+            horizontal-stretch: 1;
+            HorizontalLayout {
+                spacing: 8px;
+                MField {
+                    text: MediaState.add-root;
+                    read-only: true;
+                    mono: true;
+                    placeholder: "No folder chosen";
+                    horizontal-stretch: 1;
+                }
+                MButton { nav-id: "add:browse"; text: "Browse"; }
+            }
+        }
+        Labelled {
+            label: "Type";
+            MSelect { nav-id: "add:type"; value: MediaState.add-type; options: ["Games", "Videos"]; }
+        }
+        VerticalLayout {
+            alignment: end;
+            MCheck { nav-id: "add:recursive"; text: "Include subfolders"; checked: MediaState.add-recursive; }
+        }
+    }
+    Muted { text: MediaState.add-status; }
+    if MediaState.add-groups.length > 0: VerticalLayout {
+        padding-top: 8px;
+        spacing: 6px;
+        HorizontalLayout {
+            padding-left: 16px;
+            Small { text: "Subfolder"; width: 34%; }
+            Small { text: "Platform"; width: 26%; }
+            Small { text: "Files"; width: 10%; }
+            Small { text: "Launch with"; }
+        }
+        for g[i] in MediaState.add-groups: HorizontalLayout {
+            Cell {
+                width: 34%;
+                text: g.folder;
+                mono: true;
+                radius-l: 10px;
+            }
+            Cell {
+                width: 26%;
+                text: MediaState.add-type == "Videos" ? "Video" : "";
+                if MediaState.add-type != "Videos": MSelect {
+                    nav-id: "group:" + i;
+                    value: g.platform;
+                    warn: g.warn;
+                    options: MediaState.group-options;
+                }
+            }
+            Cell { width: 10%; text: g.count; }
+            Cell {
+                text: g.launch;
+                text-color: g.launch-warn ? MediaTheme.warn : MediaTheme.text;
+                radius-r: 10px;
+                horizontal-stretch: 1;
+            }
+        }
+    }
+    VerticalLayout {
+        padding-top: 12px;
+        Small { text: "Platforms come from folder names and file extensions. Files already in the library are kept, and missing files are kept as unavailable."; }
+    }
+    Actions {
+        MButton { nav-id: "add:confirm"; text: "Add to library"; primary: true; enabled: MediaState.add-can-confirm; }
+    }
+}
+
+// ---------- Settings ----------
+
+component ListItem inherits Nav {
+    in property <MItem> item;
+    border-radius: 8px;
+    border-width: 1px;
+    background: MediaTheme.panel;
+    border-color: item.selected ? MediaTheme.accent : MediaTheme.border;
+    min-height: l.preferred-height;
+    accessible-role: button;
+    accessible-label: item.title;
+    l := VerticalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        spacing: 4px;
+        Text {
+            text: root.item.title;
+            font-weight: 700;
+            color: MediaTheme.text;
+        }
+        if root.item.sub != "": Small { text: root.item.sub; }
+    }
+}
+
+component Profiles inherits VerticalLayout {
+    spacing: 4px;
+    H2 { text: "Players and emulators"; font-size: 22px; color: MediaTheme.text; }
+    Muted { text: "Set up once. Every game or video on a platform uses its default."; }
+    HorizontalLayout {
+        padding-top: 16px;
+        spacing: 32px;
+        alignment: start;
+        VerticalLayout {
+            width: 380px;
+            spacing: 10px;
+            alignment: start;
+            if MediaState.profiles.length == 0: Muted { text: "No players or emulators yet."; }
+            for p in MediaState.profiles: ListItem { nav-id: "profile:" + p.id; item: p; }
+            H2 { text: "Add from a preset"; }
+            for p in MediaState.presets: ListItem { nav-id: "preset:" + p.id; item: p; }
+            HorizontalLayout {
+                alignment: start;
+                MButton { nav-id: "pf:new"; text: "New blank profile"; }
+            }
+        }
+        if MediaState.pf-open: Rectangle {
+            horizontal-stretch: 1;
+            max-width: 760px;
+            border-radius: 14px;
+            background: MediaTheme.panel;
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                Labelled {
+                    label: "Name";
+                    MField { nav-id: "pf:name"; text <=> MediaState.pf-name; }
+                }
+                Labelled {
+                    label: "Kind";
+                    HorizontalLayout {
+                        alignment: start;
+                        MSelect { nav-id: "pf:kind"; value: MediaState.pf-kind; options: ["Player (videos)", "Emulator (games)"]; }
+                    }
+                }
+                Labelled {
+                    label: "Program";
+                    HorizontalLayout {
+                        spacing: 8px;
+                        MField {
+                            nav-id: "pf:exe";
+                            text <=> MediaState.pf-exe;
+                            mono: true;
+                            placeholder: "C:\\Program Files\\…\\program.exe";
+                            horizontal-stretch: 1;
+                        }
+                        MButton { nav-id: "pf:browse"; text: "Browse"; }
+                    }
+                }
+                Labelled {
+                    label: "Arguments, one per line. {file} is the game or video, {dir} its folder, {name} its name.";
+                    MField { nav-id: "pf:args"; text <=> MediaState.pf-args; multiline: true; mono: true; }
+                }
+                Labelled {
+                    label: "Platforms, separated by commas (for example snes, psx). Use videos for the video library.";
+                    MField { nav-id: "pf:platforms"; text <=> MediaState.pf-platforms; }
+                }
+                MCheck { nav-id: "pf:default"; text: "Use as the default for these platforms"; checked: MediaState.pf-default; }
+                if MediaState.pf-error != "": Text {
+                    text: MediaState.pf-error;
+                    color: MediaTheme.danger;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    if !MediaState.pf-new: MButton { nav-id: "pf:delete"; text: "Delete"; danger: true; }
+                    Rectangle { horizontal-stretch: 1; }
+                    MButton { nav-id: "pf:save"; text: "Save"; primary: true; }
+                }
+            }
+        }
+    }
+}
+
+component Colors inherits VerticalLayout {
+    spacing: 4px;
+    H2 { text: "Colors"; font-size: 22px; color: MediaTheme.text; }
+    Muted {
+        text: "Every colour in Media. Changes show at once and are kept for next time. Media's accent is separate from the rest of Launchpad's; until you change it here, it follows the accent set in Launchpad's Settings. Type a colour as #rrggbb and press Enter.";
+        max-width: 900px;
+    }
+    if MediaState.contrast-warn != "": Text {
+        text: MediaState.contrast-warn;
+        color: MediaTheme.warn;
+        font-size: 14px;
+        wrap: word-wrap;
+    }
+    VerticalLayout {
+        padding-top: 16px;
+        padding-bottom: 16px;
+        spacing: 8px;
+        max-width: 640px;
+        for c in MediaState.colors: Rectangle {
+            border-radius: 10px;
+            background: MediaTheme.panel;
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-top: 8px;
+                padding-bottom: 8px;
+                spacing: 16px;
+                Text {
+                    text: c.label;
+                    color: MediaTheme.text;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: c.changed ? "Changed" : "";
+                    color: MediaTheme.accent;
+                    font-size: 14px;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    width: 36px;
+                    height: 36px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: MediaTheme.border;
+                    background: c.color;
+                }
+                MField { nav-id: "color:" + c.token; text: c.value; mono: true; width: 130px; }
+                MButton { nav-id: "reset:" + c.token; text: "Reset"; enabled: c.changed; accessible-label: "Reset " + c.label; }
+            }
+        }
+    }
+    HorizontalLayout {
+        alignment: start;
+        MButton { nav-id: "colors:reset"; text: "Reset all colours"; enabled: MediaState.colors-changed; }
+    }
+}
+
+component Controller inherits VerticalLayout {
+    spacing: 4px;
+    H2 { text: "Controller"; font-size: 22px; color: MediaTheme.text; }
+    Muted { text: MediaState.pad-name; }
+    HorizontalLayout {
+        padding-top: 12px;
+        spacing: 32px;
+        alignment: start;
+        VerticalLayout {
+            spacing: 6px;
+            min-width: 520px;
+            HorizontalLayout {
+                padding-left: 16px;
+                Small { text: "Action"; width: 50%; }
+                Small { text: "Button"; }
+            }
+            for m in MediaState.maps: Rectangle {
+                border-radius: 10px;
+                background: MediaTheme.panel;
+                border-width: m.capturing ? 2px : 0px;
+                border-color: MediaTheme.accent;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 10px;
+                    padding-top: 6px;
+                    padding-bottom: 6px;
+                    Text {
+                        text: m.label;
+                        color: MediaTheme.text;
+                        vertical-alignment: center;
+                        width: 50%;
+                    }
+                    HorizontalLayout {
+                        horizontal-stretch: 1;
+                        alignment: start;
+                        Rectangle {
+                            y: (parent.height - self.height) / 2;
+                            height: 26px;
+                            width: kb.preferred-width + 16px;
+                            border-radius: 6px;
+                            background: MediaTheme.raised;
+                            kb := Text {
+                                text: m.button;
+                                color: MediaTheme.text;
+                                font-size: 14px;
+                                font-weight: 700;
+                            }
+                        }
+                    }
+                    MButton { nav-id: "map:" + m.action; text: "Change"; enabled: MediaState.maps-enabled; }
+                }
+            }
+        }
+        VerticalLayout {
+            width: 360px;
+            spacing: 14px;
+            alignment: start;
+            Labelled {
+                label: "Stick dead zone: " + MediaState.dead-zone;
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    MButton { nav-id: "dz:minus"; text: "−"; accessible-label: "Smaller dead zone"; }
+                    MButton { nav-id: "dz:plus"; text: "+"; accessible-label: "Larger dead zone"; }
+                }
+            }
+            Small { text: "How far the stick must move before it counts. Raise it if the selection drifts on its own."; }
+            if MediaState.capture-status != "": Text {
+                text: MediaState.capture-status;
+                color: MediaTheme.accent;
+                font-weight: 600;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                alignment: start;
+                MButton { nav-id: "map:reset"; text: "Reset this controller to defaults"; enabled: MediaState.map-reset-enabled; }
+            }
+        }
+    }
+}
+
+component LibraryPrefs inherits VerticalLayout {
+    spacing: 4px;
+    H2 { text: "Library"; font-size: 22px; color: MediaTheme.text; }
+    Muted { text: "What the Folder choice under + starts with."; }
+    VerticalLayout {
+        padding-top: 16px;
+        spacing: 16px;
+        alignment: start;
+        Labelled {
+            label: "Folders hold";
+            HorizontalLayout {
+                alignment: start;
+                MSelect { nav-id: "lib:type"; value: MediaState.lib-type; options: ["Games", "Videos"]; }
+            }
+        }
+        HorizontalLayout {
+            alignment: start;
+            MCheck { nav-id: "lib:recursive"; text: "Include subfolders"; checked: MediaState.lib-recursive; }
+        }
+    }
+}
+
+component SectionButton inherits MButton {
+    in property <string> section;
+    nav-id: "sec:" + section;
+    text-align: left;
+    subtle: MediaState.section != section;
+    background: MediaState.section == section ? MediaTheme.panel : transparent;
+    border-color: MediaState.section == section ? MediaTheme.accent : transparent;
+}
+
+component Settings inherits Page {
+    H1 { text: "Settings"; }
+    HorizontalLayout {
+        padding-top: 16px;
+        spacing: 32px;
+        VerticalLayout {
+            width: 240px;
+            spacing: 8px;
+            alignment: start;
+            SectionButton { section: "profiles"; text: "Players and emulators"; }
+            SectionButton { section: "colors"; text: "Colors"; }
+            SectionButton { section: "controller"; text: "Controller"; }
+            SectionButton { section: "library"; text: "Library"; }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: start;
+            if MediaState.section == "profiles": Profiles { }
+            if MediaState.section == "colors": Colors { }
+            if MediaState.section == "controller": Controller { }
+            if MediaState.section == "library": LibraryPrefs { }
+        }
+    }
+    Actions { }
+}
+
+// ---------- Customize art ----------
+
+component SlotCard inherits Rectangle {
+    in property <MSlot> s;
+    border-radius: 14px;
+    background: MediaTheme.panel;
+    VerticalLayout {
+        padding: 18px;
+        spacing: 10px;
+        // The card may be taller than its content (its row-mate is); keep the rest at the top.
+        alignment: start;
+        HorizontalLayout {
+            spacing: 12px;
+            Text {
+                text: root.s.label;
+                font-size: 18px;
+                font-weight: 600;
+                color: MediaTheme.text;
+                vertical-alignment: bottom;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Text {
+                text: root.s.source;
+                font-size: 14px;
+                color: root.s.user ? MediaTheme.accent : MediaTheme.muted;
+                font-weight: root.s.user ? 600 : 400;
+                vertical-alignment: bottom;
+                wrap: word-wrap;
+                horizontal-alignment: right;
+                max-width: 220px;
+            }
+        }
+        // Where a file dropped from Explorer lands (Rust hit-tests these).
+        Nav {
+            nav-id: "drop:" + root.s.slot;
+            clickable: false;
+            height: root.s.cover ? 240px : (root.width - 36px) * 9 / 16;
+            border-radius: 10px;
+            border-width: 2px;
+            border-color: MediaState.drop-slot == root.s.slot ? MediaTheme.accent : MediaTheme.border;
+            background: MediaState.drop-slot == root.s.slot ? MediaTheme.raised : transparent;
+            clip: true;
+            if root.s.has-art: Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.s.art;
+                image-fit: contain;
+            }
+            if !root.s.has-art: Text {
+                text: "Drop an image here";
+                color: MediaTheme.muted;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        Small { text: root.s.hint; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            MButton { nav-id: "slot-file:" + root.s.slot; text: "Choose file"; }
+            if root.s.has-art: MButton { nav-id: "slot-clear:" + root.s.slot; text: "Clear"; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            MField {
+                nav-id: "slot-url:" + root.s.slot;
+                placeholder: "https://…/image.jpg";
+                horizontal-stretch: 1;
+            }
+            MButton { nav-id: "slot-use:" + root.s.slot; text: "Use address"; }
+        }
+    }
+}
+
+component Customize inherits Page {
+    H1 { text: MediaState.cz-title; }
+    Muted { text: "Choose a file, drop one on a slot, or paste an image address. PNG or JPEG. Art you set here is kept when the library is scraped."; }
+    // Two cards a row, as 1.2's auto-fill grid did at TV widths.
+    VerticalLayout {
+        padding-top: 20px;
+        spacing: 20px;
+        HorizontalLayout {
+            spacing: 20px;
+            for s in MediaState.slots-top: SlotCard { s: s; horizontal-stretch: 1; }
+        }
+        HorizontalLayout {
+            spacing: 20px;
+            for s in MediaState.slots-bottom: SlotCard { s: s; horizontal-stretch: 1; }
+        }
+    }
+    Actions { }
+}
+
+// ---------- Running ----------
+
+component Running inherits Rectangle {
+    HorizontalLayout {
+        alignment: center;
+        spacing: 40px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 220px;
+                height: 308px;
+                border-radius: 12px;
+                background: MediaTheme.accent;
+                Text {
+                    x: 14px;
+                    y: 14px;
+                    width: parent.width - 28px;
+                    text: MediaState.run-name;
+                    color: MediaTheme.on-accent;
+                    font-weight: 600;
+                    wrap: word-wrap;
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 10px;
+            max-width: 560px;
+            Text {
+                text: MediaState.run-with;
+                color: MediaTheme.accent;
+                font-weight: 600;
+            }
+            Text {
+                text: MediaState.run-name;
+                font-size: 40px;
+                font-weight: 700;
+                color: MediaTheme.text;
+                wrap: word-wrap;
+            }
+            Muted { text: "When it closes, Media comes back here."; }
+            Muted { text: MediaState.run-time; }
+            HorizontalLayout {
+                padding-top: 10px;
+                alignment: start;
+                MButton { nav-id: "run:stop"; text: "Close it"; }
+            }
+            Small { text: MediaState.run-hotkey; }
+        }
+    }
+}
+
+export component MediaWindow inherits Window {
+    title: "Media";
+    background: MediaTheme.bg;
+    default-font-family: "Segoe UI";
+    default-font-size: 16px;
+    preferred-width: 1280px;
+    preferred-height: 800px;
+
+    // The window's own keys (not a field's): Rust decides what they do.
+    public function grab-keys() {
+        keys.focus();
+    }
+
+    keys := FocusScope {
+        key-pressed(e) => {
+            if e.modifiers.control || e.modifiers.alt || e.modifiers.meta {
+                return reject;
+            }
+            if e.text == Key.UpArrow { return MediaState.key("up", e.modifiers.shift) ? accept : reject; }
+            if e.text == Key.DownArrow { return MediaState.key("down", e.modifiers.shift) ? accept : reject; }
+            if e.text == Key.LeftArrow { return MediaState.key("left", e.modifiers.shift) ? accept : reject; }
+            if e.text == Key.RightArrow { return MediaState.key("right", e.modifiers.shift) ? accept : reject; }
+            if e.text == Key.Return || e.text == " " { return MediaState.key("enter", e.modifiers.shift) ? accept : reject; }
+            if e.text == Key.Escape { return MediaState.key("escape", false) ? accept : reject; }
+            if e.text == Key.Tab { return MediaState.key(e.modifiers.shift ? "backtab" : "tab", e.modifiers.shift) ? accept : reject; }
+            if e.text == Key.Backtab { return MediaState.key("backtab", true) ? accept : reject; }
+            if e.text == "c" || e.text == "C" { return MediaState.key("c", false) ? accept : reject; }
+            reject
+        }
+
+        // The focused item's banner, faint, behind the library.
+        if MediaState.screen != "running" && MediaState.screen != "customize": Image {
+            width: root.width;
+            height: root.height;
+            source: MediaState.backdrop;
+            image-fit: cover;
+            opacity: 0.16;
+        }
+
+        VerticalLayout {
+            if MediaState.screen != "running": TopBar { }
+            Rectangle {
+                vertical-stretch: 1;
+                if MediaState.screen == "home": Home { width: parent.width; height: parent.height; }
+                if MediaState.screen == "addChoice": AddChoice { width: parent.width; height: parent.height; }
+                if MediaState.screen == "addApp": AddApp { width: parent.width; height: parent.height; }
+                if MediaState.screen == "add": AddFolder { width: parent.width; height: parent.height; }
+                if MediaState.screen == "settings": Settings { width: parent.width; height: parent.height; }
+                if MediaState.screen == "customize": Customize { width: parent.width; height: parent.height; }
+                if MediaState.screen == "running": Running { width: parent.width; height: parent.height; }
+            }
+            Rectangle {
+                height: 52px;
+                Rectangle {
+                    height: 1px;
+                    y: 0;
+                    background: MediaTheme.border;
+                }
+                HorizontalLayout {
+                    padding-left: 40px;
+                    padding-right: 40px;
+                    spacing: 28px;
+                    alignment: start;
+                    for p in MediaState.prompts: HorizontalLayout {
+                        spacing: 6px;
+                        Rectangle {
+                            y: (parent.height - self.height) / 2;
+                            height: 24px;
+                            width: max(28px, g.preferred-width + 16px);
+                            border-radius: 6px;
+                            background: MediaTheme.raised;
+                            g := Text {
+                                text: p.glyph;
+                                color: MediaTheme.text;
+                                font-size: 14px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                        Text {
+                            text: p.label;
+                            color: MediaTheme.muted;
+                            font-size: 15px;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+
+        if MediaState.toast != "": Rectangle {
+            x: (root.width - self.width) / 2;
+            y: root.height - 80px - self.height;
+            width: min(720px, t.preferred-width + 44px, root.width - 32px);
+            height: t.preferred-height + 28px;
+            border-radius: 10px;
+            background: MediaTheme.raised;
+            border-width: 1px;
+            border-color: MediaTheme.border;
+            drop-shadow-blur: 24px;
+            drop-shadow-offset-y: 8px;
+            drop-shadow-color: MediaTheme.shadow.transparentize(0.65);
+            t := Text {
+                x: 22px;
+                y: 14px;
+                width: parent.width - 44px;
+                text: MediaState.toast;
+                color: MediaTheme.text;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

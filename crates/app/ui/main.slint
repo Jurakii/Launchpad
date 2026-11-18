@@ -12,12 +12,15 @@ import { Popouts } from "shared.slint";
 import { OrganizerDialogs, OrganizerState, LayoutCell, LayoutRow, SceneRow } from "organizer-dialogs.slint";
 import { PanelWindow, PanelZone, PanelLayout, PanelCrumb } from "organizer-panel.slint";
 import { OverlayWindow, OverlayZone, OverlayLabel, GridPlacerWindow, MenuWindow, MenuRow } from "organizer-windows.slint";
+import { MediaWindow, MediaState, MediaTheme, MTile, MRow, MPrompt, MGroup, MItem, MColor, MMap, MSlot } from "media.slint";
 
 export { Theme, Popouts, GridState, TaskbarState, TrayState, ModalState, SettingsState }
 // The organizer's own windows, and its dialogs' global.
 export { SnapLayout, SnapZone }
 export { OrganizerState, LayoutCell, LayoutRow, SceneRow, PanelWindow, PanelZone, PanelLayout, PanelCrumb }
 export { OverlayWindow, OverlayZone, OverlayLabel, GridPlacerWindow, MenuWindow, MenuRow }
+// Media's window (src/ui/media/).
+export { MediaWindow, MediaState, MediaTheme, MTile, MRow, MPrompt, MGroup, MItem, MColor, MMap, MSlot }
 
 export component MainWindow inherits Window {
     title: "Launchpad";

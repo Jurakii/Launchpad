@@ -193,6 +193,12 @@ Each phase ends with something that runs. Sizes are relative.
 
 **Phase 5 — Media (M).** Window, spatial focus, gamepad, library screens, add folder/app, profiles, tracked launches, art, colours, controller setup. Done when section M passes.
 
+  **Done 2026-11-18** (rows that posted input can drive). `crates/app/src/ui/media/` (`mod`, `focus`, `pad`, `art`, `forms`, `settings`) + `ui/media.slint`. Focus is owned by Rust: every focusable element reports its rectangle and focus.js's spatial step is ported (`focus::step`, tested). XInput is polled only while Media has the foreground; art is decoded through WIC on a worker thread. New debug-only hook `LAUNCHPAD_DEBUG_PICK="path|path…"` answers the file and folder pickers in turn. Built without subagents. Workspace tests and clippy clean.
+  Measured (release, Media open at 2560×1440, 7 entries, no art): **24.4 MB private**, one process (gate ≤ 80 MB with art). Exe **14.09 MiB**, up 1.6 from Phase 4 and over the 12 MB gate: the Phase 6 size decision is now required, not optional.
+  Rows passed: M1 (Media button opens it fullscreen, Exit returns to the main window), M2, M3, M4 (the same `.exe` again is refused, library unchanged), M5 (Games, Videos and All tabs; Continue, per-platform, Recently added, All videos), M6, M7, M8 (rescan after deleting a ROM: "1 no longer found", tile dimmed with "Not found", hero says why), M9 from a file, Clear (file deleted), a non-image refused, a bad web address refused, M10, M12's dead zone by keyboard.
+  Things found and fixed while testing: a field took clicks only on its one-line text, not its whole box; a Customize card stretched its buttons to its taller neighbour's height; the Add folder path field was squashed (`alignment: start` ignores stretch); the settings gear glyph was missing from Segoe UI (now Segoe UI Symbol); section buttons are left-aligned.
+  Not run, for the hand checks below: the Media hotkey toggle (a real keypress), M9 from a dropped file and a working web address (posted keys can't type `:`, winit reads the real Shift state), a too-large image, M11 and M12's button capture (a pad must be pressed).
+
 **Phase 6 — Packaging and updates (S).** `installer/launchpad.nsi`, updater, release workflow (`cargo build --release` → `makensis` → `latest.yml` → `gh release create`), `test.yml` running `cargo test` plus the size gate. Done when: installing 1.3 by hand over a 1.2.2 install keeps its data, autostart and hotkey; a 1.3.0 install updates itself from inside the app to a test 1.3.1 release; 1.2.2 does not offer 1.3; an uninstall leaves nothing but the data folder.
 
 **Phase 7 — Parity pass and cut-over (S).** Full run of the testing skill on both builds side by side, fix what differs, check every budget in §2, then delete the Electron tree (`main.js`, `lib/`, `renderer/`, preloads, `scripts/`, `package*.json`, `test/`), rewrite `CODEBASE_SUMMARY.md` and the README's build section, release 1.3.0 (a manual download; see §4.4).
@@ -203,6 +209,7 @@ Each phase ends with something that runs. Sizes are relative.
   3. X10: hiding Launchpad hands the keyboard back to the app that had it.
   4. F1–F5 with a real drag from Explorer (Phase 3 only fed drops through `LAUNCHPAD_DEBUG_DROP`).
   5. Organizer: hover a panel zone (O7), auto-hide reveal at the top edge (O8), drag a window to the top and drop it on a zone (O10), the grid hotkey and rebinding it (O12, O13), a real fullscreen video or game (O9), the scenes menu closing on an outside click (S7), rearranging or unplugging a display (O19, O20), an elevated window (O21), restarting Explorer (O22).
+  6. Media: the hotkey toggles it (M1); art from a dropped file, a real web address and a too-large image (M9); a controller moves focus, selects, goes back and switches tabs, and a button can be remapped (M11, M12).
 
 Phases 3, 4 and 5 don't depend on each other once 2 is done.
 
