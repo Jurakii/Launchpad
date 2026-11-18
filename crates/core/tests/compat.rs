@@ -245,11 +245,16 @@ fn node_available() -> bool {
 
 // "A backup written by either must import in the other": the other way
 // round is the test above. Runs 1.2.2's own import, so it needs node and the
-// repo's node_modules; it is skipped (with a note) without node.
+// repo's node_modules; it is skipped (with a note) without either, as on the
+// CI's Rust job, which doesn't run npm ci.
 #[test]
 fn a_backup_from_this_build_imports_in_1_2_2() {
     if !node_available() {
         eprintln!("node is not on PATH: skipped the 1.2.2 import of a Rust backup");
+        return;
+    }
+    if !fixtures().join("../../../../node_modules/electron").is_dir() {
+        eprintln!("node_modules isn't installed (npm ci): skipped the 1.2.2 import of a Rust backup");
         return;
     }
     let data = TempDir::new();
