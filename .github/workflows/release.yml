@@ -55,6 +55,13 @@ jobs:
       - name: Build
         run: cargo build --release -p launchpad
 
+      # Not on every windows-latest image.
+      - name: Install NSIS
+        run: |
+          if ! command -v makensis > /dev/null && [ ! -f "/c/Program Files (x86)/NSIS/makensis.exe" ]; then
+            choco install nsis -y --no-progress
+          fi
+
       - name: Build installer
         id: files
         run: |
