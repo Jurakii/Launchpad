@@ -1,0 +1,64 @@
+// The main window. Each part lives in its own file with its own global
+// (the Rust side of each is src/ui/<part>.rs); this file only arranges them.
+// The window is created on show and dropped on hide (RUST_PORT_PLAN.md §4.3),
+// so all state lives in Rust and is pushed into the globals on creation.
+import { Theme } from "theme.slint";
+import { TopBar, Grid, GridState } from "grid.slint";
+import { Taskbar, TaskbarState } from "taskbar.slint";
+import { TrayState } from "tray.slint";
+import { Modals, ModalState } from "modals.slint";
+import { SettingsView, SettingsState } from "settings.slint";
+import { Popouts } from "shared.slint";
+
+export { Theme, Popouts, GridState, TaskbarState, TrayState, ModalState, SettingsState }
+
+export component MainWindow inherits Window {
+    title: "Launchpad";
+    preferred-width: 960px;
+    preferred-height: 680px;
+    min-width: 640px;
+    min-height: 420px;
+    background: Theme.bg;
+    default-font-family: Theme.font;
+    default-font-size: Theme.font-size;
+
+    // Decoded by Rust at window size (src/ui/images.rs); empty = none.
+    in property <image> wallpaper;
+
+    // Popouts keep inside the window (shared.slint).
+    init => {
+        Popouts.win-w = self.width;
+        Popouts.win-h = self.height;
+    }
+    changed width => { Popouts.win-w = self.width; }
+    changed height => { Popouts.win-h = self.height; }
+
+    Image {
+        source: wallpaper;
+        width: 100%;
+        height: 100%;
+        image-fit: cover;
+    }
+
+    // z: the taskbar draws over the grid (its search box and results reach out over it).
+    if !Theme.taskbar-vertical: VerticalLayout {
+        if Theme.taskbar-edge == "top": Taskbar { vertical: false; z: 1; }
+        TopBar { }
+        Grid { vertical-stretch: 1; }
+        if Theme.taskbar-edge != "top": Taskbar { vertical: false; z: 1; }
+    }
+    if Theme.taskbar-vertical: HorizontalLayout {
+        if Theme.taskbar-edge == "left": Taskbar { vertical: true; z: 1; }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            TopBar { }
+            Grid { vertical-stretch: 1; }
+        }
+        if Theme.taskbar-edge == "right": Taskbar { vertical: true; z: 1; }
+    }
+
+    // Above everything else, in this order: Settings, then the modals
+    // (Settings opens confirms of its own).
+    SettingsView { }
+    Modals { }
+}

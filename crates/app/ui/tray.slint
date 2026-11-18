@@ -1,0 +1,593 @@
+// The tray widgets and their popouts: volume, USB, Bluetooth, network,
+// clock, power (index.html's .taskbar-right). Rust side: src/ui/tray.rs.
+import { Slider, ComboBox, ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Popouts, PopoutPanel } from "shared.slint";
+import { Glyph } from "tray-icons.slint";
+
+// A row of the USB, Bluetooth and Wi-Fi lists (.usb-row).
+export struct TrayRow {
+    title: string,
+    detail: string,
+    // USB: the drive letter; Wi-Fi: the profile to connect with.
+    key: string,
+    // The button's text ("Connect", "Disconnect"); "" = none (USB has its eject icon).
+    action: string,
+    enabled: bool,
+    danger: bool,
+    tip: string,
+    // Wi-Fi signal 0–100; -1 = not a network.
+    signal: int,
+}
+
+export struct TraySession {
+    pid: int,
+    name: string,
+    volume: int,
+    muted: bool,
+}
+
+export struct TrayGap {
+    index: int,
+    offset: length,
+}
+
+export global TrayState {
+    // The widgets in display order (launchpad-tray-order, reversed when mirrored).
+    in property <[string]> order: ["volume", "usb", "bluetooth", "network", "clock", "power"];
+    in property <string> clock-time;
+    in property <string> clock-date;
+    in property <bool> online: true;
+
+    // A float so the slider can bind both ways (a one-way binding breaks on the first drag).
+    in-out property <float> volume;
+    in property <bool> muted;
+    in property <[string]> devices;
+    in property <[string]> device-ids;
+    in property <int> device-index;
+    in property <[TraySession]> sessions;
+    in property <bool> sessions-scanning;
+
+    in property <[TrayRow]> usb;
+    in property <bool> usb-scanning;
+    in property <[TrayRow]> bluetooth;
+    in property <bool> bluetooth-scanning;
+    in property <[TrayRow]> networks;
+    in property <bool> networks-scanning;
+
+    callback opened(string);
+    callback set-volume(int);
+    callback toggle-mute();
+    callback pick-device(int);
+    callback set-session-volume(int, int);
+    callback toggle-session-mute(int);
+    // "usb" (eject) or "network" (the row's action).
+    callback row-action(string, TrayRow);
+    // "network" or "bluetooth": the matching Windows settings page.
+    callback settings-link(string);
+    // "sleep", "restart", "shutdown".
+    callback power(string);
+    // Drag to reorder: where a drop at `pos` (along the row) would land.
+    callback gap(length, length) -> TrayGap;
+    callback dropped(string, int);
+    // Never called: holds the window's watches and clock timer (tray.rs).
+    callback keepalive();
+}
+
+// 1.2's plain <button>: panel, 1px border, accent border on hover.
+component TextButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> danger;
+    in property <bool> left-aligned;
+    in property <length> pad-x: 14px;
+    in property <length> pad-y: 8px;
+    in property <length> font-size: 14px;
+    in property <length> radius: 8px;
+    in property <string> tip;
+    callback clicked();
+    background: danger ? transparent : Theme.panel;
+    border-width: 1px;
+    border-color: danger ? Theme.danger : ta.has-hover && enabled ? Theme.accent : Theme.border;
+    border-radius: radius;
+    opacity: enabled ? 1 : 0.5;
+    min-width: label.preferred-width + 2 * pad-x;
+    min-height: label.preferred-height + 2 * pad-y;
+    label := Text {
+        x: left-aligned ? pad-x : (parent.width - self.width) / 2;
+        text: root.text;
+        color: danger ? Theme.danger : Theme.text;
+        font-size: root.font-size;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    if tip != "": Tooltip { text: @markdown("\{root.tip}"); }
+}
+
+// .mute-toggle-btn / .session-mute-btn / .usb-eject-btn.
+component IconButton inherits Rectangle {
+    in property <string> glyph;
+    in property <length> glyph-size: 15px;
+    in property <bool> enabled: true;
+    in property <string> tip;
+    callback clicked();
+    width: 28px;
+    height: 28px;
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: ta.has-hover && enabled ? Theme.accent : Theme.border;
+    border-radius: 6px;
+    opacity: enabled ? 1 : 0.5;
+    Glyph {
+        name: root.glyph;
+        width: root.glyph-size;
+        height: root.glyph-size;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    if tip != "": Tooltip { text: @markdown("\{root.tip}"); }
+}
+
+component SectionLabel inherits Text {
+    font-size: 11px;
+    color: Theme.muted;
+    letter-spacing: 0.33px;
+}
+
+component Empty inherits Text {
+    font-size: 12px;
+    color: Theme.muted;
+    wrap: word-wrap;
+}
+
+// Four rising bars, lit up to the network's signal.
+component SignalBars inherits Rectangle {
+    in property <int> signal;
+    width: 14px;
+    height: 12px;
+    for i in 4: Rectangle {
+        x: i * 4px;
+        width: 2px;
+        height: (i + 1) * 3px;
+        y: parent.height - self.height;
+        border-radius: 1px;
+        background: root.signal > i * 25 ? Theme.accent : Theme.border;
+    }
+}
+
+component RowList inherits VerticalLayout {
+    in property <[TrayRow]> rows;
+    in property <bool> scanning;
+    in property <string> empty-text;
+    in property <string> kind;
+    spacing: 8px;
+    if scanning && rows.length == 0: Empty { text: "Scanning…"; }
+    if !scanning && rows.length == 0: Empty { text: root.empty-text; }
+    if rows.length > 0: ScrollView {
+        // .usb-list: max-height 240px, scrolls past that.
+        height: min(240px, list.preferred-height);
+        list := VerticalLayout {
+            spacing: 8px;
+            for row in rows: Rectangle {
+                background: Theme.bg;
+                border-radius: 8px;
+                HorizontalLayout {
+                    padding: 6px;
+                    spacing: 8px;
+                    alignment: stretch;
+                    if row.signal >= 0: SignalBars {
+                        signal: row.signal;
+                        y: (parent.height - self.height) / 2;
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        Text {
+                            text: row.title;
+                            font-size: 13px;
+                            color: Theme.text;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: row.detail;
+                            font-size: 11px;
+                            color: Theme.muted;
+                            overflow: elide;
+                        }
+                    }
+                    if root.kind == "usb": VerticalLayout {
+                        alignment: center;
+                        IconButton {
+                            glyph: "eject";
+                            tip: "Eject";
+                            enabled: row.enabled;
+                            clicked => { TrayState.row-action(root.kind, row); }
+                        }
+                    }
+                    if row.action != "": VerticalLayout {
+                        alignment: center;
+                        TextButton {
+                            text: row.action;
+                            enabled: row.enabled;
+                            danger: row.danger;
+                            tip: row.tip;
+                            pad-x: 10px;
+                            pad-y: 4px;
+                            font-size: 12px;
+                            radius: 6px;
+                            clicked => { TrayState.row-action(root.kind, row); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// .network-settings-link
+component Link inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+    height: t.preferred-height + 4px;
+    t := Text {
+        x: 0;
+        y: 4px;
+        text: root.text;
+        font-size: 12px;
+        color: Theme.accent;
+    }
+    // Hover underline (Slint's Text has no text-decoration).
+    if ta.has-hover: Rectangle {
+        x: 0;
+        y: t.y + t.height - 1px;
+        width: t.width;
+        height: 1px;
+        background: Theme.accent;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component VolumePane inherits VerticalLayout {
+    spacing: 12px;
+    HorizontalLayout {
+        spacing: 8px;
+        IconButton {
+            glyph: TrayState.muted ? "volume-muted" : "volume-high";
+            tip: "Mute";
+            clicked => { TrayState.toggle-mute(); }
+        }
+        Slider {
+            horizontal-stretch: 1;
+            minimum: 0;
+            maximum: 100;
+            step: 1;
+            value <=> TrayState.volume;
+            changed(v) => { TrayState.set-volume(round(v)); }
+        }
+        Text {
+            width: 30px;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            text: round(TrayState.volume) + "%";
+            font-size: 12px;
+            color: Theme.muted;
+        }
+    }
+    Rectangle { height: 1px; background: Theme.border; }
+    VerticalLayout {
+        spacing: 6px;
+        SectionLabel { text: "OUTPUT DEVICE"; }
+        ComboBox {
+            model: TrayState.devices;
+            current-index: TrayState.device-index;
+            selected => { TrayState.pick-device(self.current-index); }
+        }
+    }
+    Rectangle { height: 1px; background: Theme.border; }
+    VerticalLayout {
+        spacing: 6px;
+        SectionLabel { text: "APP VOLUMES"; }
+        if TrayState.sessions.length == 0: Empty {
+            text: TrayState.sessions-scanning ? "Scanning…" : "Nothing playing audio right now.";
+        }
+        if TrayState.sessions.length > 0: ScrollView {
+            height: min(160px, mixer.preferred-height);
+            mixer := VerticalLayout {
+                spacing: 8px;
+                for s in TrayState.sessions: HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        width: 70px;
+                        vertical-alignment: center;
+                        text: s.name;
+                        font-size: 12px;
+                        color: Theme.text;
+                        overflow: elide;
+                        Tooltip { text: @markdown("\{s.name}"); }
+                    }
+                    IconButton {
+                        width: 24px;
+                        height: 24px;
+                        y: 2px;
+                        glyph: s.muted ? "volume-muted" : "volume-high";
+                        glyph-size: 13px;
+                        clicked => { TrayState.toggle-session-mute(s.pid); }
+                    }
+                    session-slider := Slider {
+                        horizontal-stretch: 1;
+                        minimum: 0;
+                        maximum: 100;
+                        step: 1;
+                        value: s.volume;
+                        changed(v) => { TrayState.set-session-volume(s.pid, round(v)); }
+                    }
+                    Text {
+                        width: 30px;
+                        vertical-alignment: center;
+                        horizontal-alignment: right;
+                        text: round(session-slider.value) + "%";
+                        font-size: 12px;
+                        color: Theme.muted;
+                    }
+                }
+            }
+        }
+    }
+}
+
+component PowerPane inherits VerticalLayout {
+    spacing: 6px;
+    TextButton { text: "Sleep"; left-aligned: true; clicked => { TrayState.power("sleep"); } }
+    TextButton { text: "Restart"; left-aligned: true; clicked => { TrayState.power("restart"); } }
+    TextButton { text: "Shut down"; left-aligned: true; danger: true; clicked => { TrayState.power("shutdown"); } }
+}
+
+// One tray widget: its button (or the clock) and its popout.
+component TrayItem inherits Rectangle {
+    in property <string> id;
+    in property <bool> vertical;
+    // While another widget is dragged over the row.
+    in property <bool> dimmed;
+    callback drag-move(length, length);
+    callback drag-end(length, length);
+    callback drag-cancel();
+    property <bool> is-clock: id == "clock";
+    property <bool> pressing;
+    property <bool> dragging;
+    property <length> press-x;
+    property <length> press-y;
+
+    property <string> glyph: id == "volume" ? (TrayState.muted || TrayState.volume == 0 ? "volume-muted" : TrayState.volume < 33 ? "volume-low" : TrayState.volume < 66 ? "volume-medium" : "volume-high")
+        : id == "network" ? (TrayState.online ? "network" : "network-off") : id;
+    property <string> tip: id == "volume" ? "Volume" : id == "usb" ? "USB devices" : id == "bluetooth" ? "Bluetooth devices"
+        : id == "network" ? "Wi-Fi networks" : id == "power" ? "Power" : "";
+
+    // Popout width without its 8px margin (styles.css), and its placement:
+    // above the button, below it for a top bar, beside it for a side bar.
+    property <length> pw: id == "volume" ? 280px : id == "power" ? 160px : 260px;
+    property <string> edge: Theme.taskbar-edge;
+    // The 36px button sits centred in the item; popouts hang off the button.
+    property <length> inset-x: vertical ? (root.width - 36px) / 2 : 0;
+    property <length> inset-y: vertical ? 0 : (root.height - 36px) / 2;
+
+    property <bool> popup-open: Popouts.open == id;
+    changed popup-open => {
+        if popup-open {
+            TrayState.opened(id);
+        }
+    }
+    // The open widget's popout draws over its neighbours.
+    z: popup-open ? 1 : 0;
+
+    background: transparent;
+    opacity: dimmed ? 0.5 : 1;
+
+    if !is-clock: Rectangle {
+        width: 36px;
+        height: 36px;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: ta.has-hover ? Theme.accent : Theme.border;
+        border-radius: 8px;
+        Glyph {
+            name: root.glyph;
+            width: 19px;
+            height: 19px;
+        }
+        if !root.dragging: Tooltip { text: @markdown("\{root.tip}"); }
+    }
+    if is-clock: VerticalLayout {
+        alignment: center;
+        padding-left: vertical ? 0 : 8px;
+        padding-right: self.padding-left;
+        padding-top: 4px;
+        padding-bottom: 4px;
+        Text {
+            text: TrayState.clock-time;
+            color: Theme.text;
+            font-size: vertical ? 12px : 13px;
+            horizontal-alignment: vertical ? center : right;
+        }
+        Text {
+            text: TrayState.clock-date;
+            color: Theme.muted;
+            font-size: vertical ? 10px : 11px;
+            horizontal-alignment: vertical ? center : right;
+        }
+    }
+
+    ta := TouchArea {
+        mouse-cursor: is-clock ? default : pointer;
+        pointer-event(e) => {
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                root.pressing = true;
+                root.dragging = false;
+                root.press-x = self.mouse-x;
+                root.press-y = self.mouse-y;
+            } else if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                if root.dragging {
+                    root.drag-end(self.mouse-x, self.mouse-y);
+                }
+                root.pressing = false;
+            } else if e.kind == PointerEventKind.cancel {
+                if root.dragging {
+                    root.drag-cancel();
+                }
+                root.pressing = false;
+                root.dragging = false;
+            }
+        }
+        moved => {
+            // A widget can't be picked up while its popout is open (1.2 locked it too).
+            if root.pressing && !root.dragging && !root.popup-open
+                && (abs(self.mouse-x - root.press-x) > 4px || abs(self.mouse-y - root.press-y) > 4px) {
+                root.dragging = true;
+            }
+            if root.dragging {
+                root.drag-move(self.mouse-x, self.mouse-y);
+            }
+        }
+        clicked => {
+            if !root.dragging && !root.is-clock {
+                Popouts.open = Popouts.open == root.id ? "" : root.id;
+            }
+        }
+    }
+
+    if popup-open: PopoutPanel {
+        anchor-x: root.absolute-position.x;
+        anchor-y: root.absolute-position.y;
+        want-x: edge == "left" ? root.width - inset-x + 8px : edge == "right" ? inset-x - 8px - self.width : root.width - self.width;
+        want-y: edge == "left" || edge == "right" ? 0 : edge == "top" ? root.height - inset-y + 8px : inset-y - 8px - self.height;
+        width: root.pw;
+        height: body.preferred-height;
+        Rectangle {
+            background: Theme.panel;
+            border-width: 1px;
+            border-color: Theme.border;
+            border-radius: 10px;
+            drop-shadow-blur: 24px;
+            drop-shadow-offset-y: 8px;
+            drop-shadow-color: #00000066;
+            body := VerticalLayout {
+                padding: root.id == "power" ? 8px : 12px;
+                spacing: 8px;
+                if root.id == "volume": VolumePane { }
+                if root.id == "usb": SectionLabel { text: "USB DEVICES"; }
+                if root.id == "usb": RowList {
+                    kind: "usb";
+                    rows: TrayState.usb;
+                    scanning: TrayState.usb-scanning;
+                    empty-text: "No USB devices connected.";
+                }
+                if root.id == "bluetooth": SectionLabel { text: "BLUETOOTH DEVICES"; }
+                if root.id == "bluetooth": RowList {
+                    kind: "bluetooth";
+                    rows: TrayState.bluetooth;
+                    scanning: TrayState.bluetooth-scanning;
+                    empty-text: "No Bluetooth devices paired.";
+                }
+                // Replaces 1.2's Disconnect button, which needed admin rights and never worked.
+                if root.id == "bluetooth": Link {
+                    text: "Bluetooth settings…";
+                    clicked => { TrayState.settings-link("bluetooth"); }
+                }
+                if root.id == "network": SectionLabel { text: "WI-FI NETWORKS"; }
+                if root.id == "network": RowList {
+                    kind: "network";
+                    rows: TrayState.networks;
+                    scanning: TrayState.networks-scanning;
+                    empty-text: "No Wi-Fi networks found.";
+                }
+                if root.id == "network": Link {
+                    text: "More network settings…";
+                    clicked => { TrayState.settings-link("network"); }
+                }
+                if root.id == "power": PowerPane { }
+            }
+        }
+    }
+}
+
+export component TrayArea inherits Rectangle {
+    in property <bool> vertical;
+    // Drag to reorder: the widget being dragged and the insert line's offset.
+    property <string> dragging;
+    property <length> line-at: -1px;
+    property <int> line-index;
+    property <length> clock-extent: vertical
+        ? time-probe.preferred-height + date-probe.preferred-height + 8px
+        : max(time-probe.preferred-width, date-probe.preferred-width) + 16px;
+
+    // Five 36px buttons, the clock and the 6px gaps between them.
+    property <length> length: 5 * 36px + clock-extent + 5 * 6px;
+    width: vertical ? 64px : length;
+    height: vertical ? length : 60px;
+
+    // Measure the clock (its width sets the drag math in tray.rs).
+    time-probe := Text { visible: false; text: TrayState.clock-time; font-size: vertical ? 12px : 13px; }
+    date-probe := Text { visible: false; text: TrayState.clock-date; font-size: vertical ? 10px : 11px; }
+
+    function extent(id: string) -> length {
+        id == "clock" ? clock-extent : 36px
+    }
+    function over(id: string, pos: length) {
+        dragging = id;
+        let g = TrayState.gap(pos, clock-extent);
+        line-index = g.index;
+        line-at = g.offset;
+    }
+    function drop(id: string, x: length, y: length) {
+        // Dropped outside the row: nothing moves (1.2's drop never fired).
+        if x >= 0 && x <= root.width && y >= 0 && y <= root.height {
+            TrayState.dropped(id, line-index);
+        }
+        dragging = "";
+        line-at = -1px;
+    }
+
+    if !vertical: HorizontalLayout {
+        spacing: 6px;
+        alignment: end;
+        for id in TrayState.order: TrayItem {
+            id: id;
+            vertical: false;
+            width: root.extent(id);
+            dimmed: root.dragging == id;
+            drag-move(mx, my) => { root.over(id, self.x + mx); }
+            drag-end(mx, my) => { root.drop(id, self.x + mx, self.y + my); }
+            drag-cancel => { root.dragging = ""; root.line-at = -1px; }
+        }
+    }
+    if vertical: VerticalLayout {
+        spacing: 6px;
+        for id in TrayState.order: TrayItem {
+            id: id;
+            vertical: true;
+            height: root.extent(id);
+            dimmed: root.dragging == id;
+            drag-move(mx, my) => { root.over(id, self.y + my); }
+            drag-end(mx, my) => { root.drop(id, self.x + mx, self.y + my); }
+            drag-cancel => { root.dragging = ""; root.line-at = -1px; }
+        }
+    }
+
+    // .pin-insert-line
+    if dragging != "" && line-at >= 0: Rectangle {
+        x: vertical ? 6px : line-at - 4px;
+        y: vertical ? line-at - 4px : 6px;
+        width: vertical ? parent.width - 12px : 2px;
+        height: vertical ? 2px : parent.height - 12px;
+        background: Theme.accent;
+        border-radius: 1px;
+    }
+}

@@ -1,0 +1,895 @@
+// Settings and its sections, reset, backup, updates. Rust side:
+// src/ui/settings.rs, which owns the item list (labels, hints, what search
+// matches) and pushes it in here with the current values.
+import { Theme } from "theme.slint";
+import { ComboBox, LineEdit, ScrollView } from "std-widgets.slint";
+import { LpButton, SwitchRow, Overlay, Heading, Caption } from "modals-widgets.slint";
+
+export global SettingsState {
+    in-out property <bool> open: false;
+
+    // Sections and search (renderer.js "Settings sections and search").
+    in property <[string]> nav-names;
+    in property <[string]> nav-counts;
+    in property <[bool]> nav-no-match;
+    in property <int> section;
+    in property <bool> searching;
+    in property <[bool]> section-shown;
+    in property <string> heading;
+    in property <string> blurb;
+    in property <bool> no-results;
+    in-out property <string> query;
+    // Per item: its label, its hint, whether it's shown, whether it's the
+    // first shown in its card (no line above it).
+    in property <[string]> labels;
+    in property <[string]> hints;
+    in property <[bool]> hits;
+    in property <[bool]> firsts;
+    callback search(string);
+    callback pick-section(int);
+    callback close();
+    // Bumped by Rust to put the focus back here (after a dialog over Settings closes).
+    in property <int> focus-tick;
+    // Bumped by Rust when the content should scroll back to the top.
+    in property <int> scroll-tick;
+
+    // Values.
+    in property <bool> autostart;
+    in property <bool> fullscreen;
+    in property <bool> minimize-to-tray;
+    in property <bool> show-add-buttons;
+    in property <bool> show-app-names;
+    in property <bool> file-store-copy;
+    in property <bool> light;
+    in property <color> accent;
+    in-out property <string> accent-hex;
+    in-out property <int> topbar-style;
+    in-out property <int> taskbar-style;
+    in-out property <int> taskbar-edge;
+    in-out property <int> taskbar-align;
+    in-out property <int> taskbar-position;
+    in-out property <int> tray-align;
+    in property <string> hotkey-label;
+    in property <string> grid-hotkey-label;
+    // -1 none, 0 the show/hide hotkey, 1 the grid placer's.
+    in property <int> capturing: -1;
+    in property <bool> disable-hotkey-in-apps;
+    in property <bool> organizer;
+    in-out property <int> organizer-panel;
+    in property <bool> snap-on-drag;
+    in property <bool> google-favicon;
+    in property <bool> notify-updates;
+    in property <string> detect-label;
+    in property <string> restore-label;
+    in property <string> repair-label;
+    in property <string> reinstall-label;
+    in property <bool> busy-detect;
+    in property <bool> busy-restore;
+    in property <bool> busy-repair;
+    in property <bool> busy-reinstall;
+    in property <string> version-label;
+    in property <string> update-status;
+    // "" hides the button.
+    in property <string> update-action;
+    in property <bool> update-busy;
+    callback toggle(string, bool);
+    callback select(string, int);
+    callback action(string);
+    callback accent-edited(string);
+    // While capturing: the key's text (Slint's Key codes) and modifiers.
+    callback hotkey-key(string, bool, bool, bool, bool);
+
+    // Reset (Danger zone).
+    in property <bool> reset-open;
+    in property <string> reset-backup-status;
+    in property <bool> reset-backup-busy;
+    in property <bool> reset-no-backup;
+    in-out property <string> reset-text;
+    in property <bool> reset-can-confirm;
+    in property <string> reset-confirm-label: "Reset and Restart";
+    callback reset-edited(string);
+}
+
+// `.settings-item`: 12px 16px, a line above all but the first in its card,
+// and its hint below.
+component ItemBox inherits Rectangle {
+    in property <int> i;
+    VerticalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 4px;
+        @children
+        if SettingsState.hints[root.i] != "": Text {
+            text: SettingsState.hints[root.i];
+            font-size: 12px;
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+    }
+    if !SettingsState.firsts[root.i]: Rectangle {
+        y: 0;
+        height: 1px;
+        background: Theme.border;
+    }
+}
+
+// `.settings-accent-row`: the label on the left, its controls on the right.
+component ControlRow inherits HorizontalLayout {
+    in property <string> text;
+    in property <bool> enabled: true;
+    spacing: 12px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    opacity: enabled ? 1 : 0.5;
+    Text {
+        text: root.text;
+        font-size: 14px;
+        color: Theme.text;
+        vertical-alignment: center;
+        horizontal-stretch: 1;
+        wrap: word-wrap;
+    }
+    @children
+}
+
+component Select inherits ComboBox {
+    width: 220px;
+}
+
+// `.settings-section`: its title only while searching, then the card.
+component Section inherits VerticalLayout {
+    in property <int> k;
+    in property <bool> danger;
+    spacing: 8px;
+    if SettingsState.searching: Text {
+        text: SettingsState.nav-names[root.k].to-uppercase();
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.66px;
+        color: Theme.muted;
+    }
+    Rectangle {
+        border-width: 1px;
+        border-color: root.danger ? Theme.danger : Theme.border;
+        border-radius: 10px;
+        VerticalLayout {
+            @children
+        }
+    }
+}
+
+component ResetModal inherits FocusScope {
+    key-pressed(e) => {
+        if e.text == Key.Escape {
+            SettingsState.action("reset-cancel");
+            return accept;
+        }
+        reject
+    }
+    property <int> tick: SettingsState.focus-tick;
+    changed tick => { self.focus(); }
+    init => { self.focus(); }
+    Overlay {
+        card-width: 440px;
+        backdrop-clicked => { SettingsState.action("reset-cancel"); }
+        VerticalLayout {
+            spacing: 6px;
+            Heading { text: "Reset Launchpad"; }
+            Text {
+                text: "This deletes:";
+                font-size: 14px;
+                color: Theme.text;
+            }
+            VerticalLayout {
+                padding-left: 20px;
+                padding-bottom: 6px;
+                for line in ["Your apps, islands, pins and their icons", "Files stored in Launchpad (the originals aren't touched)", "Your window layouts and scenes", "All settings, theme and taskbar look"]: Text {
+                    text: "•  " + line;
+                    font-size: 13px;
+                    color: Theme.text;
+                    wrap: word-wrap;
+                }
+            }
+            Text {
+                text: "Your Media library, players and artwork are kept.";
+                font-size: 14px;
+                font-weight: 700;
+                color: Theme.text;
+                wrap: word-wrap;
+            }
+            Text {
+                text: "A copy of what's deleted is saved as pre-reset-…json in Launchpad's data folder first. It doesn't hold stored files, so export a backup if you have any.";
+                font-size: 12px;
+                color: Theme.muted;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                padding-top: 6px;
+                padding-bottom: 2px;
+                LpButton {
+                    text: "Back Up First…";
+                    primary: true;
+                    enabled: !SettingsState.reset-backup-busy;
+                    clicked => { SettingsState.action("reset-backup"); }
+                }
+                Text {
+                    text: SettingsState.reset-backup-status;
+                    font-size: 12px;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
+            }
+            SwitchRow {
+                text: "I don't want a backup";
+                checked: SettingsState.reset-no-backup;
+                toggled(v) => { SettingsState.toggle("reset-no-backup", v); }
+            }
+            VerticalLayout {
+                spacing: 6px;
+                padding-top: 8px;
+                Text {
+                    text: "Type RESET to confirm";
+                    font-size: 13px;
+                    color: Theme.muted;
+                }
+                LineEdit {
+                    text <=> SettingsState.reset-text;
+                    edited(t) => { SettingsState.reset-edited(t); }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                padding-top: 6px;
+                Rectangle { horizontal-stretch: 1; }
+                LpButton {
+                    text: "Cancel";
+                    clicked => { SettingsState.action("reset-cancel"); }
+                }
+                LpButton {
+                    text: SettingsState.reset-confirm-label;
+                    danger-solid: true;
+                    enabled: SettingsState.reset-can-confirm;
+                    clicked => { SettingsState.action("reset-confirm"); }
+                }
+            }
+        }
+    }
+}
+
+export component SettingsView inherits Rectangle {
+    width: 100%;
+    height: 100%;
+    visible: SettingsState.open;
+
+    if SettingsState.open: scope := FocusScope {
+        // The hotkey capture sees keys before the search field does.
+        capture-key-pressed(e) => {
+            if SettingsState.capturing >= 0 {
+                SettingsState.hotkey-key(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift, e.modifiers.meta);
+                return accept;
+            }
+            reject
+        }
+        key-pressed(e) => {
+            if e.text == Key.Escape {
+                // Esc in a non-empty search clears it rather than closing Settings.
+                if SettingsState.query != "" {
+                    SettingsState.search("");
+                } else {
+                    SettingsState.close();
+                }
+                return accept;
+            }
+            reject
+        }
+        property <int> tick: SettingsState.focus-tick;
+        changed tick => { if !SettingsState.reset-open { search.focus(); } }
+        init => { search.focus(); }
+        property <int> scroll: SettingsState.scroll-tick;
+        changed scroll => { sv.content-y = 0; }
+
+        Overlay {
+            card-width: 960px;
+            card-height: 680px;
+            card-padding: 0;
+            backdrop-clicked => { SettingsState.close(); }
+            VerticalLayout {
+                // `.settings-header`
+                Rectangle {
+                    HorizontalLayout {
+                        padding-left: 22px;
+                        padding-right: 12px;
+                        padding-top: 12px;
+                        padding-bottom: 12px;
+                        Text {
+                            text: "Settings";
+                            font-size: 17px;
+                            font-weight: 700;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                        Rectangle {
+                            width: 36px;
+                            height: 36px;
+                            border-radius: 8px;
+                            background: close-ta.has-hover ? Theme.bg : transparent;
+                            Path {
+                                width: 16px;
+                                height: 16px;
+                                viewbox-width: 24;
+                                viewbox-height: 24;
+                                commands: "M6 6l12 12M18 6L6 18";
+                                stroke: close-ta.has-hover ? Theme.text : Theme.muted;
+                                stroke-width: 2px;
+                                stroke-line-cap: round;
+                            }
+                            close-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { SettingsState.close(); }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        y: parent.height - 1px;
+                        height: 1px;
+                        background: Theme.border;
+                    }
+                }
+                HorizontalLayout {
+                    vertical-stretch: 1;
+                    // `.settings-nav`
+                    Rectangle {
+                        width: 220px;
+                        background: Theme.bg.mix(Theme.panel, 0.55);
+                        VerticalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            padding-top: 14px;
+                            padding-bottom: 14px;
+                            spacing: 2px;
+                            alignment: start;
+                            // `.settings-search`
+                            Rectangle {
+                                height: 34px;
+                                border-width: 1px;
+                                border-color: search.has-focus ? Theme.accent : Theme.border;
+                                border-radius: 8px;
+                                background: Theme.panel;
+                                clip: true;
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    spacing: 8px;
+                                    Path {
+                                        width: 15px;
+                                        height: 15px;
+                                        y: (parent.height - self.height) / 2;
+                                        viewbox-width: 24;
+                                        viewbox-height: 24;
+                                        commands: "M18 11a7 7 0 1 1-14 0a7 7 0 1 1 14 0M20 20l-3.5-3.5";
+                                        stroke: Theme.muted;
+                                        stroke-width: 2px;
+                                        stroke-line-cap: round;
+                                    }
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        if SettingsState.query == "": Text {
+                                            x: 0;
+                                            text: "Search settings";
+                                            font-size: 14px;
+                                            color: Theme.muted;
+                                            vertical-alignment: center;
+                                        }
+                                        search := TextInput {
+                                            text <=> SettingsState.query;
+                                            font-size: 14px;
+                                            color: Theme.text;
+                                            selection-background-color: Theme.accent.with-alpha(0.4);
+                                            vertical-alignment: center;
+                                            single-line: true;
+                                            edited => { SettingsState.search(self.text); }
+                                        }
+                                    }
+                                }
+                            }
+                            Rectangle { height: 8px; }
+                            for name[k] in SettingsState.nav-names: Rectangle {
+                                height: 36px;
+                                border-radius: 8px;
+                                property <bool> active: !SettingsState.searching && SettingsState.section == k;
+                                background: active ? Theme.accent.with-alpha(0.18) : nav-ta.has-hover ? Theme.text.with-alpha(0.07) : transparent;
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    Text {
+                                        text: name;
+                                        font-size: 14px;
+                                        font-weight: active ? 600 : 400;
+                                        color: SettingsState.nav-no-match[k] ? Theme.muted : Theme.text;
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 1;
+                                    }
+                                    Text {
+                                        text: SettingsState.nav-counts[k];
+                                        font-size: 12px;
+                                        color: Theme.muted;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                nav-ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { SettingsState.pick-section(k); }
+                                }
+                            }
+                        }
+                        Rectangle {
+                            x: parent.width - 1px;
+                            width: 1px;
+                            background: Theme.border;
+                        }
+                    }
+                    // `.settings-content`
+                    sv := ScrollView {
+                        horizontal-stretch: 1;
+                        content-height: content.preferred-height;
+                        content-width: self.visible-width;
+                        content := VerticalLayout {
+                            width: sv.visible-width;
+                            padding-left: 26px;
+                            padding-right: 26px;
+                            padding-top: 22px;
+                            padding-bottom: 26px;
+                            spacing: 20px;
+                            VerticalLayout {
+                                spacing: 4px;
+                                Text {
+                                    text: SettingsState.heading;
+                                    font-size: 21px;
+                                    font-weight: 600;
+                                    color: Theme.text;
+                                }
+                                Text {
+                                    text: SettingsState.blurb;
+                                    font-size: 13px;
+                                    color: Theme.muted;
+                                    wrap: word-wrap;
+                                }
+                            }
+                            if SettingsState.no-results: Rectangle {
+                                border-width: 1px;
+                                border-color: Theme.border;
+                                border-radius: 10px;
+                                VerticalLayout {
+                                    padding: 28px;
+                                    Text {
+                                        text: "No settings match that. Try \"taskbar\", \"hotkey\" or \"icons\".";
+                                        font-size: 13px;
+                                        color: Theme.muted;
+                                        horizontal-alignment: center;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+
+                            if SettingsState.section-shown[0]: Section {
+                                k: 0;
+                                if SettingsState.hits[0]: ItemBox {
+                                    i: 0;
+                                    SwitchRow {
+                                        text: SettingsState.labels[0];
+                                        checked: SettingsState.autostart;
+                                        toggled(v) => { SettingsState.toggle("autostart", v); }
+                                    }
+                                }
+                                if SettingsState.hits[1]: ItemBox {
+                                    i: 1;
+                                    SwitchRow {
+                                        text: SettingsState.labels[1];
+                                        checked: SettingsState.fullscreen;
+                                        toggled(v) => { SettingsState.toggle("startFullscreen", v); }
+                                    }
+                                }
+                                if SettingsState.hits[2]: ItemBox {
+                                    i: 2;
+                                    SwitchRow {
+                                        text: SettingsState.labels[2];
+                                        checked: SettingsState.minimize-to-tray;
+                                        toggled(v) => { SettingsState.toggle("minimizeToTrayOnClose", v); }
+                                    }
+                                }
+                                if SettingsState.hits[3]: ItemBox {
+                                    i: 3;
+                                    SwitchRow {
+                                        text: SettingsState.labels[3];
+                                        checked: SettingsState.show-add-buttons;
+                                        toggled(v) => { SettingsState.toggle("show-add-buttons", v); }
+                                    }
+                                }
+                                if SettingsState.hits[4]: ItemBox {
+                                    i: 4;
+                                    SwitchRow {
+                                        text: SettingsState.labels[4];
+                                        checked: SettingsState.show-app-names;
+                                        toggled(v) => { SettingsState.toggle("show-app-names", v); }
+                                    }
+                                }
+                                if SettingsState.hits[5]: ItemBox {
+                                    i: 5;
+                                    SwitchRow {
+                                        text: SettingsState.labels[5];
+                                        checked: SettingsState.file-store-copy;
+                                        toggled(v) => { SettingsState.toggle("fileStoreOnDrop", v); }
+                                    }
+                                }
+                            }
+
+                            if SettingsState.section-shown[1]: Section {
+                                k: 1;
+                                if SettingsState.hits[6]: ItemBox {
+                                    i: 6;
+                                    SwitchRow {
+                                        text: SettingsState.labels[6];
+                                        checked: SettingsState.light;
+                                        toggled(v) => { SettingsState.toggle("light", v); }
+                                    }
+                                }
+                                if SettingsState.hits[7]: ItemBox {
+                                    i: 7;
+                                    ControlRow {
+                                        text: SettingsState.labels[7];
+                                        // Slint has no native colour picker: a swatch and a hex field.
+                                        Rectangle {
+                                            width: 36px;
+                                            height: 28px;
+                                            y: (parent.height - self.height) / 2;
+                                            border-width: 1px;
+                                            border-color: Theme.border;
+                                            border-radius: 6px;
+                                            Rectangle {
+                                                x: 3px;
+                                                y: 3px;
+                                                width: parent.width - 6px;
+                                                height: parent.height - 6px;
+                                                border-radius: 4px;
+                                                background: SettingsState.accent;
+                                            }
+                                        }
+                                        LineEdit {
+                                            width: 100px;
+                                            placeholder-text: "#rrggbb";
+                                            text <=> SettingsState.accent-hex;
+                                            edited(t) => { SettingsState.accent-edited(t); }
+                                        }
+                                        LpButton {
+                                            text: "Reset";
+                                            clicked => { SettingsState.action("accent-reset"); }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[8]: ItemBox {
+                                    i: 8;
+                                    ControlRow {
+                                        text: SettingsState.labels[8];
+                                        LpButton {
+                                            text: "Choose Image…";
+                                            clicked => { SettingsState.action("wallpaper-pick"); }
+                                        }
+                                        LpButton {
+                                            text: "Clear";
+                                            clicked => { SettingsState.action("wallpaper-clear"); }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[9]: ItemBox {
+                                    i: 9;
+                                    ControlRow {
+                                        text: SettingsState.labels[9];
+                                        Select {
+                                            model: ["Solid", "Translucent", "Transparent"];
+                                            current-index <=> SettingsState.topbar-style;
+                                            selected => { SettingsState.select("topbar-style", self.current-index); }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if SettingsState.section-shown[2]: Section {
+                                k: 2;
+                                if SettingsState.hits[10]: ItemBox {
+                                    i: 10;
+                                    ControlRow {
+                                        text: SettingsState.labels[10];
+                                        Select {
+                                            model: ["Solid", "Translucent", "Transparent"];
+                                            current-index <=> SettingsState.taskbar-style;
+                                            selected => { SettingsState.select("taskbar-style", self.current-index); }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[11]: ItemBox {
+                                    i: 11;
+                                    ControlRow {
+                                        text: SettingsState.labels[11];
+                                        Select {
+                                            model: ["Bottom", "Top", "Left", "Right"];
+                                            current-index <=> SettingsState.taskbar-edge;
+                                            selected => { SettingsState.select("taskbar-edge", self.current-index); }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[12]: ItemBox {
+                                    i: 12;
+                                    ControlRow {
+                                        text: SettingsState.labels[12];
+                                        Select {
+                                            model: ["Edge (Windows 10)", "Center (Windows 11)"];
+                                            current-index <=> SettingsState.taskbar-align;
+                                            selected => { SettingsState.select("taskbar-align", self.current-index); }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[13]: ItemBox {
+                                    i: 13;
+                                    ControlRow {
+                                        text: SettingsState.labels[13];
+                                        Select {
+                                            model: ["Left / Top", "Right / Bottom"];
+                                            current-index <=> SettingsState.taskbar-position;
+                                            selected => { SettingsState.select("taskbar-position", self.current-index); }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[14]: ItemBox {
+                                    i: 14;
+                                    ControlRow {
+                                        text: SettingsState.labels[14];
+                                        Select {
+                                            model: ["Snap to edge", "Snap to center", "Same side as taskbar buttons"];
+                                            current-index <=> SettingsState.tray-align;
+                                            selected => { SettingsState.select("tray-align", self.current-index); }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if SettingsState.section-shown[3]: Section {
+                                k: 3;
+                                if SettingsState.hits[15]: ItemBox {
+                                    i: 15;
+                                    ControlRow {
+                                        text: SettingsState.labels[15];
+                                        LpButton {
+                                            min-w: 120px;
+                                            active: SettingsState.capturing == 0;
+                                            text: SettingsState.capturing == 0 ? "Press keys… (Esc to cancel)" : SettingsState.hotkey-label;
+                                            clicked => {
+                                                scope.focus();
+                                                SettingsState.action("capture-main");
+                                            }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[16]: ItemBox {
+                                    i: 16;
+                                    SwitchRow {
+                                        text: SettingsState.labels[16];
+                                        checked: SettingsState.disable-hotkey-in-apps;
+                                        toggled(v) => { SettingsState.toggle("disableHotkeyInApps", v); }
+                                    }
+                                }
+                                if SettingsState.hits[17]: ItemBox {
+                                    i: 17;
+                                    ControlRow {
+                                        text: SettingsState.labels[17];
+                                        enabled: SettingsState.organizer;
+                                        LpButton {
+                                            min-w: 120px;
+                                            enabled: SettingsState.organizer;
+                                            active: SettingsState.capturing == 1;
+                                            text: SettingsState.capturing == 1 ? "Press keys… (Esc to cancel)" : SettingsState.grid-hotkey-label;
+                                            clicked => {
+                                                scope.focus();
+                                                SettingsState.action("capture-grid");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if SettingsState.section-shown[4]: Section {
+                                k: 4;
+                                if SettingsState.hits[18]: ItemBox {
+                                    i: 18;
+                                    SwitchRow {
+                                        text: SettingsState.labels[18];
+                                        checked: SettingsState.organizer;
+                                        toggled(v) => { SettingsState.toggle("organizerEnabled", v); }
+                                    }
+                                }
+                                if SettingsState.hits[19]: ItemBox {
+                                    i: 19;
+                                    ControlRow {
+                                        text: SettingsState.labels[19];
+                                        enabled: SettingsState.organizer;
+                                        Select {
+                                            enabled: SettingsState.organizer;
+                                            model: ["Always shown", "Auto-hide", "Off"];
+                                            current-index <=> SettingsState.organizer-panel;
+                                            selected => { SettingsState.select("organizerPanel", self.current-index); }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[20]: ItemBox {
+                                    i: 20;
+                                    SwitchRow {
+                                        text: SettingsState.labels[20];
+                                        enabled: SettingsState.organizer;
+                                        checked: SettingsState.snap-on-drag;
+                                        toggled(v) => { SettingsState.toggle("organizerSnapOnDrag", v); }
+                                    }
+                                }
+                            }
+
+                            if SettingsState.section-shown[5]: Section {
+                                k: 5;
+                                if SettingsState.hits[21]: ItemBox {
+                                    i: 21;
+                                    SwitchRow {
+                                        text: SettingsState.labels[21];
+                                        checked: SettingsState.google-favicon;
+                                        toggled(v) => { SettingsState.toggle("googleFaviconFallback", v); }
+                                    }
+                                }
+                                if SettingsState.hits[22]: ItemBox {
+                                    i: 22;
+                                    ControlRow {
+                                        text: SettingsState.labels[22];
+                                        LpButton {
+                                            text: SettingsState.detect-label;
+                                            enabled: !SettingsState.busy-detect;
+                                            clicked => { SettingsState.action("detect-icons"); }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[23]: ItemBox {
+                                    i: 23;
+                                    ControlRow {
+                                        text: SettingsState.labels[23];
+                                        LpButton {
+                                            text: SettingsState.restore-label;
+                                            enabled: !SettingsState.busy-restore;
+                                            clicked => { SettingsState.action("restore-defaults"); }
+                                        }
+                                        LpButton {
+                                            text: SettingsState.repair-label;
+                                            enabled: !SettingsState.busy-repair;
+                                            clicked => { SettingsState.action("repair-defaults"); }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if SettingsState.section-shown[6]: Section {
+                                k: 6;
+                                if SettingsState.hits[24]: ItemBox {
+                                    i: 24;
+                                    ControlRow {
+                                        text: SettingsState.labels[24];
+                                        LpButton {
+                                            text: "Export Config…";
+                                            clicked => { SettingsState.action("export"); }
+                                        }
+                                        LpButton {
+                                            text: "Import Config…";
+                                            clicked => { SettingsState.action("import"); }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[25]: ItemBox {
+                                    i: 25;
+                                    SwitchRow {
+                                        text: SettingsState.labels[25];
+                                        checked: SettingsState.notify-updates;
+                                        toggled(v) => { SettingsState.toggle("notifyUpdates", v); }
+                                    }
+                                }
+                                if SettingsState.hits[26]: ItemBox {
+                                    i: 26;
+                                    HorizontalLayout {
+                                        spacing: 10px;
+                                        VerticalLayout {
+                                            horizontal-stretch: 1;
+                                            spacing: 2px;
+                                            alignment: center;
+                                            Text {
+                                                text: SettingsState.version-label;
+                                                font-size: 14px;
+                                                color: Theme.text;
+                                            }
+                                            // About (Slint's licence asks for this; one line, one place).
+                                            HorizontalLayout {
+                                                alignment: start;
+                                                Text {
+                                                    text: "Made with Slint";
+                                                    font-size: 12px;
+                                                    color: slint-ta.has-hover ? Theme.text : Theme.accent;
+                                                    slint-ta := TouchArea {
+                                                        mouse-cursor: pointer;
+                                                        clicked => { SettingsState.action("open-slint"); }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Text {
+                                            text: SettingsState.update-status;
+                                            font-size: 12px;
+                                            color: Theme.muted;
+                                            horizontal-alignment: right;
+                                            vertical-alignment: center;
+                                            wrap: word-wrap;
+                                            max-width: 360px;
+                                        }
+                                        if SettingsState.update-action != "": VerticalLayout {
+                                            alignment: center;
+                                            LpButton {
+                                                small: true;
+                                                primary: true;
+                                                text: SettingsState.update-action;
+                                                enabled: !SettingsState.update-busy;
+                                                clicked => { SettingsState.action("update"); }
+                                            }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[27]: ItemBox {
+                                    i: 27;
+                                    ControlRow {
+                                        text: SettingsState.labels[27];
+                                        LpButton {
+                                            text: "Open GitHub Releases";
+                                            clicked => { SettingsState.action("releases"); }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[28]: ItemBox {
+                                    i: 28;
+                                    ControlRow {
+                                        text: SettingsState.labels[28];
+                                        LpButton {
+                                            text: SettingsState.reinstall-label;
+                                            enabled: !SettingsState.busy-reinstall;
+                                            clicked => { SettingsState.action("reinstall"); }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if SettingsState.section-shown[7]: Section {
+                                k: 7;
+                                danger: true;
+                                if SettingsState.hits[29]: ItemBox {
+                                    i: 29;
+                                    ControlRow {
+                                        text: SettingsState.labels[29];
+                                        LpButton {
+                                            text: "Reset Launchpad…";
+                                            danger: true;
+                                            clicked => { SettingsState.action("reset-open"); }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if SettingsState.reset-open: ResetModal { }
+    }
+}

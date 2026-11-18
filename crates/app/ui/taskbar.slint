@@ -1,0 +1,570 @@
+// The taskbar: pinned row, open windows, search, recent, and where the
+// tray sits. Rust side: src/ui/taskbar.rs.
+//
+// 1.2 laid this out as a three-column CSS grid (1fr auto 1fr) and moved DOM
+// nodes between the columns for the alignment options (placeTaskbarZones /
+// placeTrayCluster in renderer.js). Here every zone is one element placed
+// along the bar's axis by arithmetic: two equal side slots around the
+// centre group, each zone pushed to the slot's start or end as styles.css did.
+import { Theme } from "theme.slint";
+import { TrayArea } from "tray.slint";
+import { Popouts, PopoutPanel } from "shared.slint";
+import { TaskbarItem, TaskbarWindow, ItemIcon, Glyph, Tile, ResultPanel } from "taskbar-parts.slint";
+
+export { TaskbarItem, TaskbarWindow }
+
+export global TaskbarState {
+    // The pinned row as shown (already reversed when mirrored).
+    in property <[TaskbarItem]> pinned;
+    in property <[TaskbarWindow]> windows;
+    in property <[TaskbarItem]> results;
+    in property <[TaskbarItem]> recent;
+    // launchpad-taskbar-align == "center"
+    in property <bool> center;
+    // launchpad-taskbar-position == "right": the whole bar is mirrored.
+    in property <bool> mirrored;
+    // launchpad-tray-align: "edge", "center" or "shared".
+    in property <string> tray-align: "edge";
+    in-out property <string> search-text;
+    // The keyboard's row in the search results.
+    in-out property <int> current;
+    // Bumped by Rust to put the focus in the search box (type-anywhere).
+    in-out property <int> focus-search;
+
+    // A pinned tile, search result or Recent row: launch it or open the island.
+    callback open-item(string);
+    // Drag to reorder: the tile's index in the row as shown, and the gap it was dropped in.
+    callback pin-dropped(int, int);
+    // The pinned tile's menu: "rename", "edit", "move", "unpin", "remove".
+    callback pin-menu(string, string);
+    callback focus-window(int);
+    // The search box's text changed: fills `results`; false for a blank query.
+    callback search(string) -> bool;
+    // The Recent button opened its popout: fill `recent`.
+    callback show-recent();
+    // ui.json key and value ("" removes it), as 1.2's localStorage calls.
+    callback set-pref(string, string);
+    callback open-settings();
+    // Never called: holds the window's event hook and icon cache (taskbar.rs).
+    callback keepalive();
+}
+
+// The pinned row, the hint, the divider and the open windows
+// (.taskbar-left), laid out along the bar.
+component ButtonsZone inherits Rectangle {
+    in property <bool> vertical;
+    // Room it has along the bar; past that the content scrolls with the wheel.
+    in property <length> room;
+    property <int> n: TaskbarState.pinned.length;
+    property <int> m: TaskbarState.windows.length;
+    property <length> pins: n > 0 ? n * 46px - 6px : 0;
+    property <bool> hint: !vertical && n == 0 && m == 0;
+    property <length> hint-len: hint ? hint-text.preferred-width : 0;
+    property <length> wins: m > 0 ? m * 42px - 2px : 0;
+    out property <length> natural: pins + hint-len + (m > 0 ? 17px + wins : 0);
+    property <length> cross: vertical ? self.width : self.height;
+    property <length> scroll;
+    property <length> max-scroll: max(0, natural - room);
+    // Drag to reorder (the pinned row's dragover / drop).
+    property <int> drag-from: -1;
+    property <bool> dragging;
+    property <int> gap-at;
+    property <length> press-at;
+
+    width: vertical ? 64px : min(natural, room);
+    height: vertical ? min(natural, room) : 60px;
+    clip: true;
+
+    function along(pos: length) -> length { pos - min(scroll, max-scroll) }
+    function gap-for(pos: length) -> int {
+        // findInsertGap: before the first tile whose middle is past the cursor.
+        max(0, min(n, floor((pos - 20px) / 46px) + 1))
+    }
+
+    TouchArea {
+        scroll-event(e) => {
+            if max-scroll <= 0 { return reject; }
+            scroll = max(0, min(max-scroll, min(scroll, max-scroll) - (e.delta-y + e.delta-x)));
+            accept
+        }
+    }
+
+    for item[i] in TaskbarState.pinned: Tile {
+        x: vertical ? 12px : root.along(i * 46px);
+        y: vertical ? root.along(i * 46px) : 10px;
+        tip: item.name;
+        opacity: root.dragging && root.drag-from == i ? 0.5 : 1;
+        ItemIcon {
+            item: item;
+            width: 26px;
+            height: 26px;
+        }
+        press(e, mx, my) => {
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                root.drag-from = i;
+                root.dragging = false;
+                root.press-at = vertical ? my : mx;
+            } else if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                if root.dragging {
+                    let pos = i * 46px + (vertical ? my : mx);
+                    let side = (vertical ? 12px + mx : 10px + my);
+                    // Dropped outside the row: nothing moves (1.2's drop never fired).
+                    if pos >= 0 && pos <= root.pins && side >= 0 && side <= root.cross {
+                        TaskbarState.pin-dropped(i, root.gap-at);
+                    }
+                }
+                root.dragging = false;
+                root.drag-from = -1;
+            } else if e.kind == PointerEventKind.cancel {
+                root.dragging = false;
+                root.drag-from = -1;
+            }
+        }
+        moved(mx, my) => {
+            if root.drag-from == i && !root.dragging && abs((vertical ? my : mx) - root.press-at) > 4px {
+                root.dragging = true;
+            }
+            if root.dragging {
+                root.gap-at = root.gap-for(i * 46px + (vertical ? my : mx));
+            }
+        }
+        clicked => {
+            if !root.dragging {
+                TaskbarState.open-item(item.id);
+            }
+        }
+        ContextMenuArea {
+            Menu {
+                MenuItem {
+                    title: "Rename";
+                    activated => { TaskbarState.pin-menu("rename", item.id); }
+                }
+                if item.app && !item.stored: MenuItem {
+                    title: "Edit…";
+                    activated => { TaskbarState.pin-menu("edit", item.id); }
+                }
+                MenuItem {
+                    title: "Move to Island…";
+                    activated => { TaskbarState.pin-menu("move", item.id); }
+                }
+                MenuItem {
+                    title: "Unpin from Taskbar";
+                    activated => { TaskbarState.pin-menu("unpin", item.id); }
+                }
+                MenuSeparator { }
+                MenuItem {
+                    title: item.app ? "Remove" : "Remove Island";
+                    activated => { TaskbarState.pin-menu("remove", item.id); }
+                }
+            }
+        }
+    }
+
+    // .pin-insert-line
+    if dragging: Rectangle {
+        property <length> at: root.gap-at < root.n ? root.gap-at * 46px : root.n * 46px - 6px;
+        x: vertical ? 6px : root.along(at);
+        y: vertical ? root.along(at) : 6px;
+        width: vertical ? 52px : 2px;
+        height: vertical ? 2px : 48px;
+        background: Theme.accent;
+        border-radius: 1px;
+    }
+
+    // .pinned-empty
+    hint-text := Text {
+        visible: root.hint;
+        x: root.along(root.pins);
+        y: (60px - self.height) / 2;
+        text: "Right-click an app or island → Pin to Taskbar";
+        color: Theme.muted;
+        font-size: 12px;
+    }
+
+    // .taskbar-divider
+    if m > 0: Rectangle {
+        x: vertical ? 16px : root.along(root.pins + root.hint-len + 8px);
+        y: vertical ? root.along(root.pins + root.hint-len + 8px) : 14px;
+        width: vertical ? 32px : 1px;
+        height: vertical ? 1px : 32px;
+        background: Theme.border;
+    }
+
+    // .open-windows-row
+    for win[i] in TaskbarState.windows: Tile {
+        property <length> at: root.pins + root.hint-len + 17px + i * 42px;
+        x: vertical ? 12px : root.along(at);
+        y: vertical ? root.along(at) : 10px;
+        tip: win.title;
+        if win.has-icon: Image {
+            source: win.icon;
+            width: 26px;
+            height: 26px;
+            image-fit: contain;
+        }
+        if !win.has-icon: Rectangle {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            background: Theme.accent;
+            Text {
+                text: win.letter;
+                color: white;
+                font-size: 12px;
+                font-weight: 600;
+            }
+        }
+        // The running-window marker (.window-tile::after), on the bar's outer edge.
+        Rectangle {
+            x: Theme.taskbar-edge == "left" ? 3px : Theme.taskbar-edge == "right" ? 34px : 13px;
+            y: vertical ? 13px : Theme.taskbar-edge == "top" ? 3px : 34px;
+            width: vertical ? 3px : 14px;
+            height: vertical ? 14px : 3px;
+            border-radius: 2px;
+            background: Theme.accent;
+        }
+        clicked => { TaskbarState.focus-window(i); }
+    }
+}
+
+export component Taskbar inherits Rectangle {
+    in property <bool> vertical;
+    // In the window's layout: 64 px wide on a side edge, 60 px tall otherwise.
+    min-width: vertical ? 64px : 0px;
+    max-width: vertical ? 64px : 100000px;
+    min-height: vertical ? 0px : 60px;
+    max-height: vertical ? 100000px : 60px;
+
+    // data-style: translucent is the panel at 55% (1.2 also blurred what was
+    // behind it; the software renderer has no backdrop blur).
+    background: Theme.taskbar-style == "transparent" ? transparent
+        : Theme.taskbar-style == "translucent" ? Theme.panel.with-alpha(0.55) : Theme.panel;
+    property <bool> solid-border: Theme.taskbar-style != "transparent";
+
+    property <string> edge: Theme.taskbar-edge;
+    property <length> len: vertical ? self.height : self.width;
+    property <length> pad: vertical ? 12px : 14px;
+    property <bool> mir: TaskbarState.mirrored;
+    property <bool> ctr: TaskbarState.center;
+    property <bool> shared: TaskbarState.tray-align == "shared";
+    property <bool> tray-center: TaskbarState.tray-align == "center";
+    property <length> t: vertical ? tray.height : tray.width;
+    // The tray inside the buttons zone ("same side as buttons"), 12px off it.
+    property <length> tray-in: shared ? t + 12px : 0;
+    property <length> search-len: vertical ? 40px : 260px;
+    // Search, 8px, Recent.
+    property <length> c0: search-len + 8px + 36px;
+    // Room the buttons get: their side slot, or (centred) what the centre
+    // group can take while staying centred.
+    // "Same side as buttons" at the edge: that column grows past half once
+    // its content needs it, up to the window less ~360px (styles.css).
+    property <length> edge-free: max(0, len - 2 * pad - 24px - c0);
+    property <length> occ: min(edge-free, min(len - 360px, max(edge-free / 2, buttons.natural + tray-in)));
+    property <length> room: max(0, ctr
+        ? len - 2 * pad - 24px - c0 - 12px - tray-in - (shared ? 0 : t)
+        : shared ? occ - tray-in : edge-free / 2);
+    property <length> a: buttons.natural > room ? room : buttons.natural;
+    property <length> group: ctr ? c0 + 12px + a + tray-in : c0;
+    // The two outer columns. Centred, the tray's column keeps at least the
+    // tray's length and the empty one gives way first, so a full centre
+    // group drifts toward it (styles.css's minmax columns).
+    property <length> free: max(0, len - 2 * pad - 24px - group);
+    property <length> tray-col: shared ? free / 2 : max(min(t, free), free / 2);
+    property <length> col1: ctr ? (mir ? tray-col : free - tray-col) : shared ? (mir ? free - occ : occ) : free / 2;
+    property <length> col3: free - col1;
+    property <length> slot2: len - pad - col3;
+    property <length> cs: pad + col1 + 12px;
+
+    // Along-the-bar starts of each zone.
+    property <length> a-at: ctr ? (mir ? cs + tray-in : cs + c0 + 12px) : (mir ? len - pad - a : pad);
+    property <length> search-at: ctr && mir ? cs + tray-in + a + 12px : cs;
+    property <length> tray-at: shared
+        ? (ctr ? (mir ? cs : a-at + a + 12px) : (mir ? slot2 : pad + col1 - t))
+        : (mir ? (tray-center ? pad + col1 - t : pad) : (tray-center ? slot2 : len - pad - t));
+
+    // Outside click closes the search results (and folds the side bar's box).
+    if Popouts.open == "search" || (vertical && search-input.has-focus): TouchArea {
+        x: -root.absolute-position.x;
+        y: -root.absolute-position.y;
+        width: 100000px;
+        height: 100000px;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                Popouts.open = "";
+                if vertical {
+                    search-input.clear-focus();
+                }
+            }
+        }
+    }
+
+    // Right-clicking the bar (but not the search box) offers its layout
+    // choices (showTaskbarContextMenu). Only the chosen item is checkable
+    // (a native menu marks only checkable items), and clicking it again
+    // puts back the `checked` the click toggled off.
+    ContextMenuArea {
+        enabled: !search-hover.has-hover;
+        Menu {
+            MenuItem {
+                title: "Taskbar on Bottom";
+                checkable: root.edge == "bottom";
+                checked: root.edge == "bottom";
+                activated => { self.checked = true; TaskbarState.set-pref("launchpad-taskbar-edge", ""); }
+            }
+            MenuItem {
+                title: "Taskbar on Top";
+                checkable: root.edge == "top";
+                checked: root.edge == "top";
+                activated => { self.checked = true; TaskbarState.set-pref("launchpad-taskbar-edge", "top"); }
+            }
+            MenuItem {
+                title: "Taskbar on Left";
+                checkable: root.edge == "left";
+                checked: root.edge == "left";
+                activated => { self.checked = true; TaskbarState.set-pref("launchpad-taskbar-edge", "left"); }
+            }
+            MenuItem {
+                title: "Taskbar on Right";
+                checkable: root.edge == "right";
+                checked: root.edge == "right";
+                activated => { self.checked = true; TaskbarState.set-pref("launchpad-taskbar-edge", "right"); }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "Align to Edge";
+                checkable: !TaskbarState.center;
+                checked: !TaskbarState.center;
+                activated => { self.checked = true; TaskbarState.set-pref("launchpad-taskbar-align", ""); }
+            }
+            MenuItem {
+                title: "Align to Center";
+                checkable: TaskbarState.center;
+                checked: TaskbarState.center;
+                activated => { self.checked = true; TaskbarState.set-pref("launchpad-taskbar-align", "center"); }
+            }
+            MenuSeparator { }
+            // "Left/Right" button sides read as top/bottom on a vertical taskbar.
+            MenuItem {
+                title: vertical ? "Buttons at Top" : "Buttons at Left";
+                checkable: !TaskbarState.mirrored;
+                checked: !TaskbarState.mirrored;
+                activated => { self.checked = true; TaskbarState.set-pref("launchpad-taskbar-position", ""); }
+            }
+            MenuItem {
+                title: vertical ? "Buttons at Bottom" : "Buttons at Right";
+                checkable: TaskbarState.mirrored;
+                checked: TaskbarState.mirrored;
+                activated => { self.checked = true; TaskbarState.set-pref("launchpad-taskbar-position", "right"); }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "Tray: Snap to Edge";
+                checkable: TaskbarState.tray-align == "edge";
+                checked: TaskbarState.tray-align == "edge";
+                activated => { self.checked = true; TaskbarState.set-pref("launchpad-tray-align", ""); }
+            }
+            MenuItem {
+                title: "Tray: Snap to Center";
+                checkable: TaskbarState.tray-align == "center";
+                checked: TaskbarState.tray-align == "center";
+                activated => { self.checked = true; TaskbarState.set-pref("launchpad-tray-align", "center"); }
+            }
+            MenuItem {
+                title: "Tray: Same Side as Buttons";
+                checkable: TaskbarState.tray-align == "shared";
+                checked: TaskbarState.tray-align == "shared";
+                activated => { self.checked = true; TaskbarState.set-pref("launchpad-tray-align", "shared"); }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "Taskbar Settings…";
+                activated => { TaskbarState.open-settings(); }
+            }
+        }
+
+        buttons := ButtonsZone {
+            vertical: root.vertical;
+            room: root.room;
+            x: vertical ? 0 : root.a-at;
+            y: vertical ? root.a-at : 0;
+        }
+
+        tray := TrayArea {
+            vertical: root.vertical;
+            x: vertical ? (64px - self.width) / 2 : root.tray-at;
+            y: vertical ? root.tray-at : (60px - self.height) / 2;
+        }
+
+        // Recent (.recent-btn: 1.2's plain button look).
+        recent-btn := Rectangle {
+            x: vertical ? 14px : root.search-at + root.search-len + 8px;
+            y: vertical ? root.search-at + root.search-len + 8px : 12px;
+            width: 36px;
+            height: 36px;
+            background: Theme.panel;
+            border-width: 1px;
+            border-color: recent-ta.has-hover ? Theme.accent : Theme.border;
+            border-radius: 8px;
+            Glyph {
+                name: "recent";
+                width: 19px;
+                height: 19px;
+            }
+            recent-ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    if Popouts.open == "recent" {
+                        Popouts.open = "";
+                    } else {
+                        TaskbarState.show-recent();
+                        Popouts.open = "recent";
+                    }
+                }
+            }
+            Tooltip { text: @markdown("Recent"); }
+
+            // Hangs off the button's right edge, above it (below for a top
+            // bar, beside it for a side bar), kept 8px inside the window.
+            if Popouts.open == "recent": PopoutPanel {
+                anchor-x: parent.absolute-position.x;
+                anchor-y: parent.absolute-position.y;
+                want-x: root.edge == "left" ? parent.width + 8px : root.edge == "right" ? -8px - self.width : parent.width - self.width;
+                want-y: root.edge == "left" || root.edge == "right" ? 0 : root.edge == "top" ? parent.height + 8px : -8px - self.height;
+                width: recent-panel.width;
+                height: recent-panel.height;
+                recent-panel := ResultPanel {
+                    items: TaskbarState.recent;
+                    empty-text: "Nothing launched yet.";
+                    chosen(item) => {
+                        Popouts.open = "";
+                        TaskbarState.open-item(item.id);
+                    }
+                }
+            }
+        }
+
+        // Search everything. On a side bar it's a magnifier that slides
+        // out over the canvas while focused.
+        search-hover := TouchArea {
+            property <bool> open: vertical && search-input.has-focus;
+            property <length> w: vertical ? (open ? 300px : 40px) : root.search-len;
+            x: vertical ? (root.edge == "right" ? 52px - self.w : 12px) : root.search-at;
+            y: vertical ? root.search-at : 12px;
+            width: self.w;
+            height: vertical ? 40px : 36px;
+            mouse-cursor: vertical && !open ? pointer : text;
+            clicked => { search-input.focus(); }
+
+            Rectangle {
+                background: Theme.bg;
+                border-width: 1px;
+                border-color: Theme.border;
+                border-radius: 8px;
+                drop-shadow-blur: search-hover.open ? 24px : 0;
+                drop-shadow-offset-y: 8px;
+                drop-shadow-color: search-hover.open ? #00000066 : transparent;
+            }
+            if vertical && !search-hover.open: Glyph {
+                name: "search";
+                width: 18px;
+                height: 18px;
+            }
+            Text {
+                x: 13px;
+                visible: search-input.text == "" && (!vertical || search-hover.open);
+                text: "Search everything…";
+                color: Theme.muted;
+                font-size: 14px;
+                vertical-alignment: center;
+                height: parent.height;
+            }
+            search-input := TextInput {
+                x: 13px;
+                width: parent.width - 26px;
+                height: parent.height;
+                vertical-alignment: center;
+                single-line: true;
+                font-size: 14px;
+                // Leftover text stays, hidden, while the side bar's box is folded.
+                color: vertical && !search-hover.open ? transparent : Theme.text;
+                selection-background-color: Theme.accent;
+                text <=> TaskbarState.search-text;
+                edited => {
+                    TaskbarState.current = 0;
+                    if TaskbarState.search(self.text) {
+                        Popouts.open = "search";
+                    } else if Popouts.open == "search" {
+                        Popouts.open = "";
+                    }
+                }
+                changed has-focus => {
+                    if self.has-focus && TaskbarState.search(self.text) {
+                        Popouts.open = "search";
+                    }
+                }
+                key-pressed(e) => {
+                    if Popouts.open == "search" && e.text == Key.DownArrow {
+                        TaskbarState.current = min(TaskbarState.results.length - 1, TaskbarState.current + 1);
+                        return accept;
+                    }
+                    if Popouts.open == "search" && e.text == Key.UpArrow {
+                        TaskbarState.current = max(0, TaskbarState.current - 1);
+                        return accept;
+                    }
+                    if e.text == Key.Return {
+                        if Popouts.open == "search" && TaskbarState.current < TaskbarState.results.length {
+                            root.choose(TaskbarState.results[max(0, TaskbarState.current)]);
+                        }
+                        return accept;
+                    }
+                    if e.text == Key.Escape {
+                        Popouts.open = "";
+                        if vertical {
+                            self.clear-focus();
+                        }
+                        return accept;
+                    }
+                    reject
+                }
+            }
+
+            // #searchResults: off the box's right edge, above it (below for a
+            // top bar, under the slid-out box for a side bar), nudged back
+            // inside the bar's length if it would run off (positionPopoutToFit).
+            if Popouts.open == "search": ResultPanel {
+                property <length> abs-along: vertical ? search-hover.y : search-hover.x;
+                property <length> want-x: vertical ? (root.edge == "right" ? parent.width - 320px : 0) : parent.width - 320px;
+                property <length> want-y: vertical || root.edge == "top" ? parent.height + 8px : -8px - self.height;
+                x: vertical ? want-x : max(8px - abs-along, min(root.len - 8px - 320px - abs-along, want-x));
+                y: vertical ? min(root.len - 8px - self.height - abs-along, want-y) : want-y;
+                items: TaskbarState.results;
+                empty-text: "No matches.";
+                current: TaskbarState.current;
+                chosen(item) => { root.choose(item); }
+            }
+        }
+    }
+
+    // selectSearchResult: close, clear, blur, then open it.
+    function choose(item: TaskbarItem) {
+        Popouts.open = "";
+        TaskbarState.search-text = "";
+        TaskbarState.search("");
+        search-input.clear-focus();
+        TaskbarState.open-item(item.id);
+    }
+
+    changed edge => { Popouts.open = ""; }
+    property <int> focus-request: TaskbarState.focus-search;
+    changed focus-request => { search-input.focus(); }
+
+    // The 1px border on the side facing the canvas.
+    Rectangle {
+        visible: root.solid-border;
+        x: root.edge == "left" ? parent.width - 1px : 0;
+        y: root.edge == "top" ? parent.height - 1px : 0;
+        width: vertical ? 1px : parent.width;
+        height: vertical ? parent.height : 1px;
+        background: Theme.border;
+    }
+}

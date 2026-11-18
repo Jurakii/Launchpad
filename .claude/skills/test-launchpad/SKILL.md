@@ -23,8 +23,10 @@ Make the data folder and seed hotkeys that can't collide with a running copy (Po
 ```powershell
 $data = Join-Path $env:TEMP "launchpad-test-$(Get-Date -Format yyyyMMdd-HHmmss)"
 New-Item -ItemType Directory -Force $data | Out-Null
-'{"hotkey":"CommandOrControl+Alt+F11","organizerHotkey":"CommandOrControl+Alt+F12","notifyUpdates":false}' | Set-Content -Encoding utf8 "$data\settings.json"
+[IO.File]::WriteAllText("$data\settings.json", '{"hotkey":"CommandOrControl+Alt+F11","organizerHotkey":"CommandOrControl+Alt+F12","notifyUpdates":false}')
 ```
+
+Write seeded JSON without a BOM, as above. Windows PowerShell's `Set-Content -Encoding utf8` adds one, and both builds then set the file aside as corrupt (`settings.corrupt-….json`), so the test runs on default settings, including the real Ctrl+Space hotkey.
 
 For X1 (first run) use an empty folder instead. For D7 (old data) copy a real 1.2.2 data folder into it, never point at the original.
 
@@ -42,7 +44,7 @@ Both builds take the same `--user-data-dir` flag on purpose. If the Rust build d
 Stop and report at the first layer that fails badly; later layers aren't worth running on a broken build.
 
 1. **Unit tests.** `cargo test -p launchpad-core` (Rust) or `npm test` (Electron). All must pass.
-2. **Probes (Rust only).** `launchpad.exe --probe <area>` prints JSON for `audio`, `windows`, `wifi`, `bluetooth`, `drives`, `displays`. Compare with what Windows shows (Settings, Task Manager, `Get-Volume`, `netsh wlan show interfaces`). Open a Notepad titled with `Café 日本` and check the title survives.
+2. **Probes (Rust only).** `launchpad.exe` is a GUI exe, so Windows PowerShell doesn't wait for it or show its output unless it's piped: `& $exe --probe windows | Out-String` (Bash waits on its own). `launchpad.exe --probe <area>` prints JSON for `audio`, `windows`, `wifi`, `bluetooth`, `drives`, `displays`. Compare with what Windows shows (Settings, Task Manager, `Get-Volume`, `netsh wlan show interfaces`). Open a Notepad titled with `Café 日本` and check the title survives.
 3. **Features.** Work through the sections of `features.md` that were asked for (all of them for a release or the Phase 7 parity pass).
    - Drive the UI with computer use: the Rust UI is native, so there's no page to script. Take a screenshot before asserting anything about what's on screen.
    - Prefer checking the result outside the UI: read `apps.json`, `settings.json`, `layouts.json` in `$data`; look for the marker file a launched script wrote; `Get-Process notepad`; a window's position from a screenshot.

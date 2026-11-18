@@ -96,7 +96,7 @@ Tags: **[confirm]** changes the machine or can't be undone, so stop at the confi
 | W5 | USB list | A plugged-in USB drive is listed with its name **[hardware]** |
 | W6 | USB eject | Eject removes it safely **[confirm] [hardware]** |
 | W7 | Bluetooth list | Paired devices with connected state **[hardware]** |
-| W8 | Bluetooth disconnect | Disconnects the chosen device **[confirm] [hardware]** |
+| W8 | Bluetooth settings link | "Bluetooth settings…" opens Windows' Bluetooth page. (1.2's Disconnect button is gone in 1.3: it needed admin rights and never worked.) |
 | W9 | Wi-Fi list | Networks with signal and the current one marked **[hardware]** |
 | W10 | Wi-Fi connect / disconnect | Works for a saved network **[confirm] [hardware]**; Network settings opens Windows' page |
 | W11 | Power | Menu shows Shut down, Restart, Sleep; each asks first. Never go past the question without a person saying yes **[confirm]** |

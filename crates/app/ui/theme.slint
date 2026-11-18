@@ -1,0 +1,30 @@
+// Colours and the visual prefs every part reads. Rust sets the `in`
+// properties from ui.json (src/ui/prefs.rs) each time the window is made.
+// Values mirror renderer/styles.css's :root tokens.
+
+export global Theme {
+    in property <bool> light: false;
+    // ui.json "launchpad-accent"; transparent = the theme's own.
+    in property <color> accent-override: transparent;
+
+    out property <color> bg: light ? #f2f3f6 : #16181d;
+    out property <color> panel: light ? #ffffff : #1e2128;
+    out property <color> border: light ? #dde1e8 : #2b2f38;
+    out property <color> text: light ? #1b1d22 : #e8e9ec;
+    out property <color> muted: light ? #6b7280 : #9aa0ac;
+    out property <color> accent: accent-override.alpha > 0 ? accent-override : (light ? #3b6fe0 : #5b8cff);
+    out property <color> danger: light ? #e0394f : #ff5b6b;
+
+    out property <string> font: "Segoe UI";
+    out property <length> font-size: 13px;
+
+    // "bottom" (default), "top", "left", "right": launchpad-taskbar-edge.
+    in property <string> taskbar-edge: "bottom";
+    out property <bool> taskbar-vertical: taskbar-edge == "left" || taskbar-edge == "right";
+    // launchpad-taskbar-style / launchpad-topbar-style: "solid" (default) or the others styles.css has.
+    in property <string> taskbar-style: "solid";
+    in property <string> topbar-style: "solid";
+    // launchpad-hide-add-buttons / launchpad-hide-app-names.
+    in property <bool> hide-add-buttons: false;
+    in property <bool> hide-app-names: false;
+}

@@ -1,0 +1,177 @@
+// Widgets drawn as 1.2 drew them (renderer/styles.css): its buttons, the
+// ✓/✕ switch, the overlay and card every modal sits in. Shared by
+// modals.slint and settings.slint.
+import { Theme } from "theme.slint";
+import { LineEdit } from "std-widgets.slint";
+
+// `button`, `button.primary`, `button.danger`, `button.danger-solid`.
+export component LpButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> danger;
+    in property <bool> danger-solid;
+    in property <bool> enabled: true;
+    // `.settings-update-row button`: 12px text, 4px 10px padding.
+    in property <bool> small;
+    // `.settings-hotkey-row button.capturing`.
+    in property <bool> active;
+    in property <length> min-w: 0px;
+    callback clicked;
+    border-radius: 8px;
+    border-width: 1px;
+    min-width: max(min-w, l.preferred-width);
+    background: primary ? Theme.accent : danger-solid ? Theme.danger : danger ? transparent : Theme.panel;
+    border-color: primary ? Theme.accent : (danger || danger-solid) ? Theme.danger : (active || (ta.has-hover && enabled)) ? Theme.accent : Theme.border;
+    // 1.2 dims only `button.danger-solid:disabled`.
+    opacity: enabled || !danger-solid ? 1 : 0.45;
+    l := HorizontalLayout {
+        padding-left: small ? 10px : 14px;
+        padding-right: self.padding-left;
+        padding-top: small ? 4px : 8px;
+        padding-bottom: self.padding-top;
+        Text {
+            text: root.text;
+            font-size: small ? 12px : 14px;
+            color: (primary || danger-solid) ? #fff : danger ? Theme.danger : active ? Theme.accent : Theme.text;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// `.switch-row input`: a 52x30 track with a ✓ / ✕ knob.
+export component LpSwitch inherits Rectangle {
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+    width: 52px;
+    height: 30px;
+    border-radius: 9px;
+    background: checked ? Theme.accent : Theme.border;
+    animate background { duration: 150ms; }
+    Rectangle {
+        x: root.checked ? 25px : 3px;
+        y: 3px;
+        width: 24px;
+        height: 24px;
+        border-radius: 7px;
+        background: root.checked ? #fff : Theme.muted;
+        animate x, background { duration: 150ms; }
+        Text {
+            text: root.checked ? "✓" : "✕";
+            font-size: 14px;
+            font-weight: 700;
+            color: root.checked ? Theme.accent : Theme.border;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.toggled(!root.checked); }
+    }
+}
+
+// `<label class="switch-row">`: the label on the left, the switch on the
+// right; the whole row toggles it.
+export component SwitchRow inherits Rectangle {
+    in property <string> text;
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+    opacity: enabled ? 1 : 0.5;
+    HorizontalLayout {
+        spacing: 12px;
+        padding-top: 2px;
+        padding-bottom: 2px;
+        Text {
+            text: root.text;
+            font-size: 14px;
+            color: Theme.text;
+            vertical-alignment: center;
+            wrap: word-wrap;
+            horizontal-stretch: 1;
+        }
+        LpSwitch {
+            checked: root.checked;
+            enabled: root.enabled;
+            toggled(v) => { root.toggled(v); }
+        }
+    }
+    TouchArea {
+        enabled: root.enabled;
+        clicked => { root.toggled(!root.checked); }
+    }
+}
+
+// `.modal label`: a muted caption above its field.
+export component Caption inherits Text {
+    font-size: 13px;
+    color: Theme.muted;
+}
+
+// A captioned single-line field.
+export component Field inherits VerticalLayout {
+    in property <string> label;
+    in property <string> placeholder;
+    in-out property <string> text;
+    in property <bool> enabled: true;
+    callback edited(string);
+    callback accepted();
+    spacing: 4px;
+    Caption { text: root.label; }
+    le := LineEdit {
+        // Shrinks beside buttons, as 1.2's flex input did.
+        min-width: 60px;
+        text <=> root.text;
+        placeholder-text: root.placeholder;
+        enabled: root.enabled;
+        edited(t) => { root.edited(t); }
+        accepted => { root.accepted(); }
+    }
+    public function focus-field() { le.focus(); }
+    public function select-field() { le.select-all(); }
+}
+
+// `.modal-overlay` + `.modal`: a dimmed backdrop (a click on it closes)
+// and a centred card that keeps its own clicks.
+export component Overlay inherits Rectangle {
+    in property <length> card-width: 420px;
+    // 0 = as tall as the content, up to 86% of the window.
+    in property <length> card-height: 0px;
+    in property <length> card-padding: 22px;
+    callback backdrop-clicked;
+    width: 100%;
+    height: 100%;
+    background: #0000008c;
+    TouchArea {
+        clicked => { root.backdrop-clicked(); }
+    }
+    card := Rectangle {
+        width: min(root.card-width, root.width - 32px);
+        height: root.card-height > 0 ? min(root.card-height, root.height * 0.86) : min(inner.preferred-height, root.height * 0.86);
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.border;
+        border-radius: 12px;
+        clip: true;
+        TouchArea { }
+        inner := VerticalLayout {
+            padding: root.card-padding;
+            @children
+        }
+    }
+}
+
+// `.modal h2`.
+export component Heading inherits Text {
+    font-size: 20px;
+    font-weight: 700;
+    color: Theme.text;
+}

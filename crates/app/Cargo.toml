@@ -10,6 +10,11 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # Named directly so `#[windows::core::implement]` (COM callbacks) resolves:
 # its expansion refers to `::windows_core`. Already in the tree via `windows`.
 windows-core = "0.62"
+# Phase 0 settled the features: the software renderer on winit (RUST_PORT_PLAN.md §3).
+slint = { version = "1.19", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software", "raw-window-handle-06", "unstable-winit-030"] }
+
+[build-dependencies]
+slint-build = "1.19"
 
 # One list for the whole app: the Phase 2 modules are written in parallel,
 # so features are added here, not by each module.
@@ -21,18 +26,22 @@ features = [
     "Win32_Devices_FunctionDiscovery",
     "Win32_Devices_Properties",
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_Graphics_Imaging",
     "Win32_Media_Audio",
     "Win32_Media_Audio_Endpoints",
+    "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
     "Win32_NetworkManagement_WiFi",
     "Win32_Networking_WinHttp",
+    "Win32_Networking_WinSock",
     "Win32_Security",
     "Win32_Security_Cryptography",
     "Win32_Storage_EnhancedStorage",
     "Win32_Storage_FileSystem",
+    "Win32_Storage_Xps",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Console",

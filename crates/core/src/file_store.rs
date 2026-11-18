@@ -304,7 +304,9 @@ fn path_text(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
 
-fn new_entry(dir: &Path, apps: &[Entry], stored: &Stored, opts: &StoreOptions) -> Entry {
+/// The apps.json entry for a finished `store_from_path`, on the free cell
+/// nearest the drop (for a caller that copies off the UI thread, then adds).
+pub fn new_entry(dir: &Path, apps: &[Entry], stored: &Stored, opts: &StoreOptions) -> Entry {
     let parent = opts.parent_id.as_deref().filter(|p| !p.is_empty()).map(Value::from);
     let occupied = layout::sibling_footprints(apps, parent.as_ref(), Some(&Value::from(stored.id.as_str())));
     let pos = layout::find_nearest_free_cell(&occupied, opts.grid_x, opts.grid_y, 1.0, 1.0);

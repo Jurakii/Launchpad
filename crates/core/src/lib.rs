@@ -19,14 +19,17 @@ pub(crate) mod test_util;
 pub mod time;
 
 pub use error::{Error, Result};
+pub use js::truthy;
 
 pub mod backup;
 pub mod defaults;
 pub mod file_store;
+pub mod items;
 pub mod layout;
 pub mod reset;
 pub mod settings;
 pub mod store;
+pub mod taskbar;
 
 pub mod organizer;
 
@@ -34,3 +37,4 @@ pub mod media;
 
 pub mod favicon;
 pub mod update;
+pub mod ui_prefs;

@@ -1,12 +1,14 @@
-//! Launchpad's native build. Phase 2 (RUST_PORT_PLAN.md §5): the Windows
-//! layer, driven from `--probe` until the UI arrives in Phase 3.
+//! Launchpad's native build (RUST_PORT_PLAN.md). `ui` is the app; `win` is
+//! the Windows layer, also driven directly from `--probe`.
 //!
 //! `launchpad --probe <area> [action] [args…]` prints JSON on stdout and
 //! exits 0, or prints `{"error": "…"}` and exits 1. With no action a probe
 //! only reads; anything that changes the machine needs an explicit action.
 
-// shortcut: console subsystem so probe output shows in a terminal. Phase 3
-// switches to the windows subsystem and attaches to the parent console for --probe.
+// A GUI exe: no console window when started from Explorer or at login.
+// --probe attaches to the console it was started from, if any.
+#![windows_subsystem = "windows"]
+mod ui;
 mod win;
 
 use serde_json::{json, Value};
@@ -33,19 +35,21 @@ const PROBES: &[(&str, Probe, &str)] = &[
     ("autostart", win::autostart::probe, "start with Windows"),
     ("dialogs", win::dialogs::probe, "file and folder pickers"),
     ("notify", win::notify::probe, "system notifications"),
+    ("capture", win::capture::probe, "test tooling: picture of a window, posted clicks and keys"),
 ];
 
 fn main() {
     win::init_process();
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        Some("--probe") => std::process::exit(run_probe(&args[1..])),
-        _ => {
-            eprintln!("Launchpad {}: no UI yet (Phase 3). Try --probe.", env!("CARGO_PKG_VERSION"));
-            for (name, _, what) in PROBES {
-                eprintln!("  --probe {name:<10} {what}");
-            }
+        Some("--probe") => {
+            attach_console();
+            std::process::exit(run_probe(&args[1..]))
         }
+        _ => std::process::exit(ui::run(&args).unwrap_or_else(|e| {
+            eprintln!("Launchpad couldn't start: {e}");
+            1
+        })),
     }
 }
 
@@ -67,6 +71,15 @@ fn run_probe(args: &[String]) -> i32 {
             print(&json!({ "error": e.to_string() }));
             1
         }
+    }
+}
+
+/// Output to the terminal that started us. Redirected output (a pipe or a
+/// file) already works without it; this covers a plain console.
+fn attach_console() {
+    use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+    unsafe {
+        let _ = AttachConsole(ATTACH_PARENT_PROCESS);
     }
 }
 

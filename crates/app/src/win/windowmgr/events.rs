@@ -61,6 +61,9 @@ pub enum WmEvent {
     /// A window's move/size loop ended. `cancelled`: Esc, seen as the mouse
     /// button still held.
     MoveEnd { hwnd: i64, cancelled: bool },
+    /// Some other app's window was shown, hidden or closed (the taskbar's
+    /// open-windows row). Bursts arrive as one event, a moment after.
+    WindowsChanged,
 }
 
 impl WmEvent {
@@ -71,6 +74,7 @@ impl WmEvent {
                                               "title": f.title, "exe": f.exe, "snappable": f.snappable }),
             WmEvent::DragStart { hwnd } => json!({ "ev": "dragStart", "hwnd": hwnd }),
             WmEvent::MoveEnd { hwnd, cancelled } => json!({ "ev": "moveEnd", "hwnd": hwnd, "cancelled": cancelled }),
+            WmEvent::WindowsChanged => json!({ "ev": "windowsChanged" }),
         }
     }
 }
@@ -146,7 +150,13 @@ struct State {
     fg: HWND,
     fg_pid: u32,
     name_hook: HWINEVENTHOOK,
+    // Pending WindowsChanged: the coalescing timer's id, 0 when none.
+    changed_timer: usize,
 }
+
+/// How long after the first show/hide/destroy WindowsChanged is sent: a
+/// window opening fires several, and menus or tooltips fire them in bursts.
+const CHANGED_DELAY_MS: u32 = 150;
 
 thread_local! {
     static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
@@ -177,6 +187,7 @@ fn run(cb: Rc<dyn Fn(WmEvent)>, tx: mpsc::Sender<Result<u32>>) {
     let mut fixed = [
         hook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, 0, 0),
         hook(EVENT_SYSTEM_MOVESIZESTART, EVENT_SYSTEM_MOVESIZEEND, 0, WINEVENT_SKIPOWNPROCESS),
+        hook(EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE, 0, WINEVENT_SKIPOWNPROCESS),
     ];
     if fixed.iter().any(|h| h.is_invalid()) {
         fixed.iter_mut().for_each(unhook);
@@ -193,6 +204,7 @@ fn run(cb: Rc<dyn Fn(WmEvent)>, tx: mpsc::Sender<Result<u32>>) {
             fg: HWND::default(),
             fg_pid: 0,
             name_hook: HWINEVENTHOOK::default(),
+            changed_timer: 0,
         })
     });
     let _ = tx.send(Ok(unsafe { GetCurrentThreadId() }));
@@ -246,6 +258,21 @@ unsafe extern "system" fn on_event(_: HWINEVENTHOOK, ev: u32, h: HWND, id_object
     cb(event);
 }
 
+unsafe extern "system" fn on_changed_timer(_: HWND, _: u32, id: usize, _: u32) {
+    unsafe {
+        let _ = KillTimer(None, id);
+    }
+    let cb = STATE.with(|cell| {
+        let mut guard = cell.try_borrow_mut().ok()?;
+        let s = guard.as_mut()?;
+        s.changed_timer = 0;
+        Some(s.cb.clone())
+    });
+    if let Some(cb) = cb {
+        cb(WmEvent::WindowsChanged);
+    }
+}
+
 enum Out {
     Nothing,
     Foreground(HWND, u32),
@@ -267,6 +294,14 @@ fn decide(s: &mut State, ev: u32, h: HWND) -> Out {
         }
         EVENT_OBJECT_NAMECHANGE if h == s.fg => Out::Foreground(h, s.fg_pid),
         EVENT_OBJECT_NAMECHANGE => Out::Nothing,
+        EVENT_OBJECT_DESTROY | EVENT_OBJECT_SHOW | EVENT_OBJECT_HIDE => {
+            // Only top-level windows (a destroyed one can't be asked; it costs one extra event).
+            let top = ev == EVENT_OBJECT_DESTROY || unsafe { GetAncestor(h, GA_PARENT) } == unsafe { GetDesktopWindow() };
+            if top && s.changed_timer == 0 {
+                s.changed_timer = unsafe { SetTimer(None, 0, CHANGED_DELAY_MS, Some(on_changed_timer)) };
+            }
+            Out::Nothing
+        }
         EVENT_OBJECT_LOCATIONCHANGE => {
             if h != s.pending {
                 return Out::Nothing; // other windows of the same app

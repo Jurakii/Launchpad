@@ -1,0 +1,770 @@
+// The top bar (back, breadcrumb, buttons) and the grid canvas: tiles,
+// islands, drag, marquee, keyboard, context menus. Rust side: src/ui/grid.rs,
+// which owns all the state; this file only draws it and reports input.
+// Sizes follow renderer/styles.css (.toolbar, .tile, .island-card…).
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export struct GridCrumb { id: string, name: string }
+
+// An icon inside an expanded island's card.
+export struct GridMini {
+    id: string,
+    name: string,
+    icon: image,
+    // 0 image, 1 island, 2 stored folder, 3 Recycle Bin, 4 placeholder, 5 "+N more"
+    glyph: int,
+    color: color,
+    x: length,
+    y: length,
+}
+
+// A tile or an expanded island at the open level, at canvas pixels.
+export struct GridItem {
+    id: string,
+    card: bool,
+    name: string,
+    tip: string,
+    icon: image,
+    glyph: int,
+    color: color,
+    x: length,
+    y: length,
+    w: length,
+    h: length,
+    missing: bool,
+    stored: bool,
+    thumb: bool,
+    selected: bool,
+    dragged: bool,
+    show-names: bool,
+    icon-size: length,
+    minis: [GridMini],
+    empty-card: bool,
+}
+
+export struct GridMenuEntry { id: string, title: string, enabled: bool, checked: bool, danger: bool }
+
+export global GridState {
+    in property <[GridCrumb]> crumbs: [{ id: "", name: "Home" }];
+    in property <bool> fullscreen;
+    in property <[GridItem]> items;
+    in property <length> content-w;
+    in property <length> content-h;
+    in property <bool> empty;
+    in property <string> empty-title;
+    in property <bool> in-island;
+    // Keyboard selection (index into items), -1 none.
+    in property <int> focused: -1;
+    // Asked by Rust to scroll so this canvas rect is in view (keyboard).
+    in property <length> reveal-y: -1px;
+    in property <length> reveal-h;
+    // Tile drag.
+    in property <bool> dragging;
+    in property <length> drag-dx;
+    in property <length> drag-dy;
+    in property <string> drop-target;
+    in property <length> drag-wx;
+    in property <length> drag-wy;
+    in-out property <int> drop-crumb: -1;
+    // Marquee, canvas pixels.
+    in property <bool> marquee;
+    in property <length> mq-x;
+    in property <length> mq-y;
+    in property <length> mq-w;
+    in property <length> mq-h;
+    // Island resize: the card's live size, the snapped size and the guide's cell.
+    in property <string> resizing;
+    in property <length> rs-w;
+    in property <length> rs-h;
+    in property <int> snap-w;
+    in property <int> snap-h;
+    in property <length> guide-x;
+    in property <length> guide-y;
+    // Files dragged over the window from Explorer.
+    in property <bool> file-drag;
+    // The context menu's rows (renderer.js showItemContextMenu's order).
+    in property <[GridMenuEntry]> menu-a;
+    in property <bool> menu-sep;
+    in property <[GridMenuEntry]> menu-move;
+    in property <[GridMenuEntry]> menu-b;
+    in property <[GridMenuEntry]> menu-c;
+    // The canvas origin in window coordinates, for Explorer drops.
+    in-out property <length> origin-x;
+    in-out property <length> origin-y;
+    in-out property <length> view-w;
+    in-out property <length> grid-x;
+    in-out property <length> grid-y;
+    in-out property <length> view-h;
+
+    callback crumb(id: string);
+    callback back();
+    callback settings();
+    callback new-island();
+    callback add-app();
+    callback toggle-fullscreen();
+    callback media();
+    callback layouts();
+    callback resized();
+    // Pointer on an item (window coordinates).
+    callback tap(id: string, toggle: bool);
+    callback edit(id: string);
+    callback collapse(id: string);
+    callback drag-start(id: string, wx: length, wy: length);
+    callback drag-move(wx: length, wy: length);
+    callback drag-end(wx: length, wy: length);
+    callback marquee-start(wx: length, wy: length, additive: bool);
+    callback marquee-move(wx: length, wy: length);
+    callback marquee-end();
+    callback resize-start(id: string, wx: length, wy: length);
+    callback resize-move(wx: length, wy: length);
+    callback resize-end();
+    // Fill the menu-* rows for an item ("" = the canvas); then the menu shows.
+    callback menu-for(id: string, wx: length, wy: length);
+    callback menu-pick(id: string);
+    callback key(text: string, ctrl: bool, alt: bool, shift: bool) -> bool;
+}
+
+// The SVG paths of renderer/icons and renderer.js's drawn glyphs.
+component Glyph inherits Path {
+    in property <string> d;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    commands: d;
+}
+
+component IconButton inherits Rectangle {
+    in property <string> tip;
+    callback clicked;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: ta.has-hover ? Theme.accent : Theme.border;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    @children
+}
+
+component BarButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    callback clicked;
+    height: 36px;
+    min-width: label.preferred-width + 28px;
+    border-radius: 8px;
+    background: primary ? Theme.accent : Theme.panel;
+    border-width: 1px;
+    border-color: primary || ta.has-hover ? Theme.accent : Theme.border;
+    label := Text {
+        text: root.text;
+        font-size: 14px;
+        color: primary ? #fff : Theme.text;
+    }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+// The one context menu (Slint draws it; 1.2's was custom HTML).
+component ItemMenu inherits ContextMenuArea {
+    enabled: false;
+    Menu {
+        for e in GridState.menu-a: MenuItem {
+            title: e.title;
+            enabled: e.enabled;
+            icon: e.danger ? @image-url("grid-trash.svg") : @image-url("");
+            activated => { GridState.menu-pick(e.id); }
+        }
+        if GridState.menu-sep: MenuSeparator { }
+        if GridState.menu-move.length > 0: Menu {
+            title: "Move to";
+            for e in GridState.menu-move: MenuItem {
+                title: e.title;
+                enabled: e.enabled;
+                checkable: true;
+                checked: e.checked;
+                activated => { GridState.menu-pick(e.id); }
+            }
+        }
+        for e in GridState.menu-b: MenuItem {
+            title: e.title;
+            enabled: e.enabled;
+            activated => { GridState.menu-pick(e.id); }
+        }
+        if GridState.menu-c.length > 0: MenuSeparator { }
+        for e in GridState.menu-c: MenuItem {
+            title: e.title;
+            activated => { GridState.menu-pick(e.id); }
+        }
+    }
+}
+
+export component TopBar inherits Rectangle {
+    height: 65px;
+    background: Theme.topbar-style == "transparent" ? transparent : Theme.topbar-style == "translucent" ? Theme.panel.with-alpha(0.55) : Theme.bg;
+
+    menu := ItemMenu { }
+
+    HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        padding-top: 14px;
+        padding-bottom: 15px;
+        spacing: 12px;
+        if GridState.in-island: IconButton {
+            tip: "Back";
+            clicked => { GridState.back(); }
+            Glyph {
+                width: 19px;
+                height: 19px;
+                d: "M15 5l-7 7 7 7";
+                stroke: Theme.accent;
+                stroke-width: 2.2px;
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            for c[i] in GridState.crumbs: HorizontalLayout {
+                spacing: 6px;
+                property <bool> current: i == GridState.crumbs.length - 1;
+                if i > 0: Text {
+                    text: "›";
+                    font-size: 14px;
+                    color: Theme.border;
+                    vertical-alignment: center;
+                }
+                crumb := Rectangle {
+                    property <bool> over: GridState.dragging
+                        && GridState.drag-wx >= self.absolute-position.x && GridState.drag-wx < self.absolute-position.x + self.width
+                        && GridState.drag-wy >= self.absolute-position.y && GridState.drag-wy < self.absolute-position.y + self.height;
+                    changed over => {
+                        if (over) { GridState.drop-crumb = i; } else if (GridState.drop-crumb == i) { GridState.drop-crumb = -1; }
+                    }
+                    width: label.preferred-width + 8px;
+                    height: 26px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 4px;
+                    background: over ? Theme.panel : transparent;
+                    border-width: over ? 2px : 0px;
+                    border-color: Theme.accent;
+                    label := Text {
+                        text: c.name;
+                        font-size: 14px;
+                        font-weight: current ? 600 : 400;
+                        color: current || cta.has-hover ? Theme.text : Theme.muted;
+                    }
+                    cta := TouchArea {
+                        mouse-cursor: current ? default : pointer;
+                        clicked => { GridState.crumb(c.id); }
+                        pointer-event(e) => {
+                            if (current && c.id != "" && e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
+                                GridState.menu-for(c.id, 0, 0);
+                                menu.show({ x: self.absolute-position.x + self.mouse-x - root.absolute-position.x, y: self.absolute-position.y + self.mouse-y - root.absolute-position.y });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        // shortcut: Media is Phase 5 and Layouts Phase 4; the buttons show but do nothing yet.
+        BarButton { text: "Media"; clicked => { GridState.media(); } }
+        BarButton { text: "Layouts"; clicked => { GridState.layouts(); } }
+        IconButton {
+            tip: "Settings";
+            clicked => { GridState.settings(); }
+            Glyph {
+                width: 19px;
+                height: 19px;
+                fill: Theme.accent;
+                d: "M21.9,10.59,20,8.69V6a2,2,0,0,0-2-2H15.31l-1.9-1.9a2,2,0,0,0-2.82,0L8.69,4H6A2,2,0,0,0,4,6V8.69l-1.9,1.9a2,2,0,0,0,0,2.82L4,15.31V18a2,2,0,0,0,2,2H8.69l1.9,1.9a2,2,0,0,0,2.82,0l1.9-1.9H18a2,2,0,0,0,2-2V15.31l1.9-1.9A2,2,0,0,0,21.9,10.59ZM12,16a4,4,0,1,1,4-4A4,4,0,0,1,12,16Z";
+            }
+        }
+        if !Theme.hide-add-buttons: BarButton { text: "+ New Island"; clicked => { GridState.new-island(); } }
+        if !Theme.hide-add-buttons: BarButton { text: "+ Add App"; primary: true; clicked => { GridState.add-app(); } }
+        IconButton {
+            tip: GridState.fullscreen ? "Exit fullscreen" : "Enter fullscreen";
+            clicked => { GridState.toggle-fullscreen(); }
+            Glyph {
+                width: 19px;
+                height: 19px;
+                fill: Theme.accent;
+                d: GridState.fullscreen
+                    ? "M9,3A1,1,0,0,0,8,4V6.59L3.71,2.29A1,1,0,0,0,2.29,3.71L6.59,8H4a1,1,0,0,0,0,2H8a2,2,0,0,0,2-2V4A1,1,0,0,0,9,3ZM16,10h4a1,1,0,0,0,0-2H17.41l4.3-4.29a1,1,0,1,0-1.42-1.42L16,6.59V4a1,1,0,0,0-2,0V8A2,2,0,0,0,16,10ZM8,14H4a1,1,0,0,0,0,2H6.59l-4.3,4.29a1,1,0,0,0,0,1.42,1,1,0,0,0,1.42,0L8,17.41V20a1,1,0,0,0,2,0V16A2,2,0,0,0,8,14ZM17.41,16H20a1,1,0,0,0,0-2H16a2,2,0,0,0-2,2v4a1,1,0,0,0,2,0V17.41l4.29,4.3a1,1,0,0,0,1.42,0,1,1,0,0,0,0-1.42Z"
+                    : "M5.41,4H8A1,1,0,0,0,8,2H4A2,2,0,0,0,2,4V8A1,1,0,0,0,4,8V5.41l4.29,4.3a1,1,0,0,0,1.42,0,1,1,0,0,0,0-1.42ZM20,2H16a1,1,0,0,0,0,2h2.59l-4.3,4.29a1,1,0,0,0,0,1.42,1,1,0,0,0,1.42,0L20,5.41V8a1,1,0,0,0,2,0V4A2,2,0,0,0,20,2ZM8.29,14.29,4,18.59V16a1,1,0,0,0-2,0v4a2,2,0,0,0,2,2H8a1,1,0,0,0,0-2H5.41l4.3-4.29a1,1,0,0,0-1.42-1.42ZM21,15a1,1,0,0,0-1,1v2.59l-4.29-4.3a1,1,0,0,0-1.42,1.42L18.59,20H16a1,1,0,0,0,0,2h4a2,2,0,0,0,2-2V16A1,1,0,0,0,21,15Z";
+            }
+        }
+    }
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.topbar-style == "transparent" ? transparent : Theme.border;
+    }
+}
+
+// An item's icon: an image or one of 1.2's drawn glyphs, in a `size` box.
+component ItemIcon inherits Rectangle {
+    in property <image> icon;
+    in property <int> glyph;
+    in property <color> tint;
+    in property <bool> thumb;
+    if glyph == 0 && !thumb: Image {
+        source: icon;
+        width: 100%;
+        height: 100%;
+        image-fit: contain;
+    }
+    // A stored file's own thumbnail: its shape, max 72×48, rounded.
+    if glyph == 0 && thumb: Rectangle {
+        property <float> ar: icon.width / max(1, icon.height);
+        width: min(72px, 48px * ar) * root.width / 48px;
+        height: min(48px, 72px / ar) * root.width / 48px;
+        border-radius: 4px;
+        clip: true;
+        background: Theme.panel;
+        drop-shadow-blur: 3px;
+        drop-shadow-offset-y: 1px;
+        drop-shadow-color: #0000004d;
+        Image { source: icon; width: 100%; height: 100%; image-fit: contain; }
+    }
+    if glyph == 1: Glyph {
+        width: 70%;
+        height: 70%;
+        fill: tint;
+        d: "M3 6.5A2.5 2.5 0 0 1 5.5 4h4l2 2h7A2.5 2.5 0 0 1 21 8.5v9A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-11Z";
+    }
+    if glyph == 2: Rectangle {
+        Glyph { width: 100%; height: 100%; fill: #d9a425; d: "M2.5 6A2 2 0 0 1 4.5 4h4.2l2 2h8.8a2 2 0 0 1 2 2v1H2.5V6Z"; }
+        Glyph { width: 100%; height: 100%; fill: #f6c94b; d: "M2 9.2A1.2 1.2 0 0 1 3.2 8h17.6A1.2 1.2 0 0 1 22 9.2l-.8 9A2 2 0 0 1 19.2 20H4.8a2 2 0 0 1-2-1.8l-.8-9Z"; }
+    }
+    if glyph == 3: Glyph {
+        width: 70%;
+        height: 70%;
+        fill: Theme.text;
+        d: "M17,4V5H15V4H9V5H7V4A2,2,0,0,1,9,2h6A2,2,0,0,1,17,4ZM20,6H4A1,1,0,0,0,4,8H5V20a2,2,0,0,0,2,2H17a2,2,0,0,0,2-2V8h1a1,1,0,0,0,0-2ZM11,17a1,1,0,0,1-2,0V11a1,1,0,0,1,2,0Zm4,0a1,1,0,0,1-2,0V11a1,1,0,0,1,2,0Z";
+    }
+    if glyph == 4: Rectangle {
+        border-radius: self.width * 10 / 48;
+        background: #2b2f38;
+        Text { text: "?"; color: #9aa0ac; font-size: root.width * 20 / 48; }
+    }
+}
+
+// Press, drag past 4 px, release: a click or a drag, reported to Rust in
+// window coordinates. Right press opens the item's menu.
+component ItemTouch inherits TouchArea {
+    in property <string> item-id;
+    callback tap(toggle: bool);
+    callback menu(wx: length, wy: length);
+    property <bool> drag;
+    mouse-cursor: pointer;
+    moved => {
+        if (self.pressed && !drag && (abs(self.mouse-x - self.pressed-x) > 4px || abs(self.mouse-y - self.pressed-y) > 4px)) {
+            drag = true;
+            GridState.drag-start(item-id, self.absolute-position.x + self.pressed-x, self.absolute-position.y + self.pressed-y);
+        }
+        if (drag) { GridState.drag-move(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+    }
+    pointer-event(e) => {
+        if (e.button == PointerEventButton.left && e.kind == PointerEventKind.up) {
+            if (drag) {
+                drag = false;
+                GridState.drag-end(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            } else if (self.has-hover) {
+                root.tap(e.modifiers.control || e.modifiers.shift || e.modifiers.meta);
+            }
+        }
+        if (e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
+            root.menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+        }
+    }
+}
+
+export component Grid inherits Rectangle {
+    property <length> cell: 112px;
+
+    changed width => { GridState.view-w = self.width; GridState.resized(); }
+    changed height => { GridState.view-h = self.height; }
+    property <Point> gpos: { x: self.absolute-position.x, y: self.absolute-position.y };
+    changed gpos => { GridState.grid-x = gpos.x; GridState.grid-y = gpos.y; }
+    init => {
+        GridState.grid-x = gpos.x;
+        GridState.grid-y = gpos.y;
+        GridState.view-w = self.width;
+        GridState.view-h = self.height;
+        fs.focus();
+    }
+
+    function show-menu(id: string, wx: length, wy: length) {
+        GridState.menu-for(id, wx, wy);
+        menu.show({ x: wx - root.absolute-position.x, y: wy - root.absolute-position.y });
+    }
+
+    fs := FocusScope {
+        key-pressed(e) => {
+            if (GridState.key(e.text, e.modifiers.control || e.modifiers.meta, e.modifiers.alt, e.modifiers.shift)) { return accept; }
+            reject
+        }
+
+        sv := ScrollView {
+            mouse-drag-pan-enabled: false;
+            content-width: max(GridState.content-w + 40px, self.visible-width);
+            content-height: max(GridState.content-h + 40px, self.visible-height);
+            property <length> want: GridState.reveal-y;
+            changed want => { if (want >= 0) { reveal(); } }
+
+            function reveal() {
+                if (GridState.reveal-y + 20px < -self.content-y) {
+                    self.content-y = -(GridState.reveal-y + 20px);
+                } else if (GridState.reveal-y + 20px + GridState.reveal-h > -self.content-y + self.visible-height) {
+                    self.content-y = -(GridState.reveal-y + 20px + GridState.reveal-h - self.visible-height);
+                }
+            }
+
+            // Empty space: marquee, canvas menu, focus.
+            TouchArea {
+                pointer-event(e) => {
+                    if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
+                        fs.focus();
+                        GridState.marquee-start(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y, e.modifiers.control || e.modifiers.shift || e.modifiers.meta);
+                    }
+                    if (e.button == PointerEventButton.left && e.kind == PointerEventKind.up) { GridState.marquee-end(); }
+                    if (e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
+                        show-menu("", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                    }
+                }
+                moved => {
+                    if (self.pressed) { GridState.marquee-move(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+                }
+            }
+
+            canvas := Rectangle {
+                x: 20px;
+                y: 20px;
+                width: GridState.content-w;
+                height: GridState.content-h;
+                property <Point> origin: { x: self.absolute-position.x, y: self.absolute-position.y };
+                changed origin => {
+                    GridState.origin-x = origin.x;
+                    GridState.origin-y = origin.y;
+                }
+                init => {
+                    GridState.origin-x = origin.x;
+                    GridState.origin-y = origin.y;
+                }
+
+                // While an island is resized: the cells, the largest size and the snap.
+                if GridState.resizing != "": Rectangle {
+                    for i in (sv.content-width / root.cell) + 1: Rectangle {
+                        x: i * root.cell;
+                        width: 1px;
+                        height: sv.content-height;
+                        background: Theme.text.with-alpha(0.12);
+                    }
+                    for i in (sv.content-height / root.cell) + 1: Rectangle {
+                        y: i * root.cell;
+                        height: 1px;
+                        width: sv.content-width;
+                        background: Theme.text.with-alpha(0.12);
+                    }
+                }
+                if GridState.resizing != "": Rectangle {
+                    x: GridState.guide-x;
+                    y: GridState.guide-y;
+                    width: 8 * root.cell;
+                    height: 6 * root.cell;
+                    border-radius: 14px;
+                    border-width: 2px;
+                    border-color: Theme.text.with-alpha(0.35);
+                    Rectangle {
+                        x: parent.width - self.width - 6px;
+                        y: 6px;
+                        width: maxl.preferred-width + 16px;
+                        height: 20px;
+                        border-radius: 6px;
+                        background: Theme.panel;
+                        maxl := Text { text: "Max 8 × 6"; font-size: 12px; font-weight: 600; color: Theme.text; }
+                    }
+                }
+                if GridState.resizing != "": Rectangle {
+                    x: GridState.guide-x;
+                    y: GridState.guide-y;
+                    width: GridState.snap-w * root.cell;
+                    height: GridState.snap-h * root.cell;
+                    border-radius: 14px;
+                    border-width: 2px;
+                    border-color: Theme.accent;
+                    background: Theme.accent.with-alpha(0.12);
+                    Rectangle {
+                        x: parent.width - self.width;
+                        y: parent.height + 6px;
+                        width: snapl.preferred-width + 16px;
+                        height: 20px;
+                        border-radius: 6px;
+                        background: Theme.panel;
+                        snapl := Text { text: GridState.snap-w + " × " + GridState.snap-h; font-size: 12px; font-weight: 600; color: Theme.text; }
+                    }
+                }
+
+                for it[i] in GridState.items: Rectangle {
+                    x: it.x;
+                    y: it.y;
+                    width: it.card ? (GridState.resizing == it.id ? GridState.rs-w : it.w) : 96px;
+                    height: it.card ? (GridState.resizing == it.id ? GridState.rs-h : it.h) : 96px;
+                    z: it.dragged || GridState.resizing == it.id ? 10 : 0;
+                    property <bool> target: GridState.drop-target == it.id;
+
+                    // A tile: an app, a stored item or a collapsed island.
+                    if !it.card: Rectangle {
+                        x: it.dragged ? GridState.drag-dx : 0;
+                        y: it.dragged ? GridState.drag-dy : 0;
+                        width: 96px;
+                        height: 96px;
+                        border-radius: 10px;
+                        opacity: it.missing ? 0.45 : (it.dragged ? 0.7 : 1);
+                        background: it.selected ? Theme.accent.mix(Theme.panel, 0.12) : (target || GridState.focused == i || (tta.has-hover && !GridState.dragging)) ? Theme.panel : transparent;
+                        border-width: it.selected || target || GridState.focused == i ? 2px : 0px;
+                        border-color: Theme.accent;
+                        tta := ItemTouch {
+                            item-id: it.id;
+                            tap(toggle) => { fs.focus(); GridState.tap(it.id, toggle); }
+                            menu(wx, wy) => { show-menu(it.id, wx, wy); }
+                        }
+                        ItemIcon {
+                            y: Theme.hide-app-names ? 24px : 12px;
+                            width: 48px;
+                            height: 48px;
+                            icon: it.icon;
+                            glyph: it.glyph;
+                            tint: it.color;
+                            thumb: it.thumb;
+                        }
+                        if it.stored: Rectangle {
+                            x: 18px;
+                            y: 12px;
+                            width: 8px;
+                            height: 8px;
+                            border-radius: 4px;
+                            background: Theme.accent;
+                            opacity: 0.8;
+                        }
+                        if !Theme.hide-app-names: Text {
+                            x: 7px;
+                            y: 68px;
+                            width: 82px;
+                            text: it.name;
+                            font-size: 12px;
+                            color: Theme.text;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
+                        if tta.has-hover && !GridState.dragging: Rectangle {
+                            x: 96px - 8px - 22px;
+                            y: 2px;
+                            width: 22px;
+                            height: 22px;
+                            border-radius: 11px;
+                            background: Theme.panel;
+                            border-width: 1px;
+                            border-color: eta.has-hover ? Theme.accent : Theme.border;
+                            Text { text: "✎"; font-size: 12px; color: Theme.text; }
+                            eta := TouchArea { clicked => { GridState.edit(it.id); } }
+                        }
+                        Tooltip {
+                            Rectangle {
+                                background: Theme.panel;
+                                border-color: Theme.border;
+                                border-width: 1px;
+                                border-radius: 4px;
+                                VerticalLayout {
+                                    padding: 6px;
+                                    Text { text: it.tip; font-size: 12px; color: Theme.text; }
+                                }
+                            }
+                        }
+                    }
+
+                    // An expanded island: a live mini-card.
+                    if it.card: Rectangle {
+                        x: it.dragged ? GridState.drag-dx : 0;
+                        y: it.dragged ? GridState.drag-dy : 0;
+                        opacity: it.dragged ? 0.7 : 1;
+                        border-radius: 14px;
+                        background: it.selected ? Theme.accent.mix(Theme.panel, 0.12) : Theme.panel;
+                        border-width: it.selected || target ? 2px : 1px;
+                        border-color: it.selected || target ? Theme.accent : Theme.border;
+                        clip: true;
+                        cta := ItemTouch {
+                            item-id: it.id;
+                            mouse-cursor: default;
+                            tap(toggle) => { fs.focus(); }
+                            menu(wx, wy) => { show-menu(it.id, wx, wy); }
+                        }
+                        // Header: dot, name, minimize.
+                        Rectangle {
+                            y: 0;
+                            height: 43px;
+                            background: it.color.mix(Theme.panel, 0.22);
+                            hta := ItemTouch {
+                                item-id: it.id;
+                                tap(toggle) => { fs.focus(); GridState.tap(it.id, toggle); }
+                                menu(wx, wy) => { show-menu(it.id, wx, wy); }
+                            }
+                            Rectangle {
+                                x: 14px;
+                                width: 10px;
+                                height: 10px;
+                                border-radius: 5px;
+                                background: it.color;
+                            }
+                            Text {
+                                x: 32px;
+                                width: parent.width - 32px - 38px;
+                                text: it.name;
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: Theme.text;
+                                overflow: elide;
+                            }
+                            Rectangle {
+                                x: parent.width - 8px - 22px;
+                                width: 22px;
+                                height: 22px;
+                                border-radius: 11px;
+                                background: Theme.panel;
+                                border-width: 1px;
+                                border-color: mta.has-hover ? Theme.accent : Theme.border;
+                                Text { text: "–"; font-size: 14px; color: Theme.text; }
+                                mta := TouchArea { clicked => { GridState.collapse(it.id); } }
+                            }
+                            Rectangle {
+                                y: parent.height - 1px;
+                                height: 1px;
+                                background: Theme.border;
+                            }
+                        }
+                        if it.empty-card: Text {
+                            x: 20px;
+                            y: 43px + 20px;
+                            text: "Empty — drag apps here";
+                            font-size: 12px;
+                            color: Theme.muted;
+                        }
+                        for m in it.minis: Rectangle {
+                            x: 12px + m.x;
+                            y: 43px + 12px + m.y;
+                            width: it.icon-size;
+                            height: it.show-names ? it.icon-size + 14px : it.icon-size;
+                            border-radius: 8px;
+                            background: nta.has-hover && !GridState.dragging ? Theme.bg : transparent;
+                            nta := ItemTouch {
+                                item-id: m.glyph == 5 ? "" : m.id;
+                                tap(toggle) => { GridState.tap(m.glyph == 5 ? it.id : m.id, false); }
+                                menu(wx, wy) => { if (m.glyph != 5) { show-menu(m.id, wx, wy); } }
+                            }
+                            if m.glyph == 5: Text { text: m.name; font-size: 12px; font-weight: 600; color: Theme.muted; }
+                            if m.glyph != 5: ItemIcon {
+                                y: it.show-names ? 4px : (parent.height - self.height) / 2;
+                                width: it.icon-size * (it.show-names ? 0.6 : 0.64);
+                                height: self.width;
+                                icon: m.icon;
+                                glyph: m.glyph;
+                                tint: m.color;
+                            }
+                            if it.show-names && m.glyph != 5: Text {
+                                y: 4px + it.icon-size * 0.6 + 2px;
+                                width: parent.width;
+                                text: m.name;
+                                font-size: 9px;
+                                color: Theme.text;
+                                horizontal-alignment: center;
+                                overflow: elide;
+                            }
+                            if m.glyph != 5: Tooltip {
+                                Rectangle {
+                                    background: Theme.panel;
+                                    border-color: Theme.border;
+                                    border-width: 1px;
+                                    border-radius: 4px;
+                                    VerticalLayout {
+                                        padding: 6px;
+                                        Text { text: m.name; font-size: 12px; color: Theme.text; }
+                                    }
+                                }
+                            }
+                        }
+                        // Resize handle: a corner bracket, on hover.
+                        Rectangle {
+                            x: parent.width - 24px;
+                            y: parent.height - 24px;
+                            width: 20px;
+                            height: 20px;
+                            opacity: cta.has-hover || hta.has-hover || rta.has-hover || rta.pressed ? 1 : 0;
+                            Path {
+                                width: 100%;
+                                height: 100%;
+                                viewbox-width: 20;
+                                viewbox-height: 20;
+                                commands: "M 17.5 0 L 17.5 6 Q 17.5 17.5 6 17.5 L 0 17.5";
+                                stroke: #fff;
+                                stroke-width: 5px;
+                            }
+                            rta := TouchArea {
+                                mouse-cursor: nwse-resize;
+                                pointer-event(e) => {
+                                    if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) { GridState.resize-start(it.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+                                    if (e.button == PointerEventButton.left && e.kind == PointerEventKind.up) { GridState.resize-end(); }
+                                }
+                                moved => {
+                                    if (self.pressed) { GridState.resize-move(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if GridState.marquee: Rectangle {
+                    x: GridState.mq-x;
+                    y: GridState.mq-y;
+                    width: GridState.mq-w;
+                    height: GridState.mq-h;
+                    z: 20;
+                    border-width: 1px;
+                    border-color: Theme.accent;
+                    background: Theme.accent.with-alpha(0.15);
+                }
+            }
+        }
+
+        if GridState.empty: VerticalLayout {
+            alignment: center;
+            spacing: 16px;
+            Text {
+                text: GridState.empty-title;
+                font-size: 16px;
+                color: Theme.muted;
+                horizontal-alignment: center;
+            }
+            HorizontalLayout {
+                alignment: center;
+                Text { text: GridState.in-island ? "Right-click to add something, or click " : "Click "; font-size: 16px; color: Theme.muted; }
+                Text { text: "+ Add App"; font-size: 16px; font-weight: 700; color: Theme.muted; }
+                Text { text: GridState.in-island ? "." : " to add your first one, or right-click for an island."; font-size: 16px; color: Theme.muted; }
+            }
+        }
+    }
+
+    if GridState.file-drag: Rectangle {
+        x: 8px;
+        y: 8px;
+        width: parent.width - 16px;
+        height: parent.height - 16px;
+        border-radius: 12px;
+        border-width: 2px;
+        border-color: Theme.accent;
+        background: #5b8cff14;
+        Text { text: "Drop to add to Launchpad"; font-size: 16px; color: Theme.text; }
+    }
+
+    menu := ItemMenu { }
+}

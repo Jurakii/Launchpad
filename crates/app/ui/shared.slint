@@ -1,0 +1,42 @@
+// State more than one part needs.
+
+export global Popouts {
+    // Which taskbar popout is open ("" = none): "search", "recent", or a tray
+    // widget's id ("volume", "usb", "bluetooth", "network", "clock", "power").
+    // Opening one closes every other, as in 1.2.
+    in-out property <string> open: "";
+    // The window's size (set by main.slint), to keep popouts inside it.
+    in-out property <length> win-w;
+    in-out property <length> win-h;
+    // The open popout's panel in window coordinates (PopoutPanel reports it),
+    // so src/ui/tray.rs can tell a click outside it, which closes it.
+    in-out property <length> panel-x;
+    in-out property <length> panel-y;
+    in-out property <length> panel-w;
+    in-out property <length> panel-h;
+}
+
+// A taskbar popout: a plain element hanging off its button (not a
+// PopupWindow, which would swallow the click that closes it), placed at
+// want-x/want-y from its parent and kept 8px inside the window.
+export component PopoutPanel inherits Rectangle {
+    // The parent's absolute position (parent.absolute-position).
+    in property <length> anchor-x;
+    in property <length> anchor-y;
+    in property <length> want-x;
+    in property <length> want-y;
+    x: max(8px - anchor-x, min(Popouts.win-w - 8px - self.width - anchor-x, want-x));
+    y: max(8px - anchor-y, min(Popouts.win-h - 8px - self.height - anchor-y, want-y));
+    function report() {
+        Popouts.panel-x = anchor-x + self.x;
+        Popouts.panel-y = anchor-y + self.y;
+        Popouts.panel-w = self.width;
+        Popouts.panel-h = self.height;
+    }
+    init => { report(); }
+    changed x => { report(); }
+    changed y => { report(); }
+    changed width => { report(); }
+    changed height => { report(); }
+    @children
+}
