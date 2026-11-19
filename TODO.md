@@ -26,10 +26,17 @@ Back up `%APPDATA%\launchpad` first (copy the folder somewhere). Each item is a 
 
 (Add them here, or tell me and I will.)
 
+- [ ] **Top bar visual bugs:** the bar flashes white and doesn't work well. Inspect the whole top bar (the Home/apps strip, the window-tab row, and the Media / Layouts / buttons on the right) for rendering and behaviour issues, and fix them.
+
 ## 3. Before or with 1.3.1
 
 - [ ] Fix the bugs above.
 - [ ] **Exe icon:** the icon ships as `build\icon.ico` beside the exe, so Explorer and Task Manager show a generic icon for `Launchpad.exe`. Embed it as a resource and have the tray read it from there.
+- [ ] **Icons in every window:** the app's icons should show correctly in every window (the screenshot shows Task Manager's generic icon for `Launchpad.exe`). Check each window and fix any that don't.
+- [ ] **Icon search for apps without one:** when an app has no icon, offer a search inside Launchpad that auto-searches Google for the app name and loads matching icons to pick from. The user can also type their own search.
+- [ ] **Steam in Media mode:** import the user's Steam library into Media mode, and launch games from Media mode directly instead of going through Steam.
+- [ ] **Quiver Launcher in Media mode:** import games from Quiver Launcher and launch them from Media mode, the same way as Steam.
+- [ ] **Portable release:** build a portable `Launchpad.exe` (no installer) and attach it to the release page alongside the setup.
 - [ ] **Release 1.3.1 and test the updater:** 1.3.0 → Settings → Backup & updates finds 1.3.1 → Download & Install → UAC prompt → Launchpad comes back as 1.3.1. Also the startup notification with "Notify me when an update is available" on.
 - [ ] Check that 1.2.2 doesn't offer 1.3 (its Check for updates shows an error, which its Settings note explains). Only testable on a PC still on 1.2.2.
 

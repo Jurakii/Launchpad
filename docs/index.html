@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launchpad for Windows</title>
+<meta name="description" content="Launchpad is a launcher and taskbar for Windows: apps, files, scripts, websites and games on one grid, plus window snapping and a full-screen media library.">
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --text: #1b1f24;
+    --muted: #5b6470;
+    --accent: #3b6cf6;
+    --accent-text: #ffffff;
+    --border: #dfe3e8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171c;
+      --surface: #1d2129;
+      --text: #e7eaee;
+      --muted: #9aa3ae;
+      --accent: #6d92ff;
+      --accent-text: #0b1020;
+      --border: #2c323c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171c;
+    --surface: #1d2129;
+    --text: #e7eaee;
+    --muted: #9aa3ae;
+    --accent: #6d92ff;
+    --accent-text: #0b1020;
+    --border: #2c323c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 16px; }
+  header.hero { padding: 72px 0 56px; text-align: center; }
+  h1 { font-size: clamp(2.2rem, 6vw, 3.4rem); margin: 0 0 12px; letter-spacing: -0.02em; }
+  .lead { font-size: 1.15rem; color: var(--muted); max-width: 640px; margin: 0 auto 28px; }
+  .btn {
+    display: inline-block; padding: 14px 26px; border-radius: 10px;
+    background: var(--accent); color: var(--accent-text);
+    text-decoration: none; font-weight: 600;
+  }
+  .btn:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .small { font-size: 0.9rem; color: var(--muted); margin-top: 14px; }
+  .small a { color: var(--muted); }
+  section { padding: 40px 0; }
+  h2 { font-size: 1.6rem; margin: 0 0 20px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px;
+  }
+  .card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+  .card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+  ol.steps { padding-left: 22px; margin: 0; }
+  ol.steps li { margin-bottom: 10px; }
+  code { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 0.9em; }
+  footer { padding: 32px 0 48px; color: var(--muted); font-size: 0.9rem; text-align: center; border-top: 1px solid var(--border); }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>Launchpad</h1>
+    <p class="lead">A launcher and taskbar for Windows. Keep your portable apps, scripts, dev commands, websites and games on one grid, with window snapping and a full-screen media library.</p>
+    <a class="btn" href="https://github.com/Jurakii/Launchpad/releases/latest">Download for Windows</a>
+    <p class="small">Windows 10 or 11 &middot; Free and open source &middot; <a href="https://github.com/Jurakii/Launchpad">View on GitHub</a></p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section>
+    <h2>What it does</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Launch anything</h3>
+        <p>Programs, files, folders, websites, Python or Node scripts and shell commands. Shortcuts resolve to their real target.</p>
+      </div>
+      <div class="card">
+        <h3>Files that stay put</h3>
+        <p>Drop a file or folder from Explorer and Launchpad keeps its own copy, with thumbnails for pictures, so it still opens after the original is moved.</p>
+      </div>
+      <div class="card">
+        <h3>Freeform grid</h3>
+        <p>Place items anywhere. Group them into nested, collapsible, colored islands, and select several at once with a drag box.</p>
+      </div>
+      <div class="card">
+        <h3>Taskbar</h3>
+        <p>Pinned items, open windows, search across everything, and tray widgets for volume, Wi-Fi, Bluetooth, USB eject, clock and power.</p>
+      </div>
+      <div class="card">
+        <h3>Window snapping</h3>
+        <p>Snap windows to halves, thirds, quarters and more. Use the grid placer (Ctrl+Alt+G), your own layouts, or saved scenes that put every window back in place.</p>
+      </div>
+      <div class="card">
+        <h3>Media library</h3>
+        <p>A full-screen library of games and videos, built for the couch. Use a controller or keyboard, launch each title in the emulator or player you choose, and give every title its own artwork.</p>
+      </div>
+      <div class="card">
+        <h3>Look and feel</h3>
+        <p>Dock the taskbar to any edge, pick light or dark, set an accent color, choose translucent or transparent bars, and add a wallpaper.</p>
+      </div>
+      <div class="card">
+        <h3>Backups and updates</h3>
+        <p>Export and import your whole setup, icons, layouts and scenes included. Updates install from inside the app.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Install</h2>
+    <ol class="steps">
+      <li>Download <code>Launchpad-Setup-&lt;version&gt;.exe</code> from the <a href="https://github.com/Jurakii/Launchpad/releases/latest">latest release</a>.</li>
+      <li>Run it. The installer isn't code-signed, so Windows SmartScreen may warn you. Click <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
+      <li>Press <strong>Ctrl+Space</strong> to show or hide Launchpad from anywhere. Closing the window sends it to the tray.</li>
+    </ol>
+    <p class="small">Launchpad checks GitHub for updates and can install them for you. Your data stays on your PC in <code>%APPDATA%\launchpad</code>.</p>
+  </section>
+
+  <section>
+    <h2>Build it yourself</h2>
+    <p>Needs Windows 10 or 11 and Node.js 22 or newer. Clone the repository, then run <code>npm install</code> and <code>npm start</code>. Full instructions are in the <a href="https://github.com/Jurakii/Launchpad#building-from-source">README</a>.</p>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    Launchpad &middot; <a href="https://github.com/Jurakii/Launchpad">Source on GitHub</a> &middot; <a href="https://github.com/Jurakii/Launchpad/releases/latest">Latest release</a>
+  </div>
+</footer>
+
+</body>
+</html>
