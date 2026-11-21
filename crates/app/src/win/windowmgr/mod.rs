@@ -152,13 +152,11 @@ fn class_of(h: HWND) -> String {
 // Can't hang on a busy app: for another process's window this reads the
 // stored text instead of sending the window WM_GETTEXT. (For one of our own
 // windows on another thread it does send it, to that thread.)
+/// Read without sending WM_GETTEXT: a hung window, or one of ours whose
+/// thread is waiting on the events thread (dropping the hook), can't block it.
 fn title_of(h: HWND) -> String {
-    let len = unsafe { GetWindowTextLengthW(h) };
-    if len <= 0 {
-        return String::new();
-    }
-    let mut buf = vec![0u16; len as usize + 1];
-    let n = unsafe { GetWindowTextW(h, &mut buf) };
+    let mut buf = [0u16; 512];
+    let n = unsafe { InternalGetWindowText(h, &mut buf) };
     from_wide(&buf[..n.max(0) as usize])
 }
 

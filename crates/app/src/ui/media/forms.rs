@@ -5,6 +5,8 @@ use super::{art_of, image, library, md, reload, render_home, set_focus, settings
 use crate::ui::{post, MGroup, MSlot};
 use crate::win::{dialogs, image::Wic, services};
 use launchpad_core::media::art as core_art;
+use launchpad_core::art_search;
+use launchpad_core::media::import;
 use launchpad_core::media::library::{self as lib, Entry};
 use launchpad_core::media::scan::{self, ScanOptions, Summary};
 use launchpad_core::time::now_ms;
@@ -53,6 +55,8 @@ pub fn activate(app: &Rc<App>, kind: &str, rest: &str) {
     match (kind, rest) {
         ("choice", "single") => open_add_app(app),
         ("choice", "folder") => open_add(app),
+        ("choice", "steam") => import_from(app, "steam"),
+        ("choice", "quiver") => import_from(app, "quiver"),
         ("app", "browse") => browse_app(app),
         ("app", "library") => pick(app, "app:library", cycle(&["games", "videos"], md(|m| m.app_form.library).unwrap_or("games"))),
         ("app", "platform") => {
@@ -76,6 +80,7 @@ pub fn activate(app: &Rc<App>, kind: &str, rest: &str) {
         }
         ("slot-file", slot) => art_from_file(app, slot),
         ("slot-clear", slot) => set_art(app, slot, None),
+        ("art", "find") => find_art(app),
         ("slot-use", slot) => art_from_url(app, slot),
         _ => {}
     }
@@ -560,4 +565,152 @@ fn dropped(app: &Rc<App>, paths: Vec<String>, x: i32, y: i32) {
     if let (Some(slot), Some(path)) = (slot, paths.first()) {
         art_from_path(app, &slot, Path::new(path));
     }
+}
+
+/// The SteamGridDB key from Settings → Icons, if there is one.
+fn sgdb_key(app: &App) -> Option<String> {
+    app.settings().get("steamGridDbKey").and_then(Value::as_str).map(str::trim).filter(|k| !k.is_empty()).map(str::to_string)
+}
+
+/// Cover, banner and logo for a game from SteamGridDB (the first of each),
+/// as downloaded bytes. Only the slots in `want`. Blocking: a worker thread's.
+fn sgdb_art(name: &str, key: &str, want: &[&'static str]) -> Vec<(&'static str, Vec<u8>)> {
+    let mut http = services::Search;
+    let Some(game) = art_search::sgdb_game(name, key, &mut http) else { return vec![] };
+    [("cover", "grids"), ("banner", "heroes"), ("logo", "logos")]
+        .into_iter()
+        .filter(|(slot, _)| want.contains(slot))
+        .filter_map(|(slot, kind)| {
+            let hit = art_search::sgdb_assets(game, kind, key, &mut http).into_iter().next()?;
+            let buf = core_art::download_image(&hit.url, &mut services::Http).ok()?;
+            Some((slot, buf))
+        })
+        .collect()
+}
+
+/// Customize art → Find Art Online: the empty slots (all three when none
+/// is empty) from SteamGridDB, by the entry's name.
+fn find_art(app: &Rc<App>) {
+    let Some(key) = sgdb_key(app) else {
+        toast("Add a SteamGridDB API key in Launchpad's Settings → Icons first");
+        return;
+    };
+    let Some(entry) = md(|m| m.customizing.clone().and_then(|id| m.entries.iter().find(|e| e.id() == id).cloned())).flatten() else { return };
+    let present = core_art::existing_art(&app.data_dir, &entry);
+    let empty: Vec<&'static str> = ["cover", "banner", "logo"].into_iter().filter(|s| !present.contains_key(*s)).collect();
+    let want = if empty.is_empty() { vec!["cover", "banner", "logo"] } else { empty };
+    let name = entry.name().to_string();
+    toast("Looking on SteamGridDB…");
+    std::thread::spawn(move || {
+        let found = sgdb_art(&name, &key, &want);
+        post(move |app| {
+            if found.is_empty() {
+                toast("Nothing found on SteamGridDB for this name");
+            }
+            for (slot, buf) in found {
+                set_art(app, slot, Some(buf));
+            }
+        });
+    });
+}
+
+/// Steam's folder (the one with steam.exe), from the registry or where it usually is.
+fn steam_root() -> Option<PathBuf> {
+    crate::win::autostart::hkcu_string(r"Software\Valve\Steam", "SteamPath")
+        // Steam writes it with forward slashes.
+        .map(|p| PathBuf::from(p.replace('/', "\\")))
+        .into_iter()
+        .chain([PathBuf::from(r"C:\Program Files (x86)\Steam")])
+        .find(|p| p.join("steamapps").is_dir())
+}
+
+/// A Quiver Launcher library: 4.x's data folder, 3.x's install folder (in
+/// LocalAppData, beside a QuiverLauncher.exe on the Launchpad grid, or at
+/// <drive>:\QuiverLauncher), the first that has one.
+fn quiver_data(app: &App) -> Option<PathBuf> {
+    let env = |v: &str| std::env::var_os(v).map(PathBuf::from);
+    let mut dirs: Vec<PathBuf> = vec![];
+    dirs.extend(env("APPDATA").map(|d| d.join("com.quiverlauncher.app")));
+    dirs.extend(env("LOCALAPPDATA").map(|d| d.join("com.quiverlauncher.app")));
+    dirs.extend(env("LOCALAPPDATA").map(|d| d.join("QuiverLauncher")));
+    for e in app.apps.borrow().iter() {
+        let target = e.0.get("target").and_then(Value::as_str).unwrap_or("");
+        if target.to_ascii_lowercase().ends_with("quiverlauncher.exe") {
+            dirs.extend(Path::new(target).parent().map(Path::to_path_buf));
+        }
+    }
+    dirs.extend(crate::win::drives::fixed_letters().into_iter().map(|d| PathBuf::from(format!("{d}:\\QuiverLauncher"))));
+    dirs.into_iter().find(|d| import::is_quiver(d))
+}
+
+/// Add → Steam / Quiver Launcher: every installed game that isn't in the
+/// library yet, as a Games entry that runs the game's own program, with
+/// the art the launcher keeps on disk. Found and resized off the UI thread.
+fn import_from(app: &Rc<App>, which: &'static str) {
+    let (label, source) = match which {
+        "steam" => ("Steam", steam_root()),
+        _ => ("Quiver Launcher", quiver_data(app)),
+    };
+    let Some(source) = source else {
+        toast(&format!("{label} isn't installed for this user"));
+        return;
+    };
+    let key = sgdb_key(app);
+    let Ok((dir, existing)) = library(app, |l| launchpad_core::Result::Ok((l.dir().to_owned(), l.load()?))) else {
+        toast("The library couldn't be read");
+        return;
+    };
+    toast(&format!("Looking for {label} games…"));
+    std::thread::spawn(move || {
+        let found = if which == "steam" { import::steam(&source) } else { import::quiver(&source) };
+        let now = now_ms();
+        let mut wic = Wic::new().ok().map(services::Art);
+        let made: Vec<(import::Found, Entry)> = found
+            .into_iter()
+            .filter(|f| !import::already_in(&existing, f))
+            .map(|f| {
+                let mut entry = f.entry(now);
+                let id = entry.id().to_string();
+                let mut media = Map::new();
+                // The launcher's own art, else SteamGridDB's (with a key).
+                let mut art: Vec<(&'static str, Vec<u8>, &str)> = f.art.iter().filter_map(|(slot, file)| Some((*slot, std::fs::read(file).ok()?, which))).collect();
+                if art.is_empty() {
+                    if let Some(key) = &key {
+                        art = sgdb_art(&f.name, key, &["cover", "banner", "logo"]).into_iter().map(|(s, b)| (s, b, "steamgriddb")).collect();
+                    }
+                }
+                for (slot, buf, source) in &art {
+                    if let Some(v) = wic.as_mut().and_then(|w| core_art::save_art(&dir, &id, slot, buf, source, now, w).ok()) {
+                        media.insert((*slot).into(), v);
+                    }
+                }
+                if let Some(Value::Object(m)) = entry.0.get_mut("media") {
+                    m.extend(media);
+                } else {
+                    entry.0.insert("media".into(), Value::Object(media));
+                }
+                (f, entry)
+            })
+            .collect();
+        post(move |app| {
+            let added = library_add(app, |entries| {
+                let mut n = 0;
+                for (f, e) in made {
+                    if !import::already_in(entries, &f) {
+                        entries.push(e);
+                        n += 1;
+                    }
+                }
+                Ok(n)
+            });
+            match added {
+                Err(e) => toast(&e.to_string()),
+                Ok(0) => toast(&format!("No new {label} games to add")),
+                Ok(n) => {
+                    toast(&format!("Added {n} {label} game{}", if n == 1 { "" } else { "s" }));
+                    after_add(app, "games");
+                }
+            }
+        });
+    });
 }

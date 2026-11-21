@@ -35,6 +35,7 @@ pub mod organizer;
 
 pub mod media;
 
+pub mod art_search;
 pub mod favicon;
 pub mod update;
 pub mod ui_prefs;

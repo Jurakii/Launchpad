@@ -8,12 +8,12 @@
 //! load-issue notice.
 use super::{icons, images, App, MainWindow, ModalState, MoveRow};
 use crate::win::dialogs;
-use crate::win::image::{large_icon_size, Rgba, Wic};
+use crate::win::image::{Rgba, Wic};
 use crate::win::launch;
-use crate::win::services::Icons;
+use crate::win::services::{self, Icons};
 use launchpad_core::items::{self, AppForm, IconTask, Shortcut};
 use launchpad_core::store::{self, Entry, LoadIssue, LoadIssueState};
-use launchpad_core::{favicon, file_store, time};
+use launchpad_core::{art_search, favicon, file_store, time};
 use slint::{Color, ComponentHandle, Image, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -59,6 +59,17 @@ struct Form {
     auto: bool,
     /// Which opening of the form a preview on its way belongs to.
     gen: u64,
+    /// Search Icons…: open, the words, what was found (address to download, thumbnail), a status line.
+    search: Option<IconSearch>,
+}
+
+#[derive(Default)]
+struct IconSearch {
+    query: String,
+    hits: Vec<(String, Image)>,
+    status: String,
+    /// Which search the results on their way belong to.
+    run: u64,
 }
 
 struct NameForm {
@@ -137,6 +148,11 @@ fn push(w: &MainWindow) {
                 g.set_f_cwd_script(s(&f.cwd_script));
                 g.set_f_command(s(&f.command));
                 g.set_f_cwd_command(s(&f.cwd_command));
+                let search = f.search.as_ref();
+                g.set_icon_search_open(search.is_some());
+                g.set_icon_query(s(search.map_or("", |q| q.query.as_str())));
+                g.set_icon_status(s(search.map_or("", |q| q.status.as_str())));
+                g.set_icon_hits(ModelRc::new(VecModel::from(search.map(|q| q.hits.iter().map(|h| h.1.clone()).collect::<Vec<_>>()).unwrap_or_default())));
                 g.set_app_open(true);
             }
             None => g.set_app_open(false),
@@ -222,6 +238,18 @@ pub fn bind(app: &Rc<App>, w: &MainWindow) {
     // inside Slint's event dispatch.
     g.on_browse(|folder| super::later(move |app| browse(app, folder)));
     g.on_choose_icon(|| super::later(choose_icon));
+    g.on_icon_search(|q| {
+        super::with(|app| icon_search(app, Some(q.to_string())));
+    });
+    g.on_icon_search_close(|| {
+        super::with(|app| {
+            st(|st| st.form.as_mut().map(|f| f.search = None));
+            redraw(app);
+        });
+    });
+    g.on_icon_pick(|i| {
+        super::with(|app| icon_pick(app, i.max(0) as usize));
+    });
     g.on_auto_icon(|| {
         super::with(auto_icon);
     });
@@ -515,7 +543,7 @@ enum Preview {
 fn preview(gen: u64, job: Preview, done: impl FnOnce(&Rc<App>, Option<Rgba>) + Send + 'static) {
     std::thread::spawn(move || {
         let img = match job {
-            Preview::Extract(p) => Wic::new().and_then(|w| w.file_icon(&p, large_icon_size())).ok(),
+            Preview::Extract(p) => Wic::new().and_then(|w| w.file_icon(&p, crate::win::image::EXTRACT_ICON_PX)).ok(),
             Preview::Favicon(url, google) => Icons::new().ok().and_then(|mut src| favicon::fetch_favicon(&url, google, &mut src)),
         };
         super::post(move |app| {
@@ -627,6 +655,87 @@ fn choose_icon(app: &Rc<App>) {
         Err(e) => return alert(app, &e.to_string()),
     };
     set_custom_icon(app, path);
+}
+
+/// Search Icons…: pictures for the words (the app's name when it opens),
+/// from core::art_search, shown as 48 px thumbnails as they come in.
+fn icon_search(app: &Rc<App>, query: Option<String>) {
+    let key = app.settings().get("steamGridDbKey").and_then(serde_json::Value::as_str).map(str::to_string);
+    let Some((q, run)) = st(|st| {
+        let f = st.form.as_mut()?;
+        let q = query.unwrap_or_else(|| f.name.clone()).trim().to_string();
+        let search = f.search.get_or_insert_with(IconSearch::default);
+        search.query = q.clone();
+        search.hits.clear();
+        search.run += 1;
+        search.status = if q.is_empty() { "Type what to search for.".into() } else { "Searching…".into() };
+        Some((q, search.run))
+    }) else {
+        return;
+    };
+    redraw(app);
+    if q.is_empty() {
+        return;
+    }
+    std::thread::spawn(move || {
+        let hits = art_search::icons(&q, key.as_deref(), &mut services::Search);
+        let wic = Wic::new().ok();
+        let mut shown = 0;
+        for hit in &hits {
+            let thumb = wic.as_ref().and_then(|w| {
+                let bytes = crate::win::http::get(&hit.thumb, 4 << 20, 10_000).ok().filter(|r| (200..300).contains(&r.status))?.body;
+                w.decode_rgba(&bytes, |w, h| {
+                    let s = (96.0 / w.max(h).max(1) as f64).min(1.0);
+                    (((w as f64 * s).round() as u32).max(1), ((h as f64 * s).round() as u32).max(1))
+                })
+                .ok()
+            });
+            let Some(thumb) = thumb else { continue };
+            shown += 1;
+            let url = hit.url.clone();
+            super::post(move |app| {
+                st(|st| {
+                    if let Some(s) = st.form.as_mut().and_then(|f| f.search.as_mut()).filter(|s| s.run == run) {
+                        s.hits.push((url, images::to_image(thumb)));
+                        s.status = "Click a picture to use it.".into();
+                    }
+                });
+                redraw(app);
+            });
+        }
+        super::post(move |app| {
+            st(|st| {
+                if let Some(s) = st.form.as_mut().and_then(|f| f.search.as_mut()).filter(|s| s.run == run && shown == 0) {
+                    s.status = "Nothing found. Try other words.".into();
+                }
+            });
+            redraw(app);
+        });
+    });
+}
+
+/// A search result picked: downloaded to a temp file and used as Choose Icon… would.
+fn icon_pick(app: &Rc<App>, i: usize) {
+    let Some(url) = st(|st| st.form.as_ref()?.search.as_ref()?.hits.get(i).map(|h| h.0.clone())) else { return };
+    st(|st| st.form.as_mut().and_then(|f| f.search.as_mut()).map(|s| s.status = "Downloading…".into()));
+    redraw(app);
+    std::thread::spawn(move || {
+        let file = crate::win::http::get(&url, 8 << 20, 20_000).ok().filter(|r| (200..300).contains(&r.status)).and_then(|r| {
+            let ext = if r.body.starts_with(b"\x89PNG") { "png" } else { "jpg" };
+            let path = std::env::temp_dir().join(format!("launchpad-icon-{}.{ext}", time::now_ms()));
+            std::fs::write(&path, &r.body).ok().map(|_| path)
+        });
+        super::post(move |app| match file {
+            Some(path) => {
+                st(|st| st.form.as_mut().map(|f| f.search = None));
+                set_custom_icon(app, path);
+            }
+            None => {
+                st(|st| st.form.as_mut().and_then(|f| f.search.as_mut()).map(|s| s.status = "That picture couldn't be downloaded.".into()));
+                redraw(app);
+            }
+        });
+    });
 }
 
 fn set_custom_icon(app: &Rc<App>, path: PathBuf) {

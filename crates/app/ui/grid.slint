@@ -4,6 +4,8 @@
 // Sizes follow renderer/styles.css (.toolbar, .tile, .island-card…).
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
+import { LpMenu, GridMenuEntry } from "menu.slint";
+export { GridMenuEntry }
 
 export struct GridCrumb { id: string, name: string }
 
@@ -43,7 +45,6 @@ export struct GridItem {
     empty-card: bool,
 }
 
-export struct GridMenuEntry { id: string, title: string, enabled: bool, checked: bool, danger: bool }
 
 export global GridState {
     in property <[GridCrumb]> crumbs: [{ id: "", name: "Home" }];
@@ -92,11 +93,9 @@ export global GridState {
     // Files dragged over the window from Explorer.
     in property <bool> file-drag;
     // The context menu's rows (renderer.js showItemContextMenu's order).
-    in property <[GridMenuEntry]> menu-a;
-    in property <bool> menu-sep;
+    // "-" rows are separators, ">" opens menu-move ("Move to").
+    in property <[GridMenuEntry]> menu-rows;
     in property <[GridMenuEntry]> menu-move;
-    in property <[GridMenuEntry]> menu-b;
-    in property <[GridMenuEntry]> menu-c;
     // The canvas origin in window coordinates, for Explorer drops.
     in-out property <length> origin-x;
     in-out property <length> origin-y;
@@ -173,37 +172,11 @@ component BarButton inherits Rectangle {
 }
 
 // The one context menu (Slint draws it; 1.2's was custom HTML).
-component ItemMenu inherits ContextMenuArea {
-    enabled: false;
-    Menu {
-        for e in GridState.menu-a: MenuItem {
-            title: e.title;
-            enabled: e.enabled;
-            icon: e.danger ? @image-url("grid-trash.svg") : @image-url("");
-            activated => { GridState.menu-pick(e.id); }
-        }
-        if GridState.menu-sep: MenuSeparator { }
-        if GridState.menu-move.length > 0: Menu {
-            title: "Move to";
-            for e in GridState.menu-move: MenuItem {
-                title: e.title;
-                enabled: e.enabled;
-                checkable: true;
-                checked: e.checked;
-                activated => { GridState.menu-pick(e.id); }
-            }
-        }
-        for e in GridState.menu-b: MenuItem {
-            title: e.title;
-            enabled: e.enabled;
-            activated => { GridState.menu-pick(e.id); }
-        }
-        if GridState.menu-c.length > 0: MenuSeparator { }
-        for e in GridState.menu-c: MenuItem {
-            title: e.title;
-            activated => { GridState.menu-pick(e.id); }
-        }
-    }
+component ItemMenu inherits LpMenu {
+    rows: GridState.menu-rows;
+    sub: GridState.menu-move;
+    sub-title: "Move to";
+    pick(id) => { GridState.menu-pick(id); }
 }
 
 export component TopBar inherits Rectangle {
@@ -265,9 +238,9 @@ export component TopBar inherits Rectangle {
                         mouse-cursor: current ? default : pointer;
                         clicked => { GridState.crumb(c.id); }
                         pointer-event(e) => {
-                            if (current && c.id != "" && e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
+                            if (current && c.id != "" && e.button == PointerEventButton.right && e.kind == PointerEventKind.up) {
                                 GridState.menu-for(c.id, 0, 0);
-                                menu.show({ x: self.absolute-position.x + self.mouse-x - root.absolute-position.x, y: self.absolute-position.y + self.mouse-y - root.absolute-position.y });
+                                menu.show({ x: self.absolute-position.x + self.mouse-x, y: self.absolute-position.y + self.mouse-y });
                             }
                         }
                     }
@@ -381,7 +354,7 @@ component ItemTouch inherits TouchArea {
                 root.tap(e.modifiers.control || e.modifiers.shift || e.modifiers.meta);
             }
         }
-        if (e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
+        if (e.button == PointerEventButton.right && e.kind == PointerEventKind.up) {
             root.menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
         }
     }
@@ -396,7 +369,7 @@ export component Grid inherits Rectangle {
     changed gpos => { GridState.grid-x = gpos.x; GridState.grid-y = gpos.y; }
     // An island's menu asked for from the organizer panel's breadcrumb.
     property <int> menu-tick: GridState.menu-tick;
-    changed menu-tick => { menu.show({ x: GridState.menu-x - self.absolute-position.x, y: GridState.menu-y - self.absolute-position.y }); }
+    changed menu-tick => { menu.show({ x: GridState.menu-x, y: GridState.menu-y }); }
     init => {
         GridState.grid-x = gpos.x;
         GridState.grid-y = gpos.y;
@@ -407,7 +380,7 @@ export component Grid inherits Rectangle {
 
     function show-menu(id: string, wx: length, wy: length) {
         GridState.menu-for(id, wx, wy);
-        menu.show({ x: wx - root.absolute-position.x, y: wy - root.absolute-position.y });
+        menu.show({ x: wx, y: wy });
     }
 
     fs := FocusScope {
@@ -439,7 +412,7 @@ export component Grid inherits Rectangle {
                         GridState.marquee-start(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y, e.modifiers.control || e.modifiers.shift || e.modifiers.meta);
                     }
                     if (e.button == PointerEventButton.left && e.kind == PointerEventKind.up) { GridState.marquee-end(); }
-                    if (e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
+                    if (e.button == PointerEventButton.right && e.kind == PointerEventKind.up) {
                         show-menu("", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
                     }
                 }

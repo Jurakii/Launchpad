@@ -90,6 +90,15 @@ pub fn run(args: &[String]) -> Result<i32> {
     // Every context menu drawn by Slint (dark, like 1.2's) rather than as a
     // native Win32 menu through muda. Set before any thread starts.
     std::env::set_var("SLINT_NO_MUDA", "1");
+    win::cloak::install();
+    let user_dir = instance::user_data_dir(args);
+    let data_dir = instance::data_dir(user_dir.as_deref());
+    // Settings → Interface size. Slint's override replaces the display's own
+    // scale, so it's multiplied in here. shortcut: the primary display's
+    // scale for every window; a second display at another scale gets this one.
+    if let Some(ui) = core_settings::load(&data_dir).get("uiScale").and_then(serde_json::Value::as_f64).filter(|v| (1.0..=2.0).contains(v) && *v != 1.0) {
+        std::env::set_var("SLINT_SCALE_FACTOR", (ui * win::display::primary_scale()).to_string());
+    }
     // The organizer's windows (made through shell::make) must never take
     // the foreground or get a taskbar button, from their very first show.
     slint::BackendSelector::new()
@@ -105,8 +114,6 @@ pub fn run(args: &[String]) -> Result<i32> {
         })
         .select()
         .map_err(|e| Error::msg(format!("Starting the UI: {e}")))?;
-    let user_dir = instance::user_data_dir(args);
-    let data_dir = instance::data_dir(user_dir.as_deref());
     let key = instance::key(&data_dir);
     let Some(_lock) = instance::acquire(&key)? else {
         instance::show_first(&key);
@@ -384,11 +391,7 @@ impl App {
     }
 
     fn add_tray_icon(&self) {
-        let Some(icon) = wtray::app_icon_path() else {
-            eprintln!("No build\\icon.ico found; running without a tray icon.");
-            return;
-        };
-        match wtray::Tray::new(&self.msg, &icon, "Launchpad") {
+        match wtray::Tray::new(&self.msg, "Launchpad") {
             Ok(t) => *self.tray_icon.borrow_mut() = Some(t),
             Err(e) => eprintln!("Couldn't add the tray icon: {e}"),
         }

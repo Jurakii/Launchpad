@@ -82,7 +82,8 @@ pub fn decode(jobs: Vec<Key>) -> Vec<(Key, Option<Rgba>)> {
             let img = std::fs::read(&k.path).ok().and_then(|bytes| {
                 wic.decode_rgba(&bytes, |w, h| {
                     let (sx, sy) = (k.w as f64 / w.max(1) as f64, k.h as f64 / h.max(1) as f64);
-                    let s = if k.cover { sx.max(sy) } else { sx.min(sy) }.min(1.0);
+                    // Scaled up too, by WIC's cubic filter: Slint stretching a small image draws it blocky.
+                    let s = if k.cover { sx.max(sy) } else { sx.min(sy) };
                     (((w as f64 * s).round() as u32).max(1), ((h as f64 * s).round() as u32).max(1))
                 })
                 .ok()

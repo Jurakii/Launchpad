@@ -33,14 +33,13 @@ pub fn probe(args: &[String]) -> Result<Value> {
     let title = super::arg(args, "--title").unwrap_or("Launchpad");
     let body = super::arg(args, "--body").unwrap_or("Probe notification.");
     let secs: f64 = super::arg(args, "--seconds").and_then(|s| s.parse().ok()).unwrap_or(8.0);
-    let icon = tray::app_icon_path().ok_or_else(|| Error::msg("build\\icon.ico not found near the exe."))?;
     let log = Rc::new(RefCell::new(Vec::<String>::new()));
     let l = log.clone();
     let window = MsgWindow::new("LaunchpadProbe-notify", move |e: Event| {
         eprintln!("{e:?}");
         l.borrow_mut().push(format!("{e:?}"));
     })?;
-    let tray = Tray::new(&window, &icon, "Launchpad (probe)")?;
+    let tray = Tray::new(&window, "Launchpad (probe)")?;
     show(&tray, title, body)?;
     tray::pump_for(secs);
     drop(tray);

@@ -142,3 +142,10 @@ pub fn probe(args: &[String]) -> Result<Value> {
     }
 }
 
+
+/// A text value under HKEY_CURRENT_USER, if it's there.
+pub fn hkcu_string(key: &str, name: &str) -> Option<String> {
+    let b = get(key, name, RRF_RT_REG_SZ).ok()??;
+    let w: Vec<u16> = b.as_chunks::<2>().0.iter().map(|&c| u16::from_le_bytes(c)).collect();
+    Some(super::from_wide(&w).trim_end_matches('\0').to_string())
+}

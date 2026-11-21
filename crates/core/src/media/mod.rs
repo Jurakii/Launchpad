@@ -5,6 +5,7 @@
 pub mod art;
 pub mod backup;
 pub mod controller;
+pub mod import;
 pub mod launch;
 pub mod library;
 pub mod pad;

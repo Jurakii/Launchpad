@@ -142,20 +142,18 @@ Section "Launchpad"
 
   SetOutPath "$INSTDIR"
   File "/oname=Launchpad.exe" "${EXE}"
-  ; shortcut: the tray and notifications read build\icon.ico beside the exe;
-  ; embed it as a resource if a single file is ever wanted.
-  SetOutPath "$INSTDIR\build"
-  File "${ICON}"
-  SetOutPath "$INSTDIR"
+  ; 1.3.0 shipped the icon beside the exe; it's embedded in the exe now.
+  Delete "$INSTDIR\build\icon.ico"
+  RMDir "$INSTDIR\build"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
-  CreateShortcut "$SMPROGRAMS\Launchpad.lnk" "$INSTDIR\Launchpad.exe" "" "$INSTDIR\build\icon.ico"
-  CreateShortcut "$DESKTOP\Launchpad.lnk" "$INSTDIR\Launchpad.exe" "" "$INSTDIR\build\icon.ico"
+  CreateShortcut "$SMPROGRAMS\Launchpad.lnk" "$INSTDIR\Launchpad.exe"
+  CreateShortcut "$DESKTOP\Launchpad.lnk" "$INSTDIR\Launchpad.exe"
 
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "Launchpad"
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKLM "${UNINST_KEY}" "Publisher" "Jurakii"
-  WriteRegStr HKLM "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\build\icon.ico"
+  WriteRegStr HKLM "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\Launchpad.exe,0"
   WriteRegStr HKLM "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKLM "${UNINST_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr HKLM "${UNINST_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'

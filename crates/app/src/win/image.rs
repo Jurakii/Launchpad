@@ -61,6 +61,10 @@ pub fn large_icon_size() -> u32 {
     (unsafe { GetSystemMetrics(SM_CXICON) }).max(16) as u32
 }
 
+/// Auto-detected app icons: ask the shell for its biggest image, not the
+/// 32px large icon, so the saved PNG keeps the exe's full detail.
+pub const EXTRACT_ICON_PX: u32 = 256;
+
 impl Wic {
     pub fn new() -> Result<Wic> {
         let com = Com::init();

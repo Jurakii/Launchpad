@@ -863,11 +863,26 @@ fn entry(id: &str, title: impl Into<SharedString>) -> GridMenuEntry {
 fn set_menu(w: &MainWindow, a: Vec<GridMenuEntry>, sep: bool, mv: Vec<GridMenuEntry>, b: Vec<GridMenuEntry>, c: Vec<GridMenuEntry>) {
     let g = w.global::<GridState>();
     let m = |v: Vec<GridMenuEntry>| ModelRc::new(VecModel::from(v));
-    g.set_menu_a(m(a));
-    g.set_menu_sep(sep);
+    g.set_menu_rows(m(menu_rows(a, sep, !mv.is_empty(), b, c)));
     g.set_menu_move(m(mv));
-    g.set_menu_b(m(b));
-    g.set_menu_c(m(c));
+}
+
+/// The menu as menu.slint's LpMenu shows it: one list, "-" separators and a
+/// ">" row for "Move to".
+fn menu_rows(a: Vec<GridMenuEntry>, sep: bool, moves: bool, b: Vec<GridMenuEntry>, c: Vec<GridMenuEntry>) -> Vec<GridMenuEntry> {
+    let mut rows = a;
+    if sep {
+        rows.push(entry("-", ""));
+    }
+    if moves {
+        rows.push(entry(">", "Move to"));
+    }
+    rows.extend(b);
+    if !c.is_empty() {
+        rows.push(entry("-", ""));
+        rows.extend(c);
+    }
+    rows
 }
 
 /// showItemContextMenu / showBulkContextMenu / showGridContextMenu, filled

@@ -26,19 +26,25 @@ Back up `%APPDATA%\launchpad` first (copy the folder somewhere). Each item is a 
 
 (Add them here, or tell me and I will.)
 
-- [ ] **Top bar visual bugs:** the bar flashes white and doesn't work well. Inspect the whole top bar (the Home/apps strip, the window-tab row, and the Media / Layouts / buttons on the right) for rendering and behaviour issues, and fix them.
+- [x] **Top bar visual bugs:** the window flashed white each time it was shown (now kept hidden until its first frame is drawn, `win/cloak.rs`), and showing it again after hiding could hang (a deadlock reading our own window's title, fixed in `windowmgr`).
 
 ## 3. Before or with 1.3.1
 
-- [ ] Fix the bugs above.
-- [ ] **Exe icon:** the icon ships as `build\icon.ico` beside the exe, so Explorer and Task Manager show a generic icon for `Launchpad.exe`. Embed it as a resource and have the tray read it from there.
-- [ ] **Icons in every window:** the app's icons should show correctly in every window (the screenshot shows Task Manager's generic icon for `Launchpad.exe`). Check each window and fix any that don't.
-- [ ] **Icon search for apps without one:** when an app has no icon, offer a search inside Launchpad that auto-searches Google for the app name and loads matching icons to pick from. The user can also type their own search.
-- [ ] **Steam in Media mode:** import the user's Steam library into Media mode, and launch games from Media mode directly instead of going through Steam.
-- [ ] **Quiver Launcher in Media mode:** import games from Quiver Launcher and launch them from Media mode, the same way as Steam.
-- [ ] **Portable release:** build a portable `Launchpad.exe` (no installer) and attach it to the release page alongside the setup.
+- [x] Fix the bugs above.
+- [x] **Exe icon:** embedded as resource 1 (`crates/app/launchpad.rc`); the tray, notifications, shortcuts and Apps & Features read it from the exe. The installer no longer ships `build\icon.ico` and removes 1.3.0's copy.
+- [x] **Icons in every window:** every Launchpad window gets the big and small icon when it's first shown.
+- [x] **Icon search for apps without one:** Edit App → Search Icons… searches for the app's name (or your own words) and shows pictures to pick from. Sources: Wikimedia Commons (logos, no key) and SteamGridDB (game icons, with a free API key in Settings → Icons & privacy). Not Google: it has no free image-search API, and scraping its results pages breaks and is against its terms.
+- [x] **Steam in Media mode:** Add → Steam library imports installed games with Steam's own art, launching each game's exe directly (or `steam://rungameid` when no exe is found). Already-imported games are skipped.
+- [x] **Quiver Launcher in Media mode:** Add → Quiver Launcher, the same way.
+- [x] **Portable release:** `Launchpad-<version>-portable.exe` is attached to the release. Its updater opens the release page instead of installing.
 - [ ] **Release 1.3.1 and test the updater:** 1.3.0 → Settings → Backup & updates finds 1.3.1 → Download & Install → UAC prompt → Launchpad comes back as 1.3.1. Also the startup notification with "Notify me when an update is available" on.
 - [ ] Check that 1.2.2 doesn't offer 1.3 (its Check for updates shows an error, which its Settings note explains). Only testable on a PC still on 1.2.2.
+- [x] Add island and app right-click menus are longer than needed: they're Launchpad's own compact menu now (keyboard works too).
+- [x] Overall font is kind of small: Settings → Appearance → Interface size (100–175%). Media also scales with the screen's height.
+- [ ] **ScreenScraper support for Media:** not done. Its API needs a developer id and password that the project has to register for with ScreenScraper (and each user's own account for decent limits). Register, then it can be added beside SteamGridDB.
+- [x] Other database support: SteamGridDB (covers, banners, logos, icons; free key). Customize art → Find Art Online, and imports use it for games without art.
+- [x] Media mode looks better: a bigger home hero (logo or large title over the art with fades), a 2×2 Add menu.
+- [x] Image quality in Media: small art is now upscaled with a smooth filter instead of stretched.
 
 ## 4. Phase 7: cut-over (after 1.3.1 is settled)
 
@@ -62,4 +68,4 @@ Upgrade one only if it shows up in use.
 - Wi-Fi uses the first adapter only (`wifi.rs`).
 - Unavailable-network-path checks run on the UI thread at refresh (`grid.rs`), as in 1.2; a dead network share can stall it.
 - Backup import copies stored files on the UI thread (`settings.rs`).
-- The exe is 12.48 MiB against an original 12 MiB goal; the gate is 13 MiB. Getting under 12 would mean patching Slint's text stack (see `RUST_PORT_PLAN.md`, Phase 6).
+- The exe is 12.78 MiB against an original 12 MiB goal; the gate is 13 MiB. Getting under 12 would mean patching Slint's text stack (see `RUST_PORT_PLAN.md`, Phase 6).

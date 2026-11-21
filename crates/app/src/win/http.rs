@@ -46,7 +46,8 @@ fn session() -> Result<*mut c_void> {
     if let Some(&s) = SESSION.get() {
         return Ok(s as *mut c_void);
     }
-    let agent = wide(format!("Launchpad/{}", env!("CARGO_PKG_VERSION")));
+    // Wikimedia asks API clients to say who they are.
+    let agent = wide(format!("Launchpad/{} (+https://github.com/Jurakii/Launchpad)", env!("CARGO_PKG_VERSION")));
     let h = unsafe { WinHttpOpen(PCWSTR(agent.as_ptr()), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, PCWSTR::null(), PCWSTR::null(), 0) };
     let h = handle(h, "Couldn't start WinHTTP")?;
     // Follow https -> http redirects too, as Chromium's fetch did.
@@ -77,6 +78,11 @@ fn header(req: &Handle, which: u32) -> Option<String> {
 /// then drops the connection. The whole request, body included, is given up
 /// after `timeout_ms`.
 pub fn get(url: &str, max_bytes: usize, timeout_ms: u64) -> Result<Response> {
+    get_with(url, "", max_bytes, timeout_ms)
+}
+
+/// `get` with extra request headers ("Name: value", one per line).
+pub fn get_with(url: &str, headers: &str, max_bytes: usize, timeout_ms: u64) -> Result<Response> {
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
     let session = session()?;
 
@@ -123,7 +129,7 @@ pub fn get(url: &str, max_bytes: usize, timeout_ms: u64) -> Result<Response> {
         }
         fired
     });
-    let result = read(&req, url, max_bytes);
+    let result = read(&req, url, headers, max_bytes);
     drop(done);
     if watchdog.join().unwrap_or(false) {
         std::mem::forget(req); // already closed by the watchdog
@@ -148,8 +154,9 @@ fn fail<'a>(what: &'a str, url: &'a str) -> impl Fn(windows::core::Error) -> Err
     }
 }
 
-fn read(req: &Handle, url: &str, max_bytes: usize) -> Result<Response> {
-    unsafe { WinHttpSendRequest(req.0, None, None, 0, 0, 0) }.map_err(fail("Request failed", url))?;
+fn read(req: &Handle, url: &str, headers: &str, max_bytes: usize) -> Result<Response> {
+    let h: Vec<u16> = headers.encode_utf16().collect();
+    unsafe { WinHttpSendRequest(req.0, (!h.is_empty()).then_some(&h[..]), None, 0, 0, 0) }.map_err(fail("Request failed", url))?;
     unsafe { WinHttpReceiveResponse(req.0, std::ptr::null_mut()) }.map_err(fail("No response", url))?;
 
     let status = header(req, WINHTTP_QUERY_STATUS_CODE).and_then(|s| s.trim().parse().ok()).unwrap_or(0);

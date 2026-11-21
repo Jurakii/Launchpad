@@ -88,6 +88,11 @@ pub fn probe(_args: &[String]) -> Result<Value> {
     }))
 }
 
+/// The primary display's scale (1.0 at 96 DPI).
+pub fn primary_scale() -> f64 {
+    monitors().iter().find(|m| m.primary).map_or(1.0, |m| m.scale)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

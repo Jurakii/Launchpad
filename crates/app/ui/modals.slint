@@ -40,6 +40,13 @@ export global ModalState {
     callback app-field(string, string);
     callback browse(bool);
     callback choose-icon();
+    in property <bool> icon-search-open;
+    in-out property <string> icon-query;
+    in property <[image]> icon-hits;
+    in property <string> icon-status;
+    callback icon-search(string);
+    callback icon-search-close();
+    callback icon-pick(int);
     callback auto-icon();
     callback app-remove();
     callback app-save();
@@ -144,6 +151,59 @@ component AppModal inherits FocusScope {
                             text: "Auto-detect Icon";
                             clicked => { ModalState.auto-icon(); }
                         }
+                        LpButton {
+                            text: "Search Icons…";
+                            primary: !ModalState.app-has-icon;
+                            clicked => { ModalState.icon-search(ModalState.f-name); }
+                        }
+                    }
+                }
+                // Search Icons…: online pictures for the name, or other words.
+                if ModalState.icon-search-open: VerticalLayout {
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        LineEdit {
+                            horizontal-stretch: 1;
+                            placeholder-text: "Search for an icon";
+                            text <=> ModalState.icon-query;
+                            accepted(t) => { ModalState.icon-search(t); }
+                        }
+                        LpButton {
+                            text: "Search";
+                            clicked => { ModalState.icon-search(ModalState.icon-query); }
+                        }
+                        LpButton {
+                            text: "Close";
+                            clicked => { ModalState.icon-search-close(); }
+                        }
+                    }
+                    if ModalState.icon-status != "": Caption { text: ModalState.icon-status; }
+                    Rectangle {
+                        property <int> per-row: max(1, floor((self.width + 8px) / 64px));
+                        height: ceil(ModalState.icon-hits.length / per-row) * 64px;
+                        for img[i] in ModalState.icon-hits: Rectangle {
+                            x: mod(i, per-row) * 64px;
+                            y: floor(i / per-row) * 64px;
+                            width: 56px;
+                            height: 56px;
+                            border-radius: 8px;
+                            background: ta.has-hover ? Theme.panel : Theme.bg;
+                            border-width: 1px;
+                            border-color: ta.has-hover ? Theme.accent : Theme.border;
+                            Image {
+                                x: 6px;
+                                y: 6px;
+                                width: 44px;
+                                height: 44px;
+                                source: img;
+                                image-fit: contain;
+                            }
+                            ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { ModalState.icon-pick(i); }
+                            }
+                        }
                     }
                 }
                 name := Field {
@@ -161,27 +221,24 @@ component AppModal inherits FocusScope {
                         selected => { ModalState.app-field("type", self.current-index); }
                     }
                 }
-                if !ModalState.app-stored && (ModalState.f-type == 0 || ModalState.f-type == 2): HorizontalLayout {
-                    spacing: 8px;
-                    alignment: stretch;
+                // The path gets the whole width; its buttons go underneath.
+                if !ModalState.app-stored && (ModalState.f-type == 0 || ModalState.f-type == 2): VerticalLayout {
+                    spacing: 6px;
                     Field {
-                        horizontal-stretch: 1;
                         label: ModalState.f-type == 2 ? "Script File" : "Target";
                         placeholder: "C:\\path\\to\\app.exe";
                         text <=> ModalState.f-target;
                         edited(t) => { ModalState.app-field("target", t); }
                         accepted => { ModalState.app-save(); }
                     }
-                    VerticalLayout {
-                        alignment: end;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
                         LpButton {
                             text: "Browse File…";
                             clicked => { ModalState.browse(false); }
                         }
-                    }
-                    if ModalState.f-type == 0: VerticalLayout {
-                        alignment: end;
-                        LpButton {
+                        if ModalState.f-type == 0: LpButton {
                             text: "Windows Folder…";
                             clicked => { ModalState.browse(true); }
                         }

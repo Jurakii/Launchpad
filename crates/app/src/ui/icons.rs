@@ -2,7 +2,7 @@
 //! `items::apply_icon` records it. `spawn` does a batch on a worker thread;
 //! `run` is the blocking piece (a custom icon must be saved before the list is).
 use super::App;
-use crate::win::image::{large_icon_size, Format, Wic};
+use crate::win::image::{Format, Wic, EXTRACT_ICON_PX};
 use crate::win::services::Icons;
 use launchpad_core::items::{self, IconTask};
 use launchpad_core::{favicon, Error, Result};
@@ -17,7 +17,7 @@ pub fn run(task: &IconTask, icons_dir: &Path, google_fallback: bool) -> Result<O
         }
         IconTask::Extract { path, .. } => {
             let wic = Wic::new()?;
-            match wic.file_icon(Path::new(path), large_icon_size()) {
+            match wic.file_icon(Path::new(path), EXTRACT_ICON_PX) {
                 Ok(img) => Some(wic.encode_rgba(&img, Format::Png)?),
                 Err(_) => None,
             }

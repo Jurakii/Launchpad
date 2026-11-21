@@ -44,6 +44,7 @@ export global SettingsState {
     in property <color> accent;
     in-out property <string> accent-hex;
     in-out property <int> topbar-style;
+    in-out property <int> ui-scale;
     in-out property <int> taskbar-style;
     in-out property <int> taskbar-edge;
     in-out property <int> taskbar-align;
@@ -76,6 +77,8 @@ export global SettingsState {
     callback select(string, int);
     callback action(string);
     callback accent-edited(string);
+    in-out property <string> sgdb-key;
+    callback sgdb-edited(string);
     // While capturing: the key's text (Slint's Key codes) and modifiers.
     callback hotkey-key(string, bool, bool, bool, bool);
 
@@ -597,6 +600,17 @@ export component SettingsView inherits Rectangle {
                                         }
                                     }
                                 }
+                                if SettingsState.hits[30]: ItemBox {
+                                    i: 30;
+                                    ControlRow {
+                                        text: SettingsState.labels[30];
+                                        Select {
+                                            model: ["100%", "110%", "125%", "150%", "175%"];
+                                            current-index <=> SettingsState.ui-scale;
+                                            selected => { SettingsState.select("ui-scale", self.current-index); }
+                                        }
+                                    }
+                                }
                             }
 
                             if SettingsState.section-shown[2]: Section {
@@ -744,6 +758,19 @@ export component SettingsView inherits Rectangle {
                                         text: SettingsState.labels[21];
                                         checked: SettingsState.google-favicon;
                                         toggled(v) => { SettingsState.toggle("googleFaviconFallback", v); }
+                                    }
+                                }
+                                if SettingsState.hits[31]: ItemBox {
+                                    i: 31;
+                                    ControlRow {
+                                        text: SettingsState.labels[31];
+                                        LineEdit {
+                                            width: 260px;
+                                            placeholder-text: "Paste your key";
+                                            input-type: password;
+                                            text <=> SettingsState.sgdb-key;
+                                            edited(t) => { SettingsState.sgdb-edited(t); }
+                                        }
                                     }
                                 }
                                 if SettingsState.hits[22]: ItemBox {

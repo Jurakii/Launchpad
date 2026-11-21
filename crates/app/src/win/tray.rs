@@ -12,7 +12,6 @@ use super::{wide, Context};
 use launchpad_core::{Error, Result};
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
-use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::OnceLock;
@@ -159,11 +158,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
     }
 }
 
-/// The app icon. shortcut: read from build\icon.ico beside or above the exe
-/// (the repo when run from target\); Phase 6 embeds it as a resource.
-pub fn app_icon_path() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    exe.ancestors().skip(1).take(4).map(|d| d.join("build").join("icon.ico")).find(|p| p.is_file())
+/// The app icon (resource 1, embedded by build.rs) at `size` px. The caller destroys it.
+pub fn app_icon(size: i32) -> Result<HICON> {
+    let module = unsafe { GetModuleHandleW(None) }.ctx("GetModuleHandle")?;
+    let h = unsafe { LoadImageW(Some(module.into()), PCWSTR(1 as _), IMAGE_ICON, size, size, LR_DEFAULTCOLOR) }.ctx("Loading the app icon")?;
+    Ok(HICON(h.0))
 }
 
 /// The icon in the notification area. Removed on drop.
@@ -174,11 +173,9 @@ pub struct Tray {
 }
 
 impl Tray {
-    pub fn new(window: &MsgWindow, icon: &Path, tip: &str) -> Result<Tray> {
-        let size = unsafe { GetSystemMetrics(SM_CXSMICON) };
-        let icon = unsafe { LoadImageW(None, PCWSTR(wide(icon).as_ptr()), IMAGE_ICON, size, size, LR_LOADFROMFILE) }
-            .ctx(&format!("Loading {}", icon.display()))?;
-        let tray = Tray { hwnd: window.hwnd(), icon: HICON(icon.0), tip: tip.to_string() };
+    pub fn new(window: &MsgWindow, tip: &str) -> Result<Tray> {
+        let icon = app_icon(unsafe { GetSystemMetrics(SM_CXSMICON) })?;
+        let tray = Tray { hwnd: window.hwnd(), icon, tip: tip.to_string() };
         tray.add()?;
         Ok(tray)
     }
@@ -321,7 +318,6 @@ pub fn probe(args: &[String]) -> Result<Value> {
         return Err(Error::msg("Usage: tray show [seconds]   (shows the icon; left/right-click it)"));
     }
     let secs: f64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(15.0);
-    let icon = app_icon_path().ok_or_else(|| Error::msg("build\\icon.ico not found near the exe."))?;
     let log = Rc::new(RefCell::new(Vec::<Value>::new()));
     let hwnd = Rc::new(Cell::new(HWND::default()));
     let tray: Rc<RefCell<Option<Tray>>> = Rc::default();
@@ -356,7 +352,7 @@ pub fn probe(args: &[String]) -> Result<Value> {
         }
     })?;
     hwnd.set(window.hwnd());
-    let mut t = Tray::new(&window, &icon, "Launchpad")?;
+    let mut t = Tray::new(&window, "Launchpad")?;
     t.set_tooltip("Launchpad (probe)")?;
     *tray.borrow_mut() = Some(t);
     let rect = tray.borrow().as_ref().and_then(Tray::rect);

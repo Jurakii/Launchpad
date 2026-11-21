@@ -1,0 +1,128 @@
+// Launchpad's context menu: as wide as its longest row (Slint's own menu is
+// at least 280 px in the Fluent style). One level of submenu, shown in place
+// ("Move to ›" swaps the rows for the islands, with a back row on top).
+// Keyboard: Up/Down, Enter, Right/Left into and out of the submenu, Esc.
+import { Theme } from "theme.slint";
+
+// id "-" is a separator; id ">" opens `sub`.
+export struct GridMenuEntry { id: string, title: string, enabled: bool, checked: bool, danger: bool }
+
+component Row inherits Rectangle {
+    in property <GridMenuEntry> e;
+    in property <bool> current;
+    in property <bool> has-check;
+    callback activate;
+    callback hover;
+    height: 30px;
+    border-radius: 4px;
+    background: root.current && e.enabled ? Theme.text.with-alpha(0.10) : transparent;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 12px;
+        spacing: 8px;
+        if root.has-check: Text {
+            width: 12px;
+            text: e.checked ? "✓" : "";
+            color: Theme.accent;
+            vertical-alignment: center;
+        }
+        Text {
+            text: e.title;
+            color: !e.enabled ? Theme.muted.with-alpha(0.6) : e.danger ? #ff6b6b : Theme.text;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        if e.id == ">": Text { text: "›"; color: Theme.muted; vertical-alignment: center; }
+    }
+    ta := TouchArea {
+        mouse-cursor: e.enabled ? pointer : default;
+        changed has-hover => { if (self.has-hover) { root.hover(); } }
+        clicked => { if (e.enabled) { root.activate(); } }
+    }
+}
+
+export component LpMenu {
+    in property <[GridMenuEntry]> rows;
+    in property <[GridMenuEntry]> sub;
+    in property <string> sub-title;
+    callback pick(string);
+
+    property <bool> in-sub;
+    property <int> cur: -1;
+    property <[GridMenuEntry]> shown: in-sub ? sub : rows;
+    property <Point> at;
+
+    // `p` in window coordinates.
+    public function show(p: Point) {
+        in-sub = false;
+        cur = -1;
+        at = p;
+        popup.show();
+    }
+
+    function step(d: int) {
+        // At most one separator in a row, so skipping one is enough.
+        if (shown.length == 0) { return; }
+        cur = mod(cur + d + shown.length, shown.length);
+        if (shown[cur].id == "-") { cur = mod(cur + d + shown.length, shown.length); }
+    }
+
+    function activate(i: int) {
+        if (i < 0 || i >= shown.length || !shown[i].enabled) { return; }
+        if (shown[i].id == ">") {
+            in-sub = true;
+            cur = -1;
+        } else if (shown[i].id != "-") {
+            popup.close();
+            root.pick(shown[i].id);
+        }
+    }
+
+    popup := PopupWindow {
+        x: root.at.x - root.absolute-position.x;
+        y: root.at.y - root.absolute-position.y;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.panel;
+            border-radius: 7px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-color: #00000060;
+            drop-shadow-offset-y: 6px;
+            drop-shadow-blur: 14px;
+            fs := FocusScope {
+                init => { self.focus(); }
+                key-pressed(e) => {
+                    if (e.text == Key.Escape) { popup.close(); return accept; }
+                    if (e.text == Key.DownArrow) { root.step(1); return accept; }
+                    if (e.text == Key.UpArrow) { root.step(-1); return accept; }
+                    if (e.text == Key.Return || e.text == " ") { root.activate(root.cur); return accept; }
+                    if (e.text == Key.RightArrow && root.cur >= 0 && root.shown[root.cur].id == ">") { root.activate(root.cur); return accept; }
+                    if (e.text == Key.LeftArrow && root.in-sub) { root.in-sub = false; root.cur = -1; return accept; }
+                    reject
+                }
+                VerticalLayout {
+                    padding: 5px;
+                    spacing: 0;
+                    if root.in-sub: Row {
+                        e: { id: "<", title: "‹  " + root.sub-title, enabled: true };
+                        activate => { root.in-sub = false; root.cur = -1; }
+                    }
+                    for e[i] in root.shown: VerticalLayout {
+                        if e.id == "-": Rectangle {
+                            height: 9px;
+                            Rectangle { height: 1px; background: Theme.border; }
+                        }
+                        if e.id != "-": Row {
+                            e: e;
+                            has-check: root.in-sub;
+                            current: root.cur == i;
+                            hover => { root.cur = i; }
+                            activate => { root.activate(i); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

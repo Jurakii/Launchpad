@@ -36,7 +36,7 @@ const SECTIONS: [(&str, &str, &str); 8] = [
 /// Every setting: (section, label, hint, the rest of its text that search
 /// matches: button labels and options, as 1.2's `textContent` held them).
 /// The index is the item's number in settings.slint.
-const ITEMS: [(usize, &str, &str, &str); 30] = [
+const ITEMS: [(usize, &str, &str, &str); 32] = [
     (0, "Start with Windows", "", ""),
     (0, "Start fullscreen", "", ""),
     (0, "Minimize to tray on close", "Closing the window keeps Launchpad in the system tray. Use the tray icon's Quit to exit.", ""),
@@ -67,7 +67,13 @@ const ITEMS: [(usize, &str, &str, &str); 30] = [
     (6, "Releases", "", "Open GitHub Releases"),
     (6, "Repair Launchpad", "Downloads this version's installer from its GitHub release and runs it, like an update. Your apps and settings are kept. Launchpad restarts when it's done.", "Reinstall This Version…"),
     (7, "Reset Launchpad", "Removes your apps, islands, icons, stored files, layouts, scenes and settings, and restarts Launchpad as a first install. Your Media library, players and artwork are kept.", "Reset Launchpad…"),
+    // Appended so the indices above (and the .slint's) stay put; shown under Appearance.
+    (1, "Interface size", "Makes all of Launchpad's text and controls bigger. Launchpad restarts to apply it.", "100% 110% 125% 150% 175%"),
+    (5, "SteamGridDB API key", "Adds game icons to Search Icons… and lets Media find covers, banners and logos (Customize art → Find Art Online). Free: sign in at steamgriddb.com, then Preferences → API.", ""),
 ];
+
+/// Settings → Appearance → Interface size, as settings.json's `uiScale`.
+pub const UI_SCALES: [f64; 5] = [1.0, 1.1, 1.25, 1.5, 1.75];
 
 const BAR_STYLES: [&str; 3] = ["solid", "translucent", "transparent"];
 const EDGES: [&str; 4] = ["bottom", "top", "left", "right"];
@@ -265,6 +271,7 @@ fn push(app: &App, w: &MainWindow) {
     g.set_light(light);
     g.set_accent(super::prefs::parse_hex(&accent).unwrap_or_default());
     g.set_topbar_style(pick("launchpad-topbar-style", &BAR_STYLES));
+    g.set_ui_scale(UI_SCALES.iter().position(|v| Some(*v) == s.get("uiScale").and_then(Value::as_f64)).unwrap_or(0) as i32);
     g.set_taskbar_style(pick("launchpad-taskbar-style", &BAR_STYLES));
     g.set_taskbar_edge(pick("launchpad-taskbar-edge", &EDGES));
     g.set_taskbar_align(pick("launchpad-taskbar-align", &ALIGNS));
@@ -277,6 +284,7 @@ fn push(app: &App, w: &MainWindow) {
     g.set_organizer_panel(core_settings::PANEL_MODES.iter().position(|p| *p == org.panel).unwrap_or(0) as i32);
     g.set_snap_on_drag(org.snap_on_drag);
     g.set_google_favicon(icons::google_fallback(app));
+    g.set_sgdb_key(s.get("steamGridDbKey").and_then(Value::as_str).unwrap_or("").into());
     g.set_notify_updates(truthy(s.get("notifyUpdates")));
     g.set_version_label(ss(&format!("Launchpad v{VERSION}")));
 
@@ -314,7 +322,7 @@ fn push(app: &App, w: &MainWindow) {
             Update::Unknown => (String::new(), ""),
             Update::Checking => ("Checking for updates…".into(), ""),
             Update::UpToDate => ("You're up to date.".into(), ""),
-            Update::Available(v) => (format!("Update available: v{v}"), "Download & Install"),
+            Update::Available(v) => (format!("Update available: v{v}"), if portable() { "Open Download Page" } else { "Download & Install" }),
             Update::Downloading(v) => (format!("Downloading v{v}…"), ""),
             Update::Error(m) => (format!("Update check failed: {m}"), ""),
         };
@@ -403,6 +411,9 @@ pub fn bind(app: &Rc<App>, w: &MainWindow) {
                 w.global::<Popouts>().set_open(ss(""));
             }
         }
+    });
+    g.on_sgdb_edited(|t| {
+        super::with(|app| save(app, json!({ "steamGridDbKey": t.trim() })));
     });
     g.on_accent_edited(|t| {
         super::with(|app| {
@@ -503,6 +514,10 @@ fn toggle(app: &Rc<App>, key: &str, v: bool) {
     redraw(app);
 }
 
+fn s_scale(app: &Rc<App>) -> f64 {
+    app.settings().get("uiScale").and_then(Value::as_f64).unwrap_or(1.0)
+}
+
 /// The selects. Defaults are removed rather than written, as 1.2 did.
 fn select(app: &Rc<App>, key: &str, i: usize) {
     let set = |pref: &str, opts: &[&str]| {
@@ -516,6 +531,14 @@ fn select(app: &Rc<App>, key: &str, i: usize) {
         "taskbar-align" => set("launchpad-taskbar-align", &ALIGNS),
         "taskbar-position" => set("launchpad-taskbar-position", &SIDES),
         "tray-align" => set("launchpad-tray-align", &TRAY_ALIGNS),
+        "ui-scale" => {
+            let v = UI_SCALES.get(i).copied().unwrap_or(1.0);
+            if s_scale(app) != v {
+                save(app, json!({ "uiScale": v }));
+                app.relaunch();
+            }
+            return;
+        }
         "organizerPanel" => {
             if let Some(mode) = core_settings::PANEL_MODES.get(i) {
                 save(app, json!({ "organizerPanel": mode }));
@@ -890,8 +913,25 @@ fn download_and_run(version: String, done: impl FnOnce(&Rc<App>, launchpad_core:
     });
 }
 
+/// Running as the portable exe (no installer's Uninstall.exe beside it): an
+/// update is a new exe to download by hand, not an installer to run, which
+/// would install into Program Files.
+fn portable() -> bool {
+    std::env::current_exe().ok().and_then(|e| e.parent().map(|d| !d.join("Uninstall.exe").is_file())).unwrap_or(true)
+}
+
+fn release_page(version: &str) -> String {
+    format!("https://github.com/{}/releases/tag/v{version}", update::REPO)
+}
+
 fn install_update(app: &Rc<App>) {
     let Update::Available(v) = st(|s| s.update.clone()) else { return };
+    if portable() {
+        if let Err(e) = launch::open_external(&release_page(&v)) {
+            alert(app, &e.to_string());
+        }
+        return;
+    }
     st(|s| s.update = Update::Downloading(v.clone()));
     redraw(app);
     download_and_run(v.clone(), move |app, e| {
@@ -902,6 +942,12 @@ fn install_update(app: &Rc<App>) {
 }
 
 fn reinstall(app: &Rc<App>) {
+    if portable() {
+        if let Err(e) = launch::open_external(&release_page(VERSION)) {
+            alert(app, &e.to_string());
+        }
+        return;
+    }
     st(|s| s.busy[3] = true);
     redraw(app);
     download_and_run(VERSION.to_string(), |app, e| {

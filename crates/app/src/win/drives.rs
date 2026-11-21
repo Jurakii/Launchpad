@@ -149,6 +149,17 @@ pub fn probe(args: &[String]) -> Result<Value> {
     }
 }
 
+/// The letters of the fixed (internal) disks, "C", "D"…: safe to look at
+/// without waiting on a network share or a sleeping USB drive.
+pub fn fixed_letters() -> Vec<char> {
+    let mask = unsafe { GetLogicalDrives() };
+    (0..26u8)
+        .filter(|i| mask & (1 << i) != 0)
+        .map(|i| (b'A' + i) as char)
+        .filter(|l| unsafe { GetDriveTypeW(PCWSTR(wide(format!("{l}:\\")).as_ptr())) } == 3) // DRIVE_FIXED
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

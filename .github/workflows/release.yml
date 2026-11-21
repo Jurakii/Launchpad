@@ -3,7 +3,10 @@
 # version in crates/app/Cargo.toml. The release is tagged v<that version>;
 # the run refuses a -dev version and an existing release.
 #
-# Uploads the installer and launchpad-update.yml (electron-builder's
+# Uploads the installer, the portable exe (the same Launchpad.exe without
+# an installer; it keeps its data in %APPDATA%\launchpad like an installed
+# copy, and its updater opens the release page) and launchpad-update.yml
+# (electron-builder's
 # latest.yml format), which is what the in-app updater reads. Not called
 # latest.yml on purpose: 1.2.2's electron-updater must not offer 1.3
 # (RUST_PORT_PLAN.md §4.4).
@@ -72,6 +75,9 @@ jobs:
           root=$(cygpath -w "$PWD")
           "$makensis" -V2 "-DVERSION=${version}" "-DEXE=${root}\\target\\release\\launchpad.exe" "-DOUT=${root}\\dist\\Launchpad-Setup-${version}.exe" installer/launchpad.nsi
           echo "installer=$installer" >> "$GITHUB_OUTPUT"
+          portable="dist/Launchpad-${version}-portable.exe"
+          cp target/release/launchpad.exe "$portable"
+          echo "portable=$portable" >> "$GITHUB_OUTPUT"
 
       - name: Size gate
         run: bash installer/size-gate.sh target/release/launchpad.exe "${{ steps.files.outputs.installer }}"
@@ -103,6 +109,7 @@ jobs:
           if [ "${{ inputs.draft }}" = "true" ]; then draft_flag="--draft"; fi
           gh release create "v${version}" \
             "${{ steps.files.outputs.installer }}" \
+            "${{ steps.files.outputs.portable }}" \
             dist/launchpad-update.yml \
             --target "${{ github.sha }}" \
             --title "Launchpad ${version}" \

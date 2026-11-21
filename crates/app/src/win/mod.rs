@@ -16,6 +16,7 @@ pub mod audio;
 pub mod autostart;
 pub mod bluetooth;
 pub mod capture;
+pub mod cloak;
 pub mod crypto;
 pub mod dialogs;
 pub mod display;

@@ -50,9 +50,6 @@ export global MediaState {
     in property <string> empty-title: "Nothing here yet";
     in property <string> hero-name;
     in property <string> hero-info;
-    in property <image> hero-art;
-    in property <bool> hero-has-art;
-    in property <bool> hero-wide;
     in property <image> hero-logo;
     in property <bool> hero-has-logo;
     in property <image> backdrop;
@@ -592,59 +589,35 @@ component Strip inherits Rectangle {
 }
 
 component Home inherits Page {
-    if !MediaState.empty: HorizontalLayout {
-        spacing: 32px;
-        padding-bottom: 28px;
-        alignment: start;
-        Rectangle {
-            width: MediaState.hero-wide ? 360px : 180px;
-            height: MediaState.hero-wide ? 202px : 252px;
-            border-radius: 12px;
-            background: MediaTheme.panel;
-            border-width: 1px;
-            border-color: MediaTheme.border;
-            clip: true;
-            if MediaState.hero-has-art: Image {
-                width: parent.width;
-                height: parent.height;
-                source: MediaState.hero-art;
-                image-fit: cover;
-            }
-            if !MediaState.hero-has-art: Text {
-                x: 14px;
-                y: 14px;
-                width: parent.width - 28px;
-                text: MediaState.hero-name;
-                font-weight: 600;
-                color: MediaTheme.text;
-                wrap: word-wrap;
-            }
+    // The focused game's title: its logo big, or its name, over its banner.
+    if !MediaState.empty: VerticalLayout {
+        min-height: 220px;
+        alignment: end;
+        spacing: 10px;
+        padding-top: 24px;
+        padding-bottom: 32px;
+        if MediaState.hero-has-logo: Image {
+            source: MediaState.hero-logo;
+            height: min(200px, self.preferred-height);
+            width: min(640px, self.preferred-width);
+            image-fit: contain;
+            horizontal-alignment: left;
+            vertical-alignment: bottom;
         }
-        VerticalLayout {
-            alignment: end;
-            spacing: 8px;
-            if MediaState.hero-has-logo: Image {
-                source: MediaState.hero-logo;
-                height: min(160px, self.preferred-height);
-                width: min(520px, self.preferred-width);
-                image-fit: contain;
-                horizontal-alignment: left;
-                vertical-alignment: bottom;
-            }
-            if !MediaState.hero-has-logo: Text {
-                text: MediaState.hero-name;
-                font-size: 40px;
-                font-weight: 700;
-                color: MediaTheme.text;
-                wrap: word-wrap;
-            }
-            Text {
-                text: MediaState.hero-info;
-                color: MediaTheme.muted;
-                font-size: 16px;
-                wrap: word-wrap;
-                max-width: 760px;
-            }
+        if !MediaState.hero-has-logo: Text {
+            text: MediaState.hero-name;
+            font-size: 52px;
+            font-weight: 800;
+            color: MediaTheme.text;
+            wrap: word-wrap;
+            max-width: 900px;
+        }
+        Text {
+            text: MediaState.hero-info;
+            color: MediaTheme.text.with-alpha(0.78);
+            font-size: 18px;
+            wrap: word-wrap;
+            max-width: 900px;
         }
     }
     if !MediaState.empty: VerticalLayout {
@@ -719,19 +692,36 @@ component Actions inherits HorizontalLayout {
 
 component AddChoice inherits Page {
     H1 { text: "What are you adding?"; }
-    HorizontalLayout {
+    VerticalLayout {
         padding-top: 20px;
         spacing: 24px;
-        alignment: start;
-        Choice {
-            nav-id: "choice:single";
-            title: "Single app";
-            text: "One program, like a game, a game launcher or a player. It runs on its own.";
+        HorizontalLayout {
+            spacing: 24px;
+            alignment: start;
+            Choice {
+                nav-id: "choice:single";
+                title: "Single app";
+                text: "One program, like a game, a game launcher or a player. It runs on its own.";
+            }
+            Choice {
+                nav-id: "choice:folder";
+                title: "Folder";
+                text: "Movies, or a folder of ROMs. Everything inside is found and added, one platform per subfolder.";
+            }
         }
-        Choice {
-            nav-id: "choice:folder";
-            title: "Folder";
-            text: "Movies, or a folder of ROMs. Everything inside is found and added, one platform per subfolder.";
+        HorizontalLayout {
+            spacing: 24px;
+            alignment: start;
+            Choice {
+                nav-id: "choice:steam";
+                title: "Steam library";
+                text: "Every installed Steam game, with its art. Each one starts its own program, not Steam.";
+            }
+            Choice {
+                nav-id: "choice:quiver";
+                title: "Quiver Launcher";
+                text: "Every app installed through Quiver Launcher, started directly.";
+            }
         }
     }
     Actions { }
@@ -1268,6 +1258,11 @@ component SlotCard inherits Rectangle {
 component Customize inherits Page {
     H1 { text: MediaState.cz-title; }
     Muted { text: "Choose a file, drop one on a slot, or paste an image address. PNG or JPEG. Art you set here is kept when the library is scraped."; }
+    HorizontalLayout {
+        padding-top: 14px;
+        alignment: start;
+        MButton { nav-id: "art:find"; text: "Find Art Online"; }
+    }
     // Two cards a row, as 1.2's auto-fill grid did at TV widths.
     VerticalLayout {
         padding-top: 20px;
@@ -1366,13 +1361,24 @@ export component MediaWindow inherits Window {
             reject
         }
 
-        // The focused item's banner, faint, behind the library.
+        // The focused item's banner behind the library, fading into the
+        // background to the left (behind the title) and down (behind the rows).
         if MediaState.screen != "running" && MediaState.screen != "customize": Image {
             width: root.width;
             height: root.height;
             source: MediaState.backdrop;
             image-fit: cover;
-            opacity: 0.16;
+            opacity: MediaState.screen == "home" ? 0.55 : 0.18;
+        }
+        if MediaState.screen == "home": Rectangle {
+            width: root.width;
+            height: root.height;
+            background: @linear-gradient(90deg, MediaTheme.bg 0%, MediaTheme.bg.with-alpha(0.55) 45%, MediaTheme.bg.with-alpha(0) 100%);
+        }
+        if MediaState.screen == "home": Rectangle {
+            width: root.width;
+            height: root.height;
+            background: @linear-gradient(180deg, MediaTheme.bg.with-alpha(0) 25%, MediaTheme.bg.with-alpha(0.85) 60%, MediaTheme.bg 100%);
         }
 
         VerticalLayout {

@@ -147,7 +147,7 @@ fn load_entries(app: &App) -> (Vec<Entry>, Option<String>) {
 
 fn platform_name(id: Option<&str>) -> String {
     match id {
-        None => "Not detected".into(),
+        None => "PC & other games".into(),
         Some(id) => scan::platform_by_id(id).map_or_else(|| id.to_string(), |p| p.name.to_string()),
     }
 }
@@ -275,10 +275,33 @@ pub fn open(app: &Rc<App>) {
             let _ = SetForegroundWindow(hwnd);
         }
         win_grab_keys();
+        fit_to_screen(hwnd);
     });
     start_pad_timer();
     if let Some(issue) = issue {
         toast(&issue);
+    }
+}
+
+/// Media is a 10-foot screen: it's laid out for 1080 lines and drawn
+/// bigger on a taller display (1440p: a third bigger), never smaller than
+/// the display's own scale, times Settings → Interface size. Art is decoded
+/// again at the new size.
+fn fit_to_screen(hwnd: HWND) {
+    use windows::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONEAREST};
+    let Some(mon) = crate::win::display::info(unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) }) else { return };
+    let tall = (mon.bounds.bottom - mon.bounds.top) as f64 / 1080.0;
+    let ui = super::with(|app| app.settings().get("uiScale").and_then(Value::as_f64)).flatten().unwrap_or(1.0);
+    let s = (mon.scale.max(tall) * ui) as f32;
+    let changed = md(|m| {
+        let differs = (scale(m) - s).abs() > 0.01;
+        if differs {
+            m.win.window().dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged { scale_factor: s });
+        }
+        differs
+    });
+    if changed == Some(true) {
+        super::later(render_home);
     }
 }
 
@@ -771,21 +794,12 @@ fn show_hero(app: &Rc<App>, id: &str) {
                 None => "No player or emulator set up".into(),
             });
         }
-        let wide = e.library() == "videos";
-        let picture = if wide {
-            image(app, m, &e, &["banner", "screenshot"], 360.0, 202.0, true)
-        } else {
-            image(app, m, &e, &["cover"], 180.0, 252.0, true)
-        };
-        let logo = image(app, m, &e, &["logo"], 520.0, 160.0, false);
+        let logo = image(app, m, &e, &["logo"], 640.0, 200.0, false);
         let size = m.win.window().size().to_logical(scale(m));
         let backdrop = image(app, m, &e, &["banner"], size.width, size.height, true);
         let s = st(m);
         s.set_hero_name(e.name().into());
         s.set_hero_info(info.join(" · ").into());
-        s.set_hero_wide(wide);
-        s.set_hero_has_art(picture.is_some());
-        s.set_hero_art(picture.unwrap_or_default());
         s.set_hero_has_logo(logo.is_some());
         s.set_hero_logo(logo.unwrap_or_default());
         s.set_backdrop(backdrop.unwrap_or_default());

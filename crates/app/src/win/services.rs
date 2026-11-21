@@ -92,6 +92,16 @@ impl ArtHttp for Http {
     }
 }
 
+/// JSON from the picture-search APIs (core::art_search).
+pub struct Search;
+
+impl launchpad_core::art_search::SearchHttp for Search {
+    fn get_json(&mut self, url: &str, headers: &str) -> Option<Value> {
+        let r = http::get_with(url, headers, 4 << 20, 15_000).ok()?;
+        (200..300).contains(&r.status).then(|| serde_json::from_slice(&r.body).ok()).flatten()
+    }
+}
+
 /// Stored-file thumbnails and icons, as PNG.
 pub struct Thumbs(pub Wic);
 

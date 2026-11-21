@@ -7,6 +7,7 @@
 // along the bar's axis by arithmetic: two equal side slots around the
 // centre group, each zone pushed to the slot's start or end as styles.css did.
 import { Theme } from "theme.slint";
+import { LpMenu } from "menu.slint";
 import { TrayArea } from "tray.slint";
 import { Popouts, PopoutPanel } from "shared.slint";
 import { TaskbarItem, TaskbarWindow, ItemIcon, Glyph, Tile, ResultPanel } from "taskbar-parts.slint";
@@ -107,7 +108,9 @@ component ButtonsZone inherits Rectangle {
             height: 26px;
         }
         press(e, mx, my) => {
-            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                pm.show({ x: self.absolute-position.x + mx, y: self.absolute-position.y + my });
+            } else if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
                 root.drag-from = i;
                 root.dragging = false;
                 root.press-at = vertical ? my : mx;
@@ -140,30 +143,13 @@ component ButtonsZone inherits Rectangle {
                 TaskbarState.open-item(item.id);
             }
         }
-        ContextMenuArea {
-            Menu {
-                MenuItem {
-                    title: "Rename";
-                    activated => { TaskbarState.pin-menu("rename", item.id); }
-                }
-                if item.app && !item.stored: MenuItem {
-                    title: "Edit…";
-                    activated => { TaskbarState.pin-menu("edit", item.id); }
-                }
-                MenuItem {
-                    title: "Move to Island…";
-                    activated => { TaskbarState.pin-menu("move", item.id); }
-                }
-                MenuItem {
-                    title: "Unpin from Taskbar";
-                    activated => { TaskbarState.pin-menu("unpin", item.id); }
-                }
-                MenuSeparator { }
-                MenuItem {
-                    title: item.app ? "Remove" : "Remove Island";
-                    activated => { TaskbarState.pin-menu("remove", item.id); }
-                }
-            }
+        pm := LpMenu {
+            rows: item.app && !item.stored
+                ? [{ id: "rename", title: "Rename", enabled: true }, { id: "edit", title: "Edit…", enabled: true }, { id: "move", title: "Move to Island…", enabled: true },
+                   { id: "unpin", title: "Unpin from Taskbar", enabled: true }, { id: "-" }, { id: "remove", title: "Remove", enabled: true, danger: true }]
+                : [{ id: "rename", title: "Rename", enabled: true }, { id: "move", title: "Move to Island…", enabled: true },
+                   { id: "unpin", title: "Unpin from Taskbar", enabled: true }, { id: "-" }, { id: "remove", title: item.app ? "Remove" : "Remove Island", enabled: true, danger: true }];
+            pick(id) => { TaskbarState.pin-menu(id, item.id); }
         }
     }
 
@@ -319,6 +305,9 @@ export component Taskbar inherits Rectangle {
         }
     }
 
+    // shortcut: this menu and the windows' snap menu are still Slint's own
+    // (280 px minimum, Fluent style): they need checkmarks and two levels of
+    // submenu, which menu.slint's LpMenu doesn't do; move them if it ever does.
     // Right-clicking the bar (but not the search box) offers its layout
     // choices (showTaskbarContextMenu). Only the chosen item is checkable
     // (a native menu marks only checkable items), and clicking it again
