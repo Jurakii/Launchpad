@@ -591,32 +591,40 @@ component Strip inherits Rectangle {
 component Home inherits Page {
     // The focused game's title: its logo big, or its name, over its banner.
     if !MediaState.empty: VerticalLayout {
-        min-height: 220px;
-        alignment: end;
         spacing: 10px;
         padding-top: 24px;
         padding-bottom: 32px;
-        if MediaState.hero-has-logo: Image {
-            source: MediaState.hero-logo;
-            height: min(200px, self.preferred-height);
-            width: min(640px, self.preferred-width);
-            image-fit: contain;
-            horizontal-alignment: left;
-            vertical-alignment: bottom;
-        }
-        if !MediaState.hero-has-logo: Text {
-            text: MediaState.hero-name;
-            font-size: 52px;
-            font-weight: 800;
-            color: MediaTheme.text;
-            wrap: word-wrap;
-            max-width: 900px;
+        // A fixed-size title box and a one-line info, so moving between
+        // games (logo or not, loaded or not yet) never moves the rows below.
+        Rectangle {
+            height: 200px;
+            if MediaState.hero-has-logo: Image {
+                x: 0;
+                width: min(640px, parent.width);
+                height: parent.height;
+                source: MediaState.hero-logo;
+                image-fit: contain;
+                horizontal-alignment: left;
+                vertical-alignment: bottom;
+            }
+            if !MediaState.hero-has-logo: Text {
+                x: 0;
+                width: min(900px, parent.width);
+                height: parent.height;
+                text: MediaState.hero-name;
+                font-size: 52px;
+                font-weight: 800;
+                color: MediaTheme.text;
+                wrap: word-wrap;
+                overflow: elide;
+                vertical-alignment: bottom;
+            }
         }
         Text {
             text: MediaState.hero-info;
             color: MediaTheme.text.with-alpha(0.78);
             font-size: 18px;
-            wrap: word-wrap;
+            overflow: elide;
             max-width: 900px;
         }
     }

@@ -37,14 +37,22 @@ Back up `%APPDATA%\launchpad` first (copy the folder somewhere). Each item is a 
 - [x] **Steam in Media mode:** Add → Steam library imports installed games with Steam's own art, launching each game's exe directly (or `steam://rungameid` when no exe is found). Already-imported games are skipped.
 - [x] **Quiver Launcher in Media mode:** Add → Quiver Launcher, the same way.
 - [x] **Portable release:** `Launchpad-<version>-portable.exe` is attached to the release. Its updater opens the release page instead of installing.
-- [ ] **Release 1.3.1 and test the updater:** 1.3.0 → Settings → Backup & updates finds 1.3.1 → Download & Install → UAC prompt → Launchpad comes back as 1.3.1. Also the startup notification with "Notify me when an update is available" on.
+- [x] **Release 1.3.1 and test the updater** (installer confirmed working): 1.3.0 → Settings → Backup & updates finds 1.3.1 → Download & Install → UAC prompt → Launchpad comes back as 1.3.1. Also the startup notification with "Notify me when an update is available" on.
 - [ ] Check that 1.2.2 doesn't offer 1.3 (its Check for updates shows an error, which its Settings note explains). Only testable on a PC still on 1.2.2.
 - [x] Add island and app right-click menus are longer than needed: they're Launchpad's own compact menu now (keyboard works too).
 - [x] Overall font is kind of small: Settings → Appearance → Interface size (100–175%). Media also scales with the screen's height.
-- [ ] **ScreenScraper support for Media:** not done. Its API needs a developer id and password that the project has to register for with ScreenScraper (and each user's own account for decent limits). Register, then it can be added beside SteamGridDB.
+- [x] **ScreenScraper support for Media (1.3.2):** Customize art → Find Art Online and the Steam/Quiver imports ask ScreenScraper first (console games by their ROM file, PC games by name), then SteamGridDB. Settings → Icons & privacy has the user's account and a developer login.
+  - [ ] **Needs a developer id to work:** ask for one on ScreenScraper's forum, then either add repo secrets `SCREENSCRAPER_DEVID` and `SCREENSCRAPER_DEVPASSWORD` (the release build bakes them in) or type it into Settings.
+  - [ ] A wrong login or a used-up daily quota shows as "Nothing found online"; say which it was.
+  - [ ] Finding art for a whole library at once (now one game at a time).
 - [x] Other database support: SteamGridDB (covers, banners, logos, icons; free key). Customize art → Find Art Online, and imports use it for games without art.
 - [x] Media mode looks better: a bigger home hero (logo or large title over the art with fades), a 2×2 Add menu.
 - [x] Image quality in Media: small art is now upscaled with a smooth filter instead of stretched.
+
+## 3b. Fixed in 1.3.2
+
+- [x] Auto-detect icon: an exe with only small icons (PokeMMO) came back as a small picture in a big empty square; it's cut out and scaled up now.
+- [x] Media: the title area has a fixed height, so moving between games (logo, text title or a logo still loading) no longer moves the rows below.
 
 ## 4. Phase 7: cut-over (after 1.3.1 is settled)
 
@@ -68,4 +76,4 @@ Upgrade one only if it shows up in use.
 - Wi-Fi uses the first adapter only (`wifi.rs`).
 - Unavailable-network-path checks run on the UI thread at refresh (`grid.rs`), as in 1.2; a dead network share can stall it.
 - Backup import copies stored files on the UI thread (`settings.rs`).
-- The exe is 12.78 MiB against an original 12 MiB goal; the gate is 13 MiB. Getting under 12 would mean patching Slint's text stack (see `RUST_PORT_PLAN.md`, Phase 6).
+- The exe is 12.83 MiB against an original 12 MiB goal; the gate is 13 MiB. Getting under 12 would mean patching Slint's text stack (see `RUST_PORT_PLAN.md`, Phase 6).

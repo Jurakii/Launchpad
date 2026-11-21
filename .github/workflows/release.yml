@@ -55,7 +55,12 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
 
+      # ScreenScraper's developer login, built in when the repo has these
+      # secrets; without them users enter one in Settings → Icons & privacy.
       - name: Build
+        env:
+          LAUNCHPAD_SS_DEVID: ${{ secrets.SCREENSCRAPER_DEVID }}
+          LAUNCHPAD_SS_DEVPASSWORD: ${{ secrets.SCREENSCRAPER_DEVPASSWORD }}
         run: cargo build --release -p launchpad
 
       # Not on every windows-latest image.

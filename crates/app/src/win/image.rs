@@ -239,8 +239,30 @@ impl Wic {
 
     /// A file's, folder's or exe's icon at `size` px (IShellItemImageFactory,
     /// icon only), falling back to SHGetFileInfo's large icon scaled to `size`.
+    /// An exe with only small icons comes back as a small picture centered on
+    /// a big empty square; that picture is cut out and scaled up to fill it.
     pub fn file_icon(&self, path: &Path, size: u32) -> Result<Rgba> {
-        self.shell_image(path, size, SIIGBF_ICONONLY).or_else(|e| self.file_info_icon(path, size).map_err(|_| e))
+        let img = self.shell_image(path, size, SIIGBF_ICONONLY).or_else(|e| self.file_info_icon(path, size).map_err(|_| e))?;
+        match small_icon_box(&img) {
+            Some(b) => self.fill(&img, b, size),
+            None => Ok(img),
+        }
+    }
+
+    /// The `side`-px square at (x, y) of `img`, scaled to `size` (premultiplied,
+    /// so the transparent edge doesn't turn into a dark fringe).
+    fn fill(&self, img: &Rgba, (x, y, side): (u32, u32, u32), size: u32) -> Result<Rgba> {
+        let mut px = Vec::with_capacity((side * side * 4) as usize);
+        for row in y..y + side {
+            let start = ((row * img.width + x) * 4) as usize;
+            for p in img.rgba[start..start + (side * 4) as usize].as_chunks::<4>().0 {
+                let a = u32::from(p[3]);
+                px.extend_from_slice(&[(u32::from(p[0]) * a / 255) as u8, (u32::from(p[1]) * a / 255) as u8, (u32::from(p[2]) * a / 255) as u8, p[3]]);
+            }
+        }
+        let bmp = unsafe { self.f.CreateBitmapFromMemory(side, side, &GUID_WICPixelFormat32bppPRGBA, side * 4, &px) }.ctx("WIC bitmap")?;
+        let src = Source(bmp.cast().ctx("WIC")?);
+        self.to_rgba(&self.resize(&src, size, size)?)
     }
 
     fn file_info_icon(&self, path: &Path, size: u32) -> Result<Rgba> {
@@ -279,6 +301,28 @@ impl Wic {
         let img = self.decode_rgba(&bytes, |_, _| (128, 128)).map_err(|_| Error::msg("Could not read image file"))?;
         self.encode_rgba(&img, Format::Png)
     }
+}
+
+/// The square (x, y, side) around `img`'s visible pixels, when they take up
+/// at most half its width: a small icon drawn in the middle of a big square.
+fn small_icon_box(img: &Rgba) -> Option<(u32, u32, u32)> {
+    let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
+    for (i, p) in img.rgba.as_chunks::<4>().0.iter().enumerate() {
+        // Mostly opaque only: the shell draws a faint frame around the whole square.
+        if p[3] >= 128 {
+            let (x, y) = (i as u32 % img.width, i as u32 / img.width);
+            (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1));
+        }
+    }
+    // Two pixels of room for the icon's soft edge.
+    let (x0, y0, x1, y1) = (x0.saturating_sub(2), y0.saturating_sub(2), x1.saturating_add(2), y1.saturating_add(2));
+    let side = x1.checked_sub(x0)?.max(y1.checked_sub(y0)?);
+    let room = img.width.min(img.height);
+    if side == 0 || side * 2 > room {
+        return None;
+    }
+    let at = |lo: u32, hi: u32| ((lo + hi) / 2).saturating_sub(side / 2).min(room - side);
+    Some((at(x0, x1), at(y0, y1), side))
 }
 
 fn set_quality(bag: &IPropertyBag2, q: f32) -> Result<()> {
@@ -412,6 +456,28 @@ mod tests {
         }
         let img = wic.decode_rgba(&ico, |w, h| (w, h)).unwrap();
         assert_eq!((img.width, img.height), (48, 48));
+    }
+
+    #[test]
+    fn small_icons_are_cut_out_and_scaled_up() {
+        let mut img = Rgba { width: 256, height: 256, rgba: vec![0; 256 * 256 * 4] };
+        for y in 112..144 {
+            for x in 112..144 {
+                let i = ((y * 256 + x) * 4) as usize;
+                img.rgba[i..i + 4].copy_from_slice(&[200, 10, 10, 255]);
+            }
+        }
+        assert_eq!(small_icon_box(&img), Some((110, 110, 36)));
+        // The faint frame the shell draws round the square doesn't count.
+        img.rgba[3] = 40;
+        assert_eq!(small_icon_box(&img), Some((110, 110, 36)));
+        let wic = Wic::new().unwrap();
+        let big = wic.fill(&img, (112, 112, 32), 256).unwrap();
+        assert_eq!((big.width, big.height), (256, 256));
+        assert_eq!(&big.rgba[..4], &[200, 10, 10, 255]);
+        // A full-size icon, or nothing at all, is left as it is.
+        assert_eq!(small_icon_box(&checker(64, 64)), None);
+        assert_eq!(small_icon_box(&Rgba { width: 8, height: 8, rgba: vec![0; 256] }), None);
     }
 
     #[test]

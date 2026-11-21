@@ -572,27 +572,68 @@ fn sgdb_key(app: &App) -> Option<String> {
     app.settings().get("steamGridDbKey").and_then(Value::as_str).map(str::trim).filter(|k| !k.is_empty()).map(str::to_string)
 }
 
-/// Cover, banner and logo for a game from SteamGridDB (the first of each),
-/// as downloaded bytes. Only the slots in `want`. Blocking: a worker thread's.
-fn sgdb_art(name: &str, key: &str, want: &[&'static str]) -> Vec<(&'static str, Vec<u8>)> {
-    let mut http = services::Search;
-    let Some(game) = art_search::sgdb_game(name, key, &mut http) else { return vec![] };
-    [("cover", "grids"), ("banner", "heroes"), ("logo", "logos")]
-        .into_iter()
-        .filter(|(slot, _)| want.contains(slot))
-        .filter_map(|(slot, kind)| {
-            let hit = art_search::sgdb_assets(game, kind, key, &mut http).into_iter().next()?;
-            let buf = core_art::download_image(&hit.url, &mut services::Http).ok()?;
-            Some((slot, buf))
-        })
-        .collect()
+/// The ScreenScraper login: the developer id from Settings, else the one
+/// this build was made with (LAUNCHPAD_SS_DEVID / LAUNCHPAD_SS_DEVPASSWORD
+/// at build time), plus the user's own account if they gave it.
+fn ss_login(app: &App) -> Option<art_search::SsLogin> {
+    let s = app.settings();
+    let get = |k: &str| s.get(k).and_then(Value::as_str).map(str::trim).unwrap_or("").to_string();
+    let (mut dev_id, mut dev_password) = (get("screenScraperDevId"), get("screenScraperDevPassword"));
+    if dev_id.is_empty() {
+        dev_id = option_env!("LAUNCHPAD_SS_DEVID").unwrap_or("").into();
+        dev_password = option_env!("LAUNCHPAD_SS_DEVPASSWORD").unwrap_or("").into();
+    }
+    (!dev_id.is_empty()).then(|| art_search::SsLogin { dev_id, dev_password, user: get("screenScraperUser"), password: get("screenScraperPassword") })
+}
+
+/// Where to look a game up online: ScreenScraper and SteamGridDB logins.
+#[derive(Clone)]
+struct Online {
+    ss: Option<art_search::SsLogin>,
+    sgdb: Option<String>,
+}
+
+impl Online {
+    fn of(app: &App) -> Option<Online> {
+        let o = Online { ss: ss_login(app), sgdb: sgdb_key(app) };
+        (o.ss.is_some() || o.sgdb.is_some()).then_some(o)
+    }
+
+    /// Cover, banner and logo for a game (only the slots in `want`) as
+    /// downloaded bytes with where they came from: ScreenScraper first (by
+    /// the ROM file for a console game), SteamGridDB for what's still
+    /// missing. Blocking: a worker thread's.
+    fn art(&self, name: &str, rom: Option<&Path>, platform: Option<&str>, want: &[&'static str]) -> Vec<(&'static str, Vec<u8>, &'static str)> {
+        let mut http = services::Search;
+        let get = |url: &str| core_art::download_image(url, &mut services::Http).ok();
+        let mut out: Vec<(&'static str, Vec<u8>, &'static str)> = vec![];
+        if let Some(login) = &self.ss {
+            let file = rom.and_then(|p| Some((p.file_name()?.to_str()?.to_string(), std::fs::metadata(p).ok()?.len())));
+            let system = art_search::ss_system(platform);
+            if let Some(game) = art_search::ss_game(login, name, file.as_ref().map(|(f, n)| (f.as_str(), *n)), system, &mut http) {
+                out.extend(art_search::ss_art(&game, want).into_iter().filter_map(|(slot, url)| Some((slot, get(&url)?, "screenscraper"))));
+            }
+        }
+        let rest: Vec<&'static str> = want.iter().copied().filter(|w| !out.iter().any(|(s, ..)| s == w)).collect();
+        if let (Some(key), false) = (&self.sgdb, rest.is_empty()) {
+            if let Some(game) = art_search::sgdb_game(name, key, &mut http) {
+                for (slot, kind) in [("cover", "grids"), ("banner", "heroes"), ("logo", "logos")] {
+                    if rest.contains(&slot) {
+                        let hit = art_search::sgdb_assets(game, kind, key, &mut http).into_iter().next();
+                        out.extend(hit.and_then(|h| get(&h.url)).map(|b| (slot, b, "steamgriddb")));
+                    }
+                }
+            }
+        }
+        out
+    }
 }
 
 /// Customize art → Find Art Online: the empty slots (all three when none
-/// is empty) from SteamGridDB, by the entry's name.
+/// is empty) from ScreenScraper and SteamGridDB.
 fn find_art(app: &Rc<App>) {
-    let Some(key) = sgdb_key(app) else {
-        toast("Add a SteamGridDB API key in Launchpad's Settings → Icons first");
+    let Some(online) = Online::of(app) else {
+        toast("Add a ScreenScraper login or a SteamGridDB key in Launchpad's Settings → Icons & privacy first");
         return;
     };
     let Some(entry) = md(|m| m.customizing.clone().and_then(|id| m.entries.iter().find(|e| e.id() == id).cloned())).flatten() else { return };
@@ -600,14 +641,17 @@ fn find_art(app: &Rc<App>) {
     let empty: Vec<&'static str> = ["cover", "banner", "logo"].into_iter().filter(|s| !present.contains_key(*s)).collect();
     let want = if empty.is_empty() { vec!["cover", "banner", "logo"] } else { empty };
     let name = entry.name().to_string();
-    toast("Looking on SteamGridDB…");
+    let platform = entry.platform().map(str::to_string);
+    // A console game's file is how ScreenScraper knows the exact dump.
+    let rom = platform.as_ref().map(|_| PathBuf::from(entry.target())).filter(|p| p.is_file());
+    toast("Looking online…");
     std::thread::spawn(move || {
-        let found = sgdb_art(&name, &key, &want);
+        let found = online.art(&name, rom.as_deref(), platform.as_deref(), &want);
         post(move |app| {
             if found.is_empty() {
-                toast("Nothing found on SteamGridDB for this name");
+                toast("Nothing found online for this game");
             }
-            for (slot, buf) in found {
+            for (slot, buf, _) in found {
                 set_art(app, slot, Some(buf));
             }
         });
@@ -655,7 +699,7 @@ fn import_from(app: &Rc<App>, which: &'static str) {
         toast(&format!("{label} isn't installed for this user"));
         return;
     };
-    let key = sgdb_key(app);
+    let online = Online::of(app);
     let Ok((dir, existing)) = library(app, |l| launchpad_core::Result::Ok((l.dir().to_owned(), l.load()?))) else {
         toast("The library couldn't be read");
         return;
@@ -672,11 +716,11 @@ fn import_from(app: &Rc<App>, which: &'static str) {
                 let mut entry = f.entry(now);
                 let id = entry.id().to_string();
                 let mut media = Map::new();
-                // The launcher's own art, else SteamGridDB's (with a key).
+                // The launcher's own art, else what's found online (with a login).
                 let mut art: Vec<(&'static str, Vec<u8>, &str)> = f.art.iter().filter_map(|(slot, file)| Some((*slot, std::fs::read(file).ok()?, which))).collect();
                 if art.is_empty() {
-                    if let Some(key) = &key {
-                        art = sgdb_art(&f.name, key, &["cover", "banner", "logo"]).into_iter().map(|(s, b)| (s, b, "steamgriddb")).collect();
+                    if let Some(online) = &online {
+                        art = online.art(&f.name, None, None, &["cover", "banner", "logo"]);
                     }
                 }
                 for (slot, buf, source) in &art {

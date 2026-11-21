@@ -79,6 +79,12 @@ export global SettingsState {
     callback accent-edited(string);
     in-out property <string> sgdb-key;
     callback sgdb-edited(string);
+    in-out property <string> ss-user;
+    in-out property <string> ss-password;
+    in-out property <string> ss-dev-id;
+    in-out property <string> ss-dev-password;
+    // A text setting typed in: (settings.json key, text).
+    callback text-edited(string, string);
     // While capturing: the key's text (Slint's Key codes) and modifiers.
     callback hotkey-key(string, bool, bool, bool, bool);
 
@@ -770,6 +776,44 @@ export component SettingsView inherits Rectangle {
                                             input-type: password;
                                             text <=> SettingsState.sgdb-key;
                                             edited(t) => { SettingsState.sgdb-edited(t); }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[32]: ItemBox {
+                                    i: 32;
+                                    ControlRow {
+                                        text: SettingsState.labels[32];
+                                        LineEdit {
+                                            width: 125px;
+                                            placeholder-text: "User name";
+                                            text <=> SettingsState.ss-user;
+                                            edited(t) => { SettingsState.text-edited("screenScraperUser", t); }
+                                        }
+                                        LineEdit {
+                                            width: 125px;
+                                            placeholder-text: "Password";
+                                            input-type: password;
+                                            text <=> SettingsState.ss-password;
+                                            edited(t) => { SettingsState.text-edited("screenScraperPassword", t); }
+                                        }
+                                    }
+                                }
+                                if SettingsState.hits[33]: ItemBox {
+                                    i: 33;
+                                    ControlRow {
+                                        text: SettingsState.labels[33];
+                                        LineEdit {
+                                            width: 125px;
+                                            placeholder-text: "Developer id";
+                                            text <=> SettingsState.ss-dev-id;
+                                            edited(t) => { SettingsState.text-edited("screenScraperDevId", t); }
+                                        }
+                                        LineEdit {
+                                            width: 125px;
+                                            placeholder-text: "Password";
+                                            input-type: password;
+                                            text <=> SettingsState.ss-dev-password;
+                                            edited(t) => { SettingsState.text-edited("screenScraperDevPassword", t); }
                                         }
                                     }
                                 }

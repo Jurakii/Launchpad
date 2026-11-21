@@ -1,7 +1,9 @@
 //! Finding pictures online: app icons (Edit App → Search Icons) and Media
-//! art. Two sources, both public APIs: Wikimedia Commons (no key; logos of
-//! most well-known apps, as PNG thumbnails) and SteamGridDB (games' icons,
-//! covers, banners and logos; needs the user's free API key).
+//! art. Three sources, all public APIs: Wikimedia Commons (no key; logos of
+//! most well-known apps, as PNG thumbnails), SteamGridDB (games' icons,
+//! covers, banners and logos; needs the user's free API key) and
+//! ScreenScraper (console and PC games' box art, fanart and logos; needs a
+//! developer login, plus the user's account for better limits).
 use serde_json::Value;
 
 /// What the app supplies: a GET returning the body when the status is 2xx.
@@ -87,6 +89,104 @@ pub fn icons(query: &str, sgdb_key: Option<&str>, http: &mut impl SearchHttp) ->
     hits
 }
 
+/// What ScreenScraper asks for on every call. `dev_id`/`dev_password`
+/// identify the program; `user`/`password` are the user's own account
+/// (optional, but it raises their daily quota and gets them in when the
+/// site is busy).
+#[derive(Debug, Clone, Default)]
+pub struct SsLogin {
+    pub dev_id: String,
+    pub dev_password: String,
+    pub user: String,
+    pub password: String,
+}
+
+const SS: &str = "https://api.screenscraper.fr/api2";
+
+impl SsLogin {
+    fn query(&self) -> String {
+        let e = crate::favicon::encode_uri_component;
+        let mut q = format!("devid={}&devpassword={}&softname=launchpad&output=json", e(&self.dev_id), e(&self.dev_password));
+        if !self.user.is_empty() && !self.password.is_empty() {
+            q += &format!("&ssid={}&sspassword={}", e(&self.user), e(&self.password));
+        }
+        q
+    }
+}
+
+/// ScreenScraper's system id for a Media platform id; Windows PC for games
+/// with none.
+pub fn ss_system(platform: Option<&str>) -> Option<u32> {
+    Some(match platform {
+        None => 138,
+        Some(p) => match p {
+            "nes" => 3,
+            "snes" => 4,
+            "n64" => 14,
+            "gb" => 9,
+            "gbc" => 10,
+            "gba" => 12,
+            "nds" => 15,
+            "genesis" => 1,
+            "mastersystem" => 2,
+            "psx" => 57,
+            "ps2" => 58,
+            "psp" => 61,
+            "gamecube" => 13,
+            "wii" => 16,
+            "saturn" => 22,
+            "dreamcast" => 23,
+            "arcade" => 75,
+            _ => return None,
+        },
+    })
+}
+
+/// The game's ScreenScraper record: by its ROM's file name and size when
+/// there is one (how the site identifies dumps), else by name.
+pub fn ss_game(login: &SsLogin, name: &str, rom: Option<(&str, u64)>, system: Option<u32>, http: &mut impl SearchHttp) -> Option<Value> {
+    let e = crate::favicon::encode_uri_component;
+    let sys = system.map(|s| format!("&systemeid={s}")).unwrap_or_default();
+    let game = match rom {
+        Some((file, size)) => {
+            let url = format!("{SS}/jeuInfos.php?{}{sys}&romtype=rom&romnom={}&romtaille={size}", login.query(), e(file));
+            http.get_json(&url, "")?.pointer("/response/jeu")?.clone()
+        }
+        None => {
+            let url = format!("{SS}/jeuRecherche.php?{}{sys}&recherche={}", login.query(), e(name.trim()));
+            http.get_json(&url, "")?.pointer("/response/jeux/0")?.clone()
+        }
+    };
+    // A search with no match answers with one empty game.
+    game.get("id").is_some().then_some(game)
+}
+
+/// Picture addresses from a ScreenScraper record for the slots in `want`:
+/// cover = box front, banner = fanart, logo = wheel. World or US art first.
+pub fn ss_art(game: &Value, want: &[&'static str]) -> Vec<(&'static str, String)> {
+    const REGIONS: [&str; 6] = ["wor", "us", "ss", "eu", "uk", "jp"];
+    let medias: &[Value] = game.get("medias").and_then(Value::as_array).map_or(&[], Vec::as_slice);
+    let rank = |m: &Value| {
+        let r = m.get("region").and_then(Value::as_str).unwrap_or("");
+        REGIONS.iter().position(|x| *x == r).unwrap_or(REGIONS.len())
+    };
+    let best = |types: &[&str]| {
+        types.iter().find_map(|t| {
+            medias
+                .iter()
+                .filter(|m| m.get("type").and_then(Value::as_str) == Some(t))
+                .min_by_key(|m| rank(m))
+                .and_then(|m| m.get("url").and_then(Value::as_str))
+                .map(str::to_string)
+        })
+    };
+    [("cover", &["box-2D"][..]), ("banner", &["fanart", "ss"][..]), ("logo", &["wheel-hd", "wheel"][..])]
+        .into_iter()
+        .filter(|(slot, _)| want.contains(slot))
+        .filter_map(|(slot, types)| Some((slot, best(types)?)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,6 +220,31 @@ mod tests {
         let hits = commons("Notion", &mut http);
         assert_eq!(hits.iter().map(|h| h.url.as_str()).collect::<Vec<_>>(), ["https://t/a.svg.png", "https://t/b.png"]);
         assert!(http.asked[0].0.contains("gsrsearch=Notion%20logo"));
+    }
+
+    #[test]
+    fn screenscraper_looks_up_roms_by_file_and_picks_world_art() {
+        let login = SsLogin { dev_id: "d".into(), dev_password: "p w".into(), user: "u".into(), password: "x".into() };
+        let mut http = Fake::default();
+        http.replies.insert(
+            format!("{SS}/jeuInfos.php"),
+            json!({ "response": { "jeu": { "id": "3", "medias": [
+                { "type": "box-2D", "region": "jp", "url": "https://s/jp.png" },
+                { "type": "box-2D", "region": "us", "url": "https://s/us.png" },
+                { "type": "wheel", "region": "wor", "url": "https://s/wheel.png" },
+                { "type": "wheel-hd", "region": "eu", "url": "https://s/wheelhd.png" },
+            ]}}}),
+        );
+        let game = ss_game(&login, "Sonic", Some(("Sonic 2 (World).zip", 749652)), ss_system(Some("genesis")), &mut http).unwrap();
+        let url = &http.asked[0].0;
+        assert!(url.contains("devpassword=p%20w") && url.contains("ssid=u") && url.contains("systemeid=1"), "{url}");
+        assert!(url.contains("romnom=Sonic%202%20(World).zip&romtaille=749652"), "{url}");
+        assert_eq!(ss_art(&game, &["cover", "banner", "logo"]), vec![("cover", "https://s/us.png".to_string()), ("logo", "https://s/wheelhd.png".to_string())]);
+        // A name search with no match: nothing.
+        let mut http = Fake::default();
+        http.replies.insert(format!("{SS}/jeuRecherche.php"), json!({ "response": { "jeux": [{}] } }));
+        assert!(ss_game(&SsLogin::default(), "Nope", None, ss_system(None), &mut http).is_none());
+        assert!(http.asked[0].0.contains("systemeid=138&recherche=Nope") && !http.asked[0].0.contains("ssid"));
     }
 
     #[test]

@@ -36,7 +36,7 @@ const SECTIONS: [(&str, &str, &str); 8] = [
 /// Every setting: (section, label, hint, the rest of its text that search
 /// matches: button labels and options, as 1.2's `textContent` held them).
 /// The index is the item's number in settings.slint.
-const ITEMS: [(usize, &str, &str, &str); 32] = [
+const ITEMS: [(usize, &str, &str, &str); 34] = [
     (0, "Start with Windows", "", ""),
     (0, "Start fullscreen", "", ""),
     (0, "Minimize to tray on close", "Closing the window keeps Launchpad in the system tray. Use the tray icon's Quit to exit.", ""),
@@ -70,6 +70,8 @@ const ITEMS: [(usize, &str, &str, &str); 32] = [
     // Appended so the indices above (and the .slint's) stay put; shown under Appearance.
     (1, "Interface size", "Makes all of Launchpad's text and controls bigger. Launchpad restarts to apply it.", "100% 110% 125% 150% 175%"),
     (5, "SteamGridDB API key", "Adds game icons to Search Icons… and lets Media find covers, banners and logos (Customize art → Find Art Online). Free: sign in at steamgriddb.com, then Preferences → API.", ""),
+    (5, "ScreenScraper account", "Lets Media find box art, fanart and logos for console and PC games on screenscraper.fr (Customize art → Find Art Online). Your free screenscraper.fr account; it raises your daily limit.", "user name password"),
+    (5, "ScreenScraper developer login", "Leave empty to use the one Launchpad was built with. A developer id comes from ScreenScraper's forum.", "developer id password"),
 ];
 
 /// Settings → Appearance → Interface size, as settings.json's `uiScale`.
@@ -285,6 +287,11 @@ fn push(app: &App, w: &MainWindow) {
     g.set_snap_on_drag(org.snap_on_drag);
     g.set_google_favicon(icons::google_fallback(app));
     g.set_sgdb_key(s.get("steamGridDbKey").and_then(Value::as_str).unwrap_or("").into());
+    let text = |k: &str| ss(s.get(k).and_then(Value::as_str).unwrap_or(""));
+    g.set_ss_user(text("screenScraperUser"));
+    g.set_ss_password(text("screenScraperPassword"));
+    g.set_ss_dev_id(text("screenScraperDevId"));
+    g.set_ss_dev_password(text("screenScraperDevPassword"));
     g.set_notify_updates(truthy(s.get("notifyUpdates")));
     g.set_version_label(ss(&format!("Launchpad v{VERSION}")));
 
@@ -414,6 +421,9 @@ pub fn bind(app: &Rc<App>, w: &MainWindow) {
     });
     g.on_sgdb_edited(|t| {
         super::with(|app| save(app, json!({ "steamGridDbKey": t.trim() })));
+    });
+    g.on_text_edited(|key, t| {
+        super::with(|app| save(app, json!({ key.as_str(): t.trim() })));
     });
     g.on_accent_edited(|t| {
         super::with(|app| {
