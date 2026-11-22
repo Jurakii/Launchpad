@@ -120,6 +120,8 @@ struct State {
     update: Update,
     /// Detect, Restore, Repair, Reinstall.
     busy: [bool; 4],
+    /// Test login is signing in to ScreenScraper.
+    ss_testing: bool,
     reset: Option<Reset>,
     accent_hex: Option<String>,
     focus_tick: i32,
@@ -322,6 +324,7 @@ fn push(app: &App, w: &MainWindow) {
         g.set_busy_repair(p);
         g.set_busy_reinstall(ri);
         g.set_detect_label(ss(if d { "Scanning…" } else { "Detect Missing Icons" }));
+        g.set_ss_testing(st.ss_testing);
         g.set_restore_label(ss(if r { "Adding…" } else { "Restore Default Apps" }));
         g.set_repair_label(ss(if p { "Repairing…" } else { "Repair Default Apps" }));
         g.set_reinstall_label(ss(if ri { "Downloading…" } else { "Reinstall This Version…" }));
@@ -623,6 +626,7 @@ fn action(app: &Rc<App>, key: &str) {
             }
         }),
         "detect-icons" => detect_icons(app),
+        "ss-test" => ss_test(app),
         "restore-defaults" => defaults(app, false),
         "repair-defaults" => defaults(app, true),
         "export" => export(app, false),
@@ -722,6 +726,22 @@ fn detect_icons(app: &Rc<App>) {
             st(|s| s.busy[0] = false);
             redraw(app);
             alert(app, &if fixed > 0 { format!("Fixed {}.", plural(fixed, "icon")) } else { "No missing icons found.".into() });
+        });
+    });
+}
+
+/// Test login: signs in to ScreenScraper with what's typed (saved as it's
+/// typed) and says whether it worked.
+fn ss_test(app: &Rc<App>) {
+    let login = super::media::forms::ss_login(app).unwrap_or_default();
+    st(|s| s.ss_testing = true);
+    redraw(app);
+    std::thread::spawn(move || {
+        let result = launchpad_core::art_search::ss_check(&login, &mut services::Search);
+        super::post(move |app| {
+            st(|s| s.ss_testing = false);
+            redraw(app);
+            alert(app, &result.unwrap_or_else(|e| e));
         });
     });
 }

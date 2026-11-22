@@ -21,8 +21,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{HWND, LRESULT, RECT};
+use windows::Win32::Graphics::Gdi::{RedrawWindow, RDW_ALLCHILDREN, RDW_INVALIDATE, RDW_UPDATENOW};
 use windows::Win32::UI::Shell::{ABN_FULLSCREENAPP, ABN_POSCHANGED};
-use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE, SW_SHOWNOACTIVATE};
+use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE, SW_SHOWNOACTIVATE, WM_NCACTIVATE, WM_NCPAINT};
 
 pub const HEIGHT_DIP: f64 = 32.0;
 const REDOCK_DELAY_MS: u64 = 100;
@@ -260,6 +261,15 @@ fn ready(app: &Rc<App>, id: u32, hwnd: HWND) {
     shell::style(hwnd, Kind::NoActivate);
     let taskbar_created = appbar::taskbar_created();
     shell::subclass(hwnd, move |_, msg, wp, lp| {
+        // With its clip region the panel has no themed frame, so Windows' own
+        // frame painting (on activation changes) drew a white title bar over it.
+        // The whole window is client area: there's no frame to paint.
+        if msg == WM_NCACTIVATE {
+            return Some(LRESULT(1));
+        }
+        if msg == WM_NCPAINT {
+            return Some(LRESULT(0));
+        }
         if msg == appbar::CALLBACK_MSG {
             let code = wp.0 as u32;
             if code == ABN_POSCHANGED {
@@ -387,20 +397,21 @@ fn update_visibility(i: usize) {
     }) else {
         return;
     };
-    if show == shown {
-        if show {
-            let _ = windowmgr::ensure_topmost(h.0 as i64);
+    if show != shown {
+        ps(|p| p.list[i].shown = show);
+        unsafe {
+            let _ = ShowWindow(h, if show { SW_SHOWNOACTIVATE } else { SW_HIDE });
         }
-        return;
-    }
-    ps(|p| p.list[i].shown = show);
-    unsafe {
-        let _ = ShowWindow(h, if show { SW_SHOWNOACTIVATE } else { SW_HIDE });
     }
     if show {
         // Something (Explorer's AppBar handling, a fullscreen app leaving)
         // can take topmost away; it's put back after every show.
         let _ = windowmgr::ensure_topmost(h.0 as i64);
+        // Shown or moved: draw it all again, or what Windows left there
+        // (a blank frame) stays until something in the panel changes.
+        unsafe {
+            let _ = RedrawWindow(Some(h), None, None, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+        }
     }
 }
 

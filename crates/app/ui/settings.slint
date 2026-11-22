@@ -65,6 +65,7 @@ export global SettingsState {
     in property <string> repair-label;
     in property <string> reinstall-label;
     in property <bool> busy-detect;
+    in property <bool> ss-testing;
     in property <bool> busy-restore;
     in property <bool> busy-repair;
     in property <bool> busy-reinstall;
@@ -795,6 +796,11 @@ export component SettingsView inherits Rectangle {
                                             input-type: password;
                                             text <=> SettingsState.ss-password;
                                             edited(t) => { SettingsState.text-edited("screenScraperPassword", t); }
+                                        }
+                                        LpButton {
+                                            text: SettingsState.ss-testing ? "Testing…" : "Test login";
+                                            enabled: !SettingsState.ss-testing;
+                                            clicked => { SettingsState.action("ss-test"); }
                                         }
                                     }
                                 }

@@ -20,6 +20,9 @@ pub trait SearchHttp {
     }
 }
 
+/// ScreenScraper refusing a login when there's no developer id: most likely why.
+pub const SS_NO_DEV: &str = "ScreenScraper didn't accept the login. It may need a developer id too: this copy of Launchpad has none built in, so ask for one on ScreenScraper's forum and enter it in Settings → Icons & privacy";
+
 /// Why ScreenScraper answered nothing, said to the user.
 pub fn ss_failure(status: u16) -> Option<&'static str> {
     match status {
@@ -173,10 +176,29 @@ pub fn ss_game(login: &SsLogin, name: &str, rom: Option<(&str, u64)>, system: Op
     };
     let (status, doc) = http.get_json_status(&url, "");
     if let Some(why) = ss_failure(status) {
-        return Err(why);
+        return Err(if matches!(status, 401 | 403) && login.dev_id.is_empty() { SS_NO_DEV } else { why });
     }
     // A search with no match answers with one empty game.
     Ok(doc.and_then(|d| d.pointer(at).cloned()).filter(|g| g.get("id").is_some()))
+}
+
+/// Settings → Test login: signs in to ScreenScraper. Ok says whose account
+/// and how much of today's limit is left; Err says why it didn't work.
+pub fn ss_check(login: &SsLogin, http: &mut impl SearchHttp) -> Result<String, String> {
+    if login.user.is_empty() || login.password.is_empty() {
+        return Err("Fill in your ScreenScraper user name and password first".into());
+    }
+    let (status, doc) = http.get_json_status(&format!("{SS}/ssuserInfos.php?{}", login.query()), "");
+    if let Some(why) = ss_failure(status) {
+        return Err(if matches!(status, 401 | 403) && login.dev_id.is_empty() { SS_NO_DEV } else { why }.into());
+    }
+    let user = doc.as_ref().and_then(|d| d.pointer("/response/ssuser")).ok_or_else(|| {
+        if status == 0 { "Couldn't reach ScreenScraper: check the internet connection".to_string() } else { format!("ScreenScraper answered with an error ({status})") }
+    })?;
+    let field = |k: &str| user.get(k).map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string)).unwrap_or_default();
+    let (today, max) = (field("requeststoday"), field("maxrequestsperday"));
+    let limit = if max.is_empty() { String::new() } else { format!(". {today} of {max} lookups used today") };
+    Ok(format!("Signed in to ScreenScraper as {}{limit}.", field("id")))
 }
 
 /// Picture addresses from a ScreenScraper record for the slots in `want`:
@@ -276,6 +298,22 @@ mod tests {
         let mut http = Fake { status: Some(430), ..Fake::default() };
         assert_eq!(ss_game(&login, "Sonic", None, None, &mut http), Err(ss_failure(430).unwrap()));
         assert!(ss_failure(403).unwrap().contains("login") && ss_failure(404).is_none());
+        // No developer id: the refusal says it may be needed.
+        let mut http = Fake { status: Some(403), ..Fake::default() };
+        assert_eq!(ss_game(&SsLogin { user: "u".into(), password: "x".into(), ..SsLogin::default() }, "Sonic", None, None, &mut http), Err(SS_NO_DEV));
+    }
+
+    #[test]
+    fn screenscraper_login_check_says_whose_account_or_why_not() {
+        let login = SsLogin { dev_id: "d".into(), dev_password: "p".into(), user: "me".into(), password: "x".into() };
+        let mut http = Fake::default();
+        http.replies.insert(format!("{SS}/ssuserInfos.php"), json!({ "response": { "ssuser": { "id": "Me", "requeststoday": "3", "maxrequestsperday": "20000" } } }));
+        assert_eq!(ss_check(&login, &mut http), Ok("Signed in to ScreenScraper as Me. 3 of 20000 lookups used today.".into()));
+        assert!(http.asked[0].0.contains("ssid=me"));
+        assert!(ss_check(&SsLogin::default(), &mut Fake::default()).unwrap_err().contains("user name"));
+        let mut http = Fake { status: Some(403), ..Fake::default() };
+        assert_eq!(ss_check(&SsLogin { dev_id: String::new(), ..login.clone() }, &mut http), Err(SS_NO_DEV.into()));
+        assert_eq!(ss_check(&login, &mut http), Err(ss_failure(403).unwrap().into()));
     }
 
     #[test]

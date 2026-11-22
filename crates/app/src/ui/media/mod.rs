@@ -13,7 +13,7 @@
 //! (and its play time recorded) after Media closes.
 mod art;
 mod focus;
-mod forms;
+pub(crate) mod forms;
 mod pad;
 mod settings;
 

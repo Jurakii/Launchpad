@@ -576,8 +576,9 @@ fn sgdb_key(app: &App) -> Option<String> {
 
 /// The ScreenScraper login: the developer id from Settings, else the one
 /// this build was made with (LAUNCHPAD_SS_DEVID / LAUNCHPAD_SS_DEVPASSWORD
-/// at build time), plus the user's own account if they gave it.
-fn ss_login(app: &App) -> Option<art_search::SsLogin> {
+/// at build time), plus the user's own account if they gave it. An account
+/// with no developer id is still tried: ScreenScraper decides.
+pub(crate) fn ss_login(app: &App) -> Option<art_search::SsLogin> {
     let s = app.settings();
     let get = |k: &str| s.get(k).and_then(Value::as_str).map(str::trim).unwrap_or("").to_string();
     let (mut dev_id, mut dev_password) = (get("screenScraperDevId"), get("screenScraperDevPassword"));
@@ -585,7 +586,8 @@ fn ss_login(app: &App) -> Option<art_search::SsLogin> {
         dev_id = option_env!("LAUNCHPAD_SS_DEVID").unwrap_or("").into();
         dev_password = option_env!("LAUNCHPAD_SS_DEVPASSWORD").unwrap_or("").into();
     }
-    (!dev_id.is_empty()).then(|| art_search::SsLogin { dev_id, dev_password, user: get("screenScraperUser"), password: get("screenScraperPassword") })
+    let (user, password) = (get("screenScraperUser"), get("screenScraperPassword"));
+    (!dev_id.is_empty() || !user.is_empty()).then(|| art_search::SsLogin { dev_id, dev_password, user, password })
 }
 
 /// Where to look a game up online: ScreenScraper and SteamGridDB logins.

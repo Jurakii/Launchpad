@@ -59,7 +59,10 @@ Back up `%APPDATA%\launchpad` first (copy the folder somewhere). Each item is a 
 - [x] Media: the hero shows no title while a game's logo is still loading (instead of the text, then the logo); the logos of the games either side are decoded ahead; full-screen backdrops leave the art cache first, so logos and tiles stay.
 - [x] Media: Add → Epic Games (starts through Epic, which signs games in) and Add → GOG (GOG Galaxy and GOG installers, from the registry and each game's goggame-<id>.info).
 - [x] Grid: the hover edit button (top-right circle) works: it stayed blank (the ✎ glyph isn't in the UI font) and vanished as the pointer reached it. Now a drawn pencil that opens Edit.
+- [x] Settings → Icons & privacy → Test login: signs in to ScreenScraper and says whose account and how much of today's limit is used, or why not (a missing developer id included). An account with no developer id is tried now instead of Media saying to sign in.
+- [x] Organizer panel: turned white with only its title ("Launchpad organizer panel") and lost its icons, mostly on the second display. Windows painted its old-style title bar over it on activation changes (the panel's clip region turns off the themed frame); the panel now skips frame painting and redraws whenever it's shown.
 - [ ] Test on a PC with Epic and GOG games installed.
+- [ ] Your own ScreenScraper account with Test login: if it says a developer id is needed, ask for one on ScreenScraper's forum and add the repo secrets (section 3).
 
 ## 4. Phase 7: cut-over (after 1.3.1 is settled)
 
