@@ -74,6 +74,8 @@ pub(crate) struct Media {
     controller: Controller,
     focus: String,
     home_focus: Option<String>,
+    /// The entry the home hero shows.
+    hero: String,
     rects: HashMap<String, (Rect, i32)>,
     epoch: i32,
     pad_input: bool,
@@ -213,6 +215,7 @@ pub fn open(app: &Rc<App>) {
         controller,
         focus: String::new(),
         home_focus: None,
+        hero: String::new(),
         rects: HashMap::new(),
         epoch: 0,
         pad_input: false,
@@ -795,10 +798,25 @@ fn show_hero(app: &Rc<App>, id: &str) {
             });
         }
         let logo = image(app, m, &e, &["logo"], 640.0, 200.0, false);
+        // A logo still decoding: show no title yet rather than the text, then the logo.
+        let waiting = logo.is_none() && art_of(app, &e, "logo").is_some_and(|(path, v)| !m.art.failed(&path, v));
         let size = m.win.window().size().to_logical(scale(m));
         let backdrop = image(app, m, &e, &["banner"], size.width, size.height, true);
+        // The neighbours' logos too, so moving along a row shows them at once.
+        let near: Vec<Entry> = m
+            .tiles
+            .iter()
+            .find_map(|(_, ids, _)| {
+                let i = ids.iter().position(|x| x == id)?;
+                Some(ids[i.saturating_sub(2)..(i + 3).min(ids.len())].iter().filter_map(|x| m.entries.iter().find(|e| e.id() == x).cloned()).collect())
+            })
+            .unwrap_or_default();
+        for n in &near {
+            image(app, m, n, &["logo"], 640.0, 200.0, false);
+        }
+        m.hero = id.to_string();
         let s = st(m);
-        s.set_hero_name(e.name().into());
+        s.set_hero_name(if waiting { "".into() } else { e.name().into() });
         s.set_hero_info(info.join(" · ").into());
         s.set_hero_has_logo(logo.is_some());
         s.set_hero_logo(logo.unwrap_or_default());
@@ -831,9 +849,9 @@ fn art_done(app: &Rc<App>, results: Vec<(art::Key, Option<crate::win::image::Rgb
             }
         }
     });
-    let (focus, screen) = md(|m| (m.focus.clone(), m.screen)).unwrap_or_default();
-    if focus.starts_with("tile:") {
-        show_hero(app, tile_entry(&focus));
+    let (hero, screen) = md(|m| (m.hero.clone(), m.screen)).unwrap_or_default();
+    if !hero.is_empty() {
+        show_hero(app, &hero);
     }
     if screen == "customize" {
         forms::render_customize(app);

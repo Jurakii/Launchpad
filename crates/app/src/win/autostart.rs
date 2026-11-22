@@ -28,17 +28,21 @@ fn check(e: WIN32_ERROR, what: &str) -> Result<()> {
 
 /// Reads a value: None if it isn't there.
 fn get(key: &str, name: &str, flags: REG_ROUTINE_FLAGS) -> Result<Option<Vec<u8>>> {
+    get_in(HKEY_CURRENT_USER, key, name, flags)
+}
+
+fn get_in(root: HKEY, key: &str, name: &str, flags: REG_ROUTINE_FLAGS) -> Result<Option<Vec<u8>>> {
     let (key, name) = (wide(key), wide(name));
     let (k, n) = (PCWSTR(key.as_ptr()), PCWSTR(name.as_ptr()));
     let mut len = 0u32;
     // Size first, then the data; a value changing in between just fails this read.
-    let e = unsafe { RegGetValueW(HKEY_CURRENT_USER, k, n, flags, None, None, Some(&mut len)) };
+    let e = unsafe { RegGetValueW(root, k, n, flags, None, None, Some(&mut len)) };
     if e == ERROR_FILE_NOT_FOUND {
         return Ok(None);
     }
     check(e, "Reading the Run key")?;
     let mut buf = vec![0u8; len as usize];
-    check(unsafe { RegGetValueW(HKEY_CURRENT_USER, k, n, flags, None, Some(buf.as_mut_ptr().cast()), Some(&mut len)) }, "Reading the Run key")?;
+    check(unsafe { RegGetValueW(root, k, n, flags, None, Some(buf.as_mut_ptr().cast()), Some(&mut len)) }, "Reading the Run key")?;
     buf.truncate(len as usize);
     Ok(Some(buf))
 }
@@ -145,7 +149,36 @@ pub fn probe(args: &[String]) -> Result<Value> {
 
 /// A text value under HKEY_CURRENT_USER, if it's there.
 pub fn hkcu_string(key: &str, name: &str) -> Option<String> {
-    let b = get(key, name, RRF_RT_REG_SZ).ok()??;
+    reg_string(HKEY_CURRENT_USER, key, name)
+}
+
+/// A text value under HKEY_LOCAL_MACHINE, if it's there.
+pub fn hklm_string(key: &str, name: &str) -> Option<String> {
+    reg_string(HKEY_LOCAL_MACHINE, key, name)
+}
+
+/// The names of the keys directly under HKEY_LOCAL_MACHINE\`key`.
+pub fn hklm_subkeys(key: &str) -> Vec<String> {
+    let k = wide(key);
+    let mut h = HKEY::default();
+    if unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, PCWSTR(k.as_ptr()), None, KEY_READ, &mut h) } != ERROR_SUCCESS {
+        return vec![];
+    }
+    let mut out = vec![];
+    for i in 0.. {
+        let mut buf = [0u16; 256];
+        let mut len = buf.len() as u32;
+        if unsafe { RegEnumKeyExW(h, i, Some(windows::core::PWSTR(buf.as_mut_ptr())), &mut len, None, None, None, None) } != ERROR_SUCCESS {
+            break;
+        }
+        out.push(super::from_wide(&buf[..len as usize]));
+    }
+    let _ = unsafe { RegCloseKey(h) };
+    out
+}
+
+fn reg_string(root: HKEY, key: &str, name: &str) -> Option<String> {
+    let b = get_in(root, key, name, RRF_RT_REG_SZ).ok()??;
     let w: Vec<u16> = b.as_chunks::<2>().0.iter().map(|&c| u16::from_le_bytes(c)).collect();
     Some(super::from_wide(&w).trim_end_matches('\0').to_string())
 }

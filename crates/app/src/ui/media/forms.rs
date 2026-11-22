@@ -57,6 +57,8 @@ pub fn activate(app: &Rc<App>, kind: &str, rest: &str) {
         ("choice", "folder") => open_add(app),
         ("choice", "steam") => import_from(app, "steam"),
         ("choice", "quiver") => import_from(app, "quiver"),
+        ("choice", "epic") => import_from(app, "epic"),
+        ("choice", "gog") => import_from(app, "gog"),
         ("app", "browse") => browse_app(app),
         ("app", "library") => pick(app, "app:library", cycle(&["games", "videos"], md(|m| m.app_form.library).unwrap_or("games"))),
         ("app", "platform") => {
@@ -602,16 +604,19 @@ impl Online {
     /// Cover, banner and logo for a game (only the slots in `want`) as
     /// downloaded bytes with where they came from: ScreenScraper first (by
     /// the ROM file for a console game), SteamGridDB for what's still
-    /// missing. Blocking: a worker thread's.
-    fn art(&self, name: &str, rom: Option<&Path>, platform: Option<&str>, want: &[&'static str]) -> Vec<(&'static str, Vec<u8>, &'static str)> {
+    /// missing. Blocking: a worker thread's. Also why ScreenScraper refused, if it did.
+    fn art(&self, name: &str, rom: Option<&Path>, platform: Option<&str>, want: &[&'static str]) -> (Vec<(&'static str, Vec<u8>, &'static str)>, Option<&'static str>) {
         let mut http = services::Search;
         let get = |url: &str| core_art::download_image(url, &mut services::Http).ok();
         let mut out: Vec<(&'static str, Vec<u8>, &'static str)> = vec![];
+        let mut refused = None;
         if let Some(login) = &self.ss {
             let file = rom.and_then(|p| Some((p.file_name()?.to_str()?.to_string(), std::fs::metadata(p).ok()?.len())));
             let system = art_search::ss_system(platform);
-            if let Some(game) = art_search::ss_game(login, name, file.as_ref().map(|(f, n)| (f.as_str(), *n)), system, &mut http) {
-                out.extend(art_search::ss_art(&game, want).into_iter().filter_map(|(slot, url)| Some((slot, get(&url)?, "screenscraper"))));
+            match art_search::ss_game(login, name, file.as_ref().map(|(f, n)| (f.as_str(), *n)), system, &mut http) {
+                Ok(Some(game)) => out.extend(art_search::ss_art(&game, want).into_iter().filter_map(|(slot, url)| Some((slot, get(&url)?, "screenscraper")))),
+                Ok(None) => {}
+                Err(why) => refused = Some(why),
             }
         }
         let rest: Vec<&'static str> = want.iter().copied().filter(|w| !out.iter().any(|(s, ..)| s == w)).collect();
@@ -625,7 +630,7 @@ impl Online {
                 }
             }
         }
-        out
+        (out, refused)
     }
 }
 
@@ -646,10 +651,10 @@ fn find_art(app: &Rc<App>) {
     let rom = platform.as_ref().map(|_| PathBuf::from(entry.target())).filter(|p| p.is_file());
     toast("Looking online…");
     std::thread::spawn(move || {
-        let found = online.art(&name, rom.as_deref(), platform.as_deref(), &want);
+        let (found, refused) = online.art(&name, rom.as_deref(), platform.as_deref(), &want);
         post(move |app| {
             if found.is_empty() {
-                toast("Nothing found online for this game");
+                toast(refused.unwrap_or("Nothing found online for this game"));
             }
             for (slot, buf, _) in found {
                 set_art(app, slot, Some(buf));
@@ -687,16 +692,39 @@ fn quiver_data(app: &App) -> Option<PathBuf> {
     dirs.into_iter().find(|d| import::is_quiver(d))
 }
 
-/// Add → Steam / Quiver Launcher: every installed game that isn't in the
+/// Epic's install manifests folder, if Epic Games Launcher has one.
+fn epic_manifests() -> Option<PathBuf> {
+    let data = std::env::var_os("ProgramData").map_or_else(|| PathBuf::from(r"C:\ProgramData"), PathBuf::from);
+    Some(data.join(r"Epic\EpicGamesLauncher\Data\Manifests")).filter(|p| p.is_dir())
+}
+
+/// GOG's installed games (GOG Galaxy and GOG's offline installers both list
+/// them in the registry): each one's id and folder.
+fn gog_games() -> Vec<(String, PathBuf)> {
+    const KEY: &str = r"SOFTWARE\WOW6432Node\GOG.com\Games";
+    crate::win::autostart::hklm_subkeys(KEY)
+        .into_iter()
+        .filter_map(|id| {
+            let path = crate::win::autostart::hklm_string(&format!(r"{KEY}\{id}"), "path")?;
+            Some((id, PathBuf::from(path)))
+        })
+        .collect()
+}
+
+/// Add → Steam / Epic / GOG / Quiver Launcher: every installed game that isn't in the
 /// library yet, as a Games entry that runs the game's own program, with
 /// the art the launcher keeps on disk. Found and resized off the UI thread.
 fn import_from(app: &Rc<App>, which: &'static str) {
+    let gog = if which == "gog" { gog_games() } else { vec![] };
     let (label, source) = match which {
         "steam" => ("Steam", steam_root()),
+        "epic" => ("Epic", epic_manifests()),
+        "gog" => ("GOG", (!gog.is_empty()).then(PathBuf::new)),
         _ => ("Quiver Launcher", quiver_data(app)),
     };
     let Some(source) = source else {
-        toast(&format!("{label} isn't installed for this user"));
+        // GOG Galaxy can be installed with no games; its registry list is all there is to go on.
+        toast(&if which == "gog" { "No installed GOG games found".to_string() } else { format!("{label} isn't installed for this user") });
         return;
     };
     let online = Online::of(app);
@@ -706,9 +734,15 @@ fn import_from(app: &Rc<App>, which: &'static str) {
     };
     toast(&format!("Looking for {label} games…"));
     std::thread::spawn(move || {
-        let found = if which == "steam" { import::steam(&source) } else { import::quiver(&source) };
+        let found = match which {
+            "steam" => import::steam(&source),
+            "epic" => import::epic(&source),
+            "gog" => import::gog(&gog),
+            _ => import::quiver(&source),
+        };
         let now = now_ms();
         let mut wic = Wic::new().ok().map(services::Art);
+        let mut refused: Option<&'static str> = None;
         let made: Vec<(import::Found, Entry)> = found
             .into_iter()
             .filter(|f| !import::already_in(&existing, f))
@@ -720,7 +754,9 @@ fn import_from(app: &Rc<App>, which: &'static str) {
                 let mut art: Vec<(&'static str, Vec<u8>, &str)> = f.art.iter().filter_map(|(slot, file)| Some((*slot, std::fs::read(file).ok()?, which))).collect();
                 if art.is_empty() {
                     if let Some(online) = &online {
-                        art = online.art(&f.name, None, None, &["cover", "banner", "logo"]);
+                        let (found, why) = online.art(&f.name, None, None, &["cover", "banner", "logo"]);
+                        art = found;
+                        refused = refused.or(why);
                     }
                 }
                 for (slot, buf, source) in &art {
@@ -751,7 +787,8 @@ fn import_from(app: &Rc<App>, which: &'static str) {
                 Err(e) => toast(&e.to_string()),
                 Ok(0) => toast(&format!("No new {label} games to add")),
                 Ok(n) => {
-                    toast(&format!("Added {n} {label} game{}", if n == 1 { "" } else { "s" }));
+                    let art_note = refused.map(|why| format!(". Art: {why}")).unwrap_or_default();
+                    toast(&format!("Added {n} {label} game{}{art_note}", if n == 1 { "" } else { "s" }));
                     after_add(app, "games");
                 }
             }

@@ -9,6 +9,25 @@ use serde_json::Value;
 /// What the app supplies: a GET returning the body when the status is 2xx.
 pub trait SearchHttp {
     fn get_json(&mut self, url: &str, headers: &str) -> Option<Value>;
+
+    /// The same with the HTTP status (0 when there was no answer), for
+    /// services that say what went wrong only by their status.
+    fn get_json_status(&mut self, url: &str, headers: &str) -> (u16, Option<Value>) {
+        match self.get_json(url, headers) {
+            Some(v) => (200, Some(v)),
+            None => (0, None),
+        }
+    }
+}
+
+/// Why ScreenScraper answered nothing, said to the user.
+pub fn ss_failure(status: u16) -> Option<&'static str> {
+    match status {
+        401 | 403 => Some("ScreenScraper didn't accept the login: check it in Settings → Icons & privacy"),
+        429 | 430 | 431 => Some("ScreenScraper's daily limit for this login is used up: try again tomorrow"),
+        423 => Some("ScreenScraper is closed right now: try again later"),
+        _ => None,
+    }
 }
 
 /// One picture found: `url` is what's downloaded when it's picked.
@@ -144,21 +163,20 @@ pub fn ss_system(platform: Option<&str>) -> Option<u32> {
 
 /// The game's ScreenScraper record: by its ROM's file name and size when
 /// there is one (how the site identifies dumps), else by name.
-pub fn ss_game(login: &SsLogin, name: &str, rom: Option<(&str, u64)>, system: Option<u32>, http: &mut impl SearchHttp) -> Option<Value> {
+/// Err is why ScreenScraper refused (`ss_failure`); Ok(None) is no match.
+pub fn ss_game(login: &SsLogin, name: &str, rom: Option<(&str, u64)>, system: Option<u32>, http: &mut impl SearchHttp) -> Result<Option<Value>, &'static str> {
     let e = crate::favicon::encode_uri_component;
     let sys = system.map(|s| format!("&systemeid={s}")).unwrap_or_default();
-    let game = match rom {
-        Some((file, size)) => {
-            let url = format!("{SS}/jeuInfos.php?{}{sys}&romtype=rom&romnom={}&romtaille={size}", login.query(), e(file));
-            http.get_json(&url, "")?.pointer("/response/jeu")?.clone()
-        }
-        None => {
-            let url = format!("{SS}/jeuRecherche.php?{}{sys}&recherche={}", login.query(), e(name.trim()));
-            http.get_json(&url, "")?.pointer("/response/jeux/0")?.clone()
-        }
+    let (url, at) = match rom {
+        Some((file, size)) => (format!("{SS}/jeuInfos.php?{}{sys}&romtype=rom&romnom={}&romtaille={size}", login.query(), e(file)), "/response/jeu"),
+        None => (format!("{SS}/jeuRecherche.php?{}{sys}&recherche={}", login.query(), e(name.trim())), "/response/jeux/0"),
     };
+    let (status, doc) = http.get_json_status(&url, "");
+    if let Some(why) = ss_failure(status) {
+        return Err(why);
+    }
     // A search with no match answers with one empty game.
-    game.get("id").is_some().then_some(game)
+    Ok(doc.and_then(|d| d.pointer(at).cloned()).filter(|g| g.get("id").is_some()))
 }
 
 /// Picture addresses from a ScreenScraper record for the slots in `want`:
@@ -197,12 +215,21 @@ mod tests {
     struct Fake {
         replies: HashMap<String, Value>,
         asked: Vec<(String, String)>,
+        /// Answer every request with this status and no body.
+        status: Option<u16>,
     }
 
     impl SearchHttp for Fake {
         fn get_json(&mut self, url: &str, headers: &str) -> Option<Value> {
             self.asked.push((url.to_string(), headers.to_string()));
             self.replies.iter().find(|(k, _)| url.starts_with(k.as_str())).map(|(_, v)| v.clone())
+        }
+
+        fn get_json_status(&mut self, url: &str, headers: &str) -> (u16, Option<Value>) {
+            match self.status {
+                Some(s) => (s, None),
+                None => (200, self.get_json(url, headers)),
+            }
         }
     }
 
@@ -235,7 +262,7 @@ mod tests {
                 { "type": "wheel-hd", "region": "eu", "url": "https://s/wheelhd.png" },
             ]}}}),
         );
-        let game = ss_game(&login, "Sonic", Some(("Sonic 2 (World).zip", 749652)), ss_system(Some("genesis")), &mut http).unwrap();
+        let game = ss_game(&login, "Sonic", Some(("Sonic 2 (World).zip", 749652)), ss_system(Some("genesis")), &mut http).unwrap().unwrap();
         let url = &http.asked[0].0;
         assert!(url.contains("devpassword=p%20w") && url.contains("ssid=u") && url.contains("systemeid=1"), "{url}");
         assert!(url.contains("romnom=Sonic%202%20(World).zip&romtaille=749652"), "{url}");
@@ -243,8 +270,12 @@ mod tests {
         // A name search with no match: nothing.
         let mut http = Fake::default();
         http.replies.insert(format!("{SS}/jeuRecherche.php"), json!({ "response": { "jeux": [{}] } }));
-        assert!(ss_game(&SsLogin::default(), "Nope", None, ss_system(None), &mut http).is_none());
+        assert_eq!(ss_game(&SsLogin::default(), "Nope", None, ss_system(None), &mut http), Ok(None));
         assert!(http.asked[0].0.contains("systemeid=138&recherche=Nope") && !http.asked[0].0.contains("ssid"));
+        // A refused login or a used-up quota says which.
+        let mut http = Fake { status: Some(430), ..Fake::default() };
+        assert_eq!(ss_game(&login, "Sonic", None, None, &mut http), Err(ss_failure(430).unwrap()));
+        assert!(ss_failure(403).unwrap().contains("login") && ss_failure(404).is_none());
     }
 
     #[test]

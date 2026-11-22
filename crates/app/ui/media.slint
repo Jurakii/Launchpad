@@ -726,6 +726,20 @@ component AddChoice inherits Page {
                 text: "Every installed Steam game, with its art. Each one starts its own program, not Steam.";
             }
             Choice {
+                nav-id: "choice:epic";
+                title: "Epic Games";
+                text: "Every installed Epic game. Each one starts through Epic, which signs it in.";
+            }
+        }
+        HorizontalLayout {
+            spacing: 24px;
+            alignment: start;
+            Choice {
+                nav-id: "choice:gog";
+                title: "GOG";
+                text: "Every game installed with GOG Galaxy or a GOG installer, started directly.";
+            }
+            Choice {
                 nav-id: "choice:quiver";
                 title: "Quiver Launcher";
                 text: "Every app installed through Quiver Launcher, started directly.";

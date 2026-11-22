@@ -97,8 +97,12 @@ pub struct Search;
 
 impl launchpad_core::art_search::SearchHttp for Search {
     fn get_json(&mut self, url: &str, headers: &str) -> Option<Value> {
-        let r = http::get_with(url, headers, 4 << 20, 15_000).ok()?;
-        (200..300).contains(&r.status).then(|| serde_json::from_slice(&r.body).ok()).flatten()
+        self.get_json_status(url, headers).1
+    }
+
+    fn get_json_status(&mut self, url: &str, headers: &str) -> (u16, Option<Value>) {
+        let Ok(r) = http::get_with(url, headers, 4 << 20, 15_000) else { return (0, None) };
+        (r.status, (200..300).contains(&r.status).then(|| serde_json::from_slice(&r.body).ok()).flatten())
     }
 }
 

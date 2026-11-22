@@ -10,6 +10,8 @@ use std::path::PathBuf;
 
 /// Above this the cache starts over (tiles are ~100 KB each).
 const CAP_BYTES: usize = 96 << 20;
+/// Images this big (bytes) are dropped first when the cache is full.
+const BIG: u64 = 2 << 20;
 
 /// A file at one size: `cover` fills the box (cropped), otherwise it fits inside.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -44,6 +46,11 @@ impl Cache {
         None
     }
 
+    /// Whether this file (at any size) couldn't be decoded.
+    pub fn failed(&self, path: &std::path::Path, version: i64) -> bool {
+        self.failed.iter().any(|k| k.path == path && k.version == version)
+    }
+
     /// What to decode next, if nothing is being decoded.
     pub fn take_jobs(&mut self) -> Option<Vec<Key>> {
         if self.busy || self.wanted.is_empty() {
@@ -60,8 +67,13 @@ impl Cache {
                 Some(rgba) => {
                     let n = rgba.rgba.len();
                     if self.bytes + n > CAP_BYTES {
-                        self.images.clear();
-                        self.bytes = 0;
+                        // Full-screen backdrops (~8 MB each) go first, so tiles and logos stay.
+                        self.images.retain(|k, _| (k.w as u64) * (k.h as u64) * 4 < BIG);
+                        self.bytes = self.images.keys().map(|k| (k.w * k.h * 4) as usize).sum();
+                        if self.bytes + n > CAP_BYTES {
+                            self.images.clear();
+                            self.bytes = 0;
+                        }
                     }
                     self.bytes += n;
                     self.images.insert(key, to_image(rgba));

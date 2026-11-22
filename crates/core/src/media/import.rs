@@ -1,7 +1,8 @@
-//! Importing games from other launchers into Media: Steam's installed games
-//! and Quiver Launcher's installed apps. Each becomes a `path` entry that
-//! runs the game's own program (in its folder), not the launcher, with the
-//! launcher's art where it keeps some on disk.
+//! Importing games from other launchers into Media: Steam's, Epic's and
+//! GOG's installed games and Quiver Launcher's installed apps. Each becomes
+//! a `path` entry that runs the game's own program (in its folder), not the
+//! launcher, with the launcher's art where it keeps some on disk. Epic's are
+//! the exception: they start through the launcher, which signs them in.
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -13,11 +14,11 @@ use super::win_path;
 /// A game found in another launcher.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Found {
-    /// "steam:<appid>" or "quiver:<id>": an entry made from it keeps this as
+    /// "steam:<appid>", "epic:<AppName>", "gog:<id>" or "quiver:<id>": an entry made from it keeps this as
     /// `importedFrom`, so importing again skips it.
     pub key: String,
     pub name: String,
-    /// The program, or a steam:// address when no program was found.
+    /// The program, or a launcher address (steam://, com.epicgames.launcher://).
     pub target: String,
     /// Art files on disk, by Media slot.
     pub art: Vec<(&'static str, PathBuf)>,
@@ -245,6 +246,67 @@ pub fn main_exe(folder: &Path, names: &[&str]) -> Option<PathBuf> {
     best.map(|(_, p)| p)
 }
 
+// ---------- Epic Games ----------
+
+/// The installed games in Epic's manifest folder
+/// (%ProgramData%\Epic\EpicGamesLauncher\Data\Manifests, one .item JSON per
+/// install). Each starts through the launcher: most need its sign-in.
+pub fn epic(manifests: &Path) -> Vec<Found> {
+    let Ok(dir) = fs::read_dir(manifests) else { return vec![] };
+    let mut found = Vec::new();
+    for e in dir.flatten() {
+        let p = e.path();
+        if !p.extension().is_some_and(|x| x.eq_ignore_ascii_case("item")) {
+            continue;
+        }
+        let Some(m) = read_json(&p) else { continue };
+        let (Some(name), Some(app), Some(ns), Some(item)) = (text(&m, "DisplayName"), text(&m, "AppName"), text(&m, "CatalogNamespace"), text(&m, "CatalogItemId")) else {
+            continue;
+        };
+        let flag = |k: &str| m.get(k).and_then(Value::as_bool).unwrap_or(false);
+        // DLC (a different main game) and non-games (Unreal Engine) aren't games to add.
+        let dlc = text(&m, "MainGameAppName").is_some_and(|g| g != app);
+        let game = m.get("AppCategories").and_then(Value::as_array).is_none_or(|c| c.iter().any(|c| c.as_str() == Some("games")));
+        if flag("bIsIncompleteInstall") || dlc || !game || found.iter().any(|f: &Found| f.key == format!("epic:{app}")) {
+            continue;
+        }
+        let target = format!("com.epicgames.launcher://apps/{ns}%3A{item}%3A{app}?action=launch&silent=true");
+        found.push(Found { key: format!("epic:{app}"), name: name.to_string(), target, art: vec![] });
+    }
+    found.sort_by_key(|f| f.name.to_lowercase());
+    found
+}
+
+// ---------- GOG ----------
+
+/// GOG games, from their install folders (`games` is each game's id and
+/// folder, as GOG's registry lists them). A folder's goggame-<id>.info names
+/// the game and its main program (the primary play task); without one the
+/// game isn't installed there any more.
+pub fn gog(games: &[(String, PathBuf)]) -> Vec<Found> {
+    let mut found = Vec::new();
+    for (id, dir) in games {
+        let Some(info) = read_json(&dir.join(format!("goggame-{id}.info"))) else { continue };
+        // DLC has its own .info naming the game it belongs to.
+        if text(&info, "rootGameId").is_some_and(|r| r != id) || found.iter().any(|f: &Found| f.key == format!("gog:{id}")) {
+            continue;
+        }
+        let name = text(&info, "name").unwrap_or(id);
+        let tasks = info.get("playTasks").and_then(Value::as_array).cloned().unwrap_or_default();
+        let task = tasks.iter().find(|t| t.get("isPrimary") == Some(&Value::Bool(true))).or(tasks.first());
+        let exe = task
+            .filter(|t| text(t, "type").is_none_or(|k| k == "FileTask"))
+            .and_then(|t| text(t, "path"))
+            .map(|p| dir.join(p))
+            .filter(|p| p.is_file())
+            .or_else(|| main_exe(dir, &[name]));
+        let Some(exe) = exe else { continue };
+        found.push(Found { key: format!("gog:{id}"), name: name.to_string(), target: exe.to_string_lossy().into_owned(), art: vec![] });
+    }
+    found.sort_by_key(|f| f.name.to_lowercase());
+    found
+}
+
 // ---------- Quiver Launcher ----------
 
 fn read_json(path: &Path) -> Option<Value> {
@@ -460,5 +522,39 @@ mod tests {
         assert_eq!(found.iter().map(|f| (f.key.as_str(), f.name.as_str())).collect::<Vec<_>>(), [("quiver:github:a/sm64", "Mario 64"), ("quiver:github:b/zelda", "Zelda Port")]);
         assert_eq!(found[0].target, app.join("sm64.exe").to_string_lossy());
         assert_eq!(found[1].target, chosen.to_string_lossy());
+    }
+
+    #[test]
+    fn epic_reads_manifests_and_skips_dlc_engines_and_partial_installs() {
+        let dir = temp_dir();
+        let m = dir.path();
+        let item = |file: &str, v: Value| fs::write(m.join(file), v.to_string()).unwrap();
+        item("a.item", json!({ "DisplayName": "Fall Game", "AppName": "Fall", "CatalogNamespace": "ns", "CatalogItemId": "id1", "AppCategories": ["public", "games"], "MainGameAppName": "Fall" }));
+        item("b.item", json!({ "DisplayName": "Fall DLC", "AppName": "FallDlc", "CatalogNamespace": "ns", "CatalogItemId": "id2", "MainGameAppName": "Fall" }));
+        item("c.item", json!({ "DisplayName": "Unreal Engine", "AppName": "UE_5", "CatalogNamespace": "ue", "CatalogItemId": "id3", "AppCategories": ["engines"] }));
+        item("d.item", json!({ "DisplayName": "Half", "AppName": "Half", "CatalogNamespace": "ns", "CatalogItemId": "id4", "bIsIncompleteInstall": true }));
+        fs::write(m.join("notes.txt"), "x").unwrap();
+        let found = epic(m);
+        assert_eq!(found.len(), 1);
+        assert_eq!((found[0].key.as_str(), found[0].name.as_str()), ("epic:Fall", "Fall Game"));
+        assert_eq!(found[0].target, "com.epicgames.launcher://apps/ns%3Aid1%3AFall?action=launch&silent=true");
+        assert_eq!(found[0].entry(1).launch_type(), "url");
+    }
+
+    #[test]
+    fn gog_uses_the_primary_play_task_and_skips_dlc_and_removed_games() {
+        let dir = temp_dir();
+        let game = dir.path().join("Witcher");
+        fs::create_dir_all(game.join("bin")).unwrap();
+        fs::write(game.join("bin").join("witcher.exe"), b"x").unwrap();
+        fs::write(game.join("goggame-1.info"), json!({ "gameId": "1", "rootGameId": "1", "name": "The Witcher", "playTasks": [
+            { "type": "URLTask", "link": "https://example.com" },
+            { "type": "FileTask", "isPrimary": true, "path": "bin/witcher.exe" },
+        ]}).to_string()).unwrap();
+        fs::write(game.join("goggame-2.info"), json!({ "gameId": "2", "rootGameId": "1", "name": "Witcher DLC" }).to_string()).unwrap();
+        let found = gog(&[("1".into(), game.clone()), ("2".into(), game.clone()), ("3".into(), dir.path().join("Gone"))]);
+        assert_eq!(found.len(), 1);
+        assert_eq!((found[0].key.as_str(), found[0].name.as_str()), ("gog:1", "The Witcher"));
+        assert_eq!(found[0].target, game.join("bin/witcher.exe").to_string_lossy());
     }
 }

@@ -43,7 +43,7 @@ Back up `%APPDATA%\launchpad` first (copy the folder somewhere). Each item is a 
 - [x] Overall font is kind of small: Settings → Appearance → Interface size (100–175%). Media also scales with the screen's height.
 - [x] **ScreenScraper support for Media (1.3.2):** Customize art → Find Art Online and the Steam/Quiver imports ask ScreenScraper first (console games by their ROM file, PC games by name), then SteamGridDB. Settings → Icons & privacy has the user's account and a developer login.
   - [ ] **Needs a developer id to work:** ask for one on ScreenScraper's forum, then either add repo secrets `SCREENSCRAPER_DEVID` and `SCREENSCRAPER_DEVPASSWORD` (the release build bakes them in) or type it into Settings.
-  - [ ] A wrong login or a used-up daily quota shows as "Nothing found online"; say which it was.
+  - [x] A wrong login or a used-up daily quota shows as "Nothing found online"; say which it was. (1.3.3)
   - [ ] Finding art for a whole library at once (now one game at a time).
 - [x] Other database support: SteamGridDB (covers, banners, logos, icons; free key). Customize art → Find Art Online, and imports use it for games without art.
 - [x] Media mode looks better: a bigger home hero (logo or large title over the art with fades), a 2×2 Add menu.
@@ -53,6 +53,13 @@ Back up `%APPDATA%\launchpad` first (copy the folder somewhere). Each item is a 
 
 - [x] Auto-detect icon: an exe with only small icons (PokeMMO) came back as a small picture in a big empty square; it's cut out and scaled up now.
 - [x] Media: the title area has a fixed height, so moving between games (logo, text title or a logo still loading) no longer moves the rows below.
+
+## 3c. In 1.3.3
+
+- [x] Media: the hero shows no title while a game's logo is still loading (instead of the text, then the logo); the logos of the games either side are decoded ahead; full-screen backdrops leave the art cache first, so logos and tiles stay.
+- [x] Media: Add → Epic Games (starts through Epic, which signs games in) and Add → GOG (GOG Galaxy and GOG installers, from the registry and each game's goggame-<id>.info).
+- [x] Grid: the hover edit button (top-right circle) works: it stayed blank (the ✎ glyph isn't in the UI font) and vanished as the pointer reached it. Now a drawn pencil that opens Edit.
+- [ ] Test on a PC with Epic and GOG games installed.
 
 ## 4. Phase 7: cut-over (after 1.3.1 is settled)
 
